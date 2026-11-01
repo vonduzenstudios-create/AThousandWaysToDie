@@ -5,8 +5,11 @@ import type { PersonFile } from '../../deaths';
 import type { Character } from '../../character';
 import { canvasTexture, mulberry32, pick, type Rng } from '../../util';
 import { Actor } from '../actor';
+import { StreetKit } from '../../kit';
+import { PYLON, SHELF_OUT, addGroceryDetail } from './detail';
+import { DV } from '../../kit';
 import { inRect, type DeathStyle, type Frame, type PlaceContext, type PlaceRuntime } from '../types';
-import { BACK_WALL_Z, CEIL, F, LOT_TOP, SAUCES, SPOT, lotY } from './layout';
+import { BACK_WALL_Z, CEIL, F, LOT_TOP, SAUCES, SHELF_H, SHELF_X, SHELF_Z0, SHELF_Z1, SPOT, lotY } from './layout';
 import {
   DISGUISES,
   at,
@@ -157,9 +160,26 @@ export function setupGrocery(ctx: PlaceContext, f: Frame): PlaceRuntime {
   root.add(stockShelves());
   root.add(freezerDoors());
   root.add(lights());
-  const facade = sign(['SMALLVILLE GROCERY', 'Fresh since 1962 · Open 7 to 10'], 28, 3.2, '#c8201a', '#fff4d0');
-  at(facade, 40, F + 9.3, 45.85, Math.PI);
-  root.add(facade);
+  // High-detail shell, shelves, freezers and checkouts (meshed in workers, pops in a moment later).
+  const detail = addGroceryDetail(root);
+  const kit = new StreetKit({ parent: scene, physics });
+  lotProps(kit, f);
+  {
+    // The pylon sign's pole.
+    const pw = f.toWorld(PYLON.x, 3.5, PYLON.z);
+    const pb = physics.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(pw.x, pw.y, pw.z));
+    physics.createCollider(RAPIER.ColliderDesc.cuboid(0.4, 3.5, 0.4).setCollisionGroups(groups(G_WORLD, 0xffff)), pb);
+    bodies.push(pb);
+  }
+  // The shelf detail sticks out past the coarse shelf blocks; block that band too.
+  for (const sxl of SHELF_X) {
+    const out = SHELF_OUT * DV;
+    const c = f.toWorld(sxl + 1, F + SHELF_H / 2, (SHELF_Z0 + SHELF_Z1 + 1) / 2);
+    const he = f.dir(1 + out, SHELF_H / 2, (SHELF_Z1 + 1 - SHELF_Z0) / 2);
+    const sb = physics.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(c.x, c.y, c.z));
+    physics.createCollider(RAPIER.ColliderDesc.cuboid(Math.abs(he.x), Math.abs(he.y), Math.abs(he.z)).setCollisionGroups(groups(G_WORLD, 0xffff)), sb);
+    bodies.push(sb);
+  }
   const deptSign = (text: string, x: number, z: number, ry: number, bg = '#1f6b3a', w = 6) => {
     const s = sign([text], w, 1.1, bg, '#ffffff');
     at(s, x, CEIL - 1.8, z, ry);
@@ -186,23 +206,11 @@ export function setupGrocery(ctx: PlaceContext, f: Frame): PlaceRuntime {
       root.add(half);
     }
   }
-  // Checkout lane details: belts, registers, candy racks, lane lights.
+  // Checkout lane numbers (the counters are detail pieces).
   for (const [i, x] of [12, 18, 24, 30].entries()) {
-    const belt = box(1.05, 0.06, 4, 0x1a1a1a, false);
-    at(belt, x + 0.5, F + 1.03, 53.5);
-    root.add(belt);
-    const reg = box(0.6, 0.5, 0.5, 0x2a2a2e);
-    at(reg, x + 1.5, F + 1.3, 50.6);
-    root.add(reg);
-    const lane = sign([`${i + 1}`], 0.7, 0.7, '#ffffff', '#2a4a8a');
-    at(lane, x + 1.5, F + 3.2, 50.6, Math.PI);
+    const lane = sign([`${i + 1}`], 0.6, 0.6, '#ffffff', '#2a4a8a');
+    at(lane, x + 1.75, F + 3.1, 50.2, Math.PI);
     root.add(lane);
-    const pole = box(0.08, 1.6, 0.08, 0x888888, false);
-    at(pole, x + 1.5, F + 2.2, 50.6);
-    root.add(pole);
-    const candy = box(0.4, 1.2, 1.6, 0xe0302a);
-    at(candy, x - 0.3, F + 0.6, 49);
-    root.add(candy);
   }
   // Self-checkout kiosks.
   for (const s of SPOT.selfCheckout) {
@@ -884,7 +892,7 @@ export function setupGrocery(ctx: PlaceContext, f: Frame): PlaceRuntime {
   const updateSlices = (dt: number) => {
     for (const s of slices) {
       s.t += dt;
-      const floorY = f.oy + F + 0.02;
+      const floorY = f.oy + F + 0.05;
       if (s.m.position.y > floorY) {
         s.v.y = Math.max(s.v.y - 6 * dt, -1.2); // flutter down slowly
         s.m.position.addScaledVector(s.v, dt);
@@ -911,11 +919,11 @@ export function setupGrocery(ctx: PlaceContext, f: Frame): PlaceRuntime {
   let signKickT = 0;
   const puddle = new THREE.Mesh(new THREE.CircleGeometry(1.6, 16), new THREE.MeshLambertMaterial({ color: 0x6ab0e0, transparent: true, opacity: 0.55 }));
   puddle.rotation.x = -Math.PI / 2;
-  at(puddle, SPOT.puddle.x, F + 0.02, SPOT.puddle.z);
+  at(puddle, SPOT.puddle.x, F + 0.05, SPOT.puddle.z);
   puddle.rotation.x = -Math.PI / 2;
   root.add(puddle);
   const cord = box(SPOT.puddle.x - 3, 0.06, 0.06, 0xf08a20, false);
-  at(cord, (3 + SPOT.puddle.x) / 2, F + 0.04, SPOT.puddle.z);
+  at(cord, (3 + SPOT.puddle.x) / 2, F + 0.07, SPOT.puddle.z);
   root.add(cord);
   const wetSign = new THREE.Group();
   {
@@ -1073,7 +1081,7 @@ export function setupGrocery(ctx: PlaceContext, f: Frame): PlaceRuntime {
   let picklesDown = 0;
   const picklePuddle = new THREE.Mesh(new THREE.CircleGeometry(1, 12), new THREE.MeshLambertMaterial({ color: 0x9ac040, transparent: true, opacity: 0.7 }));
   picklePuddle.rotation.x = -Math.PI / 2;
-  at(picklePuddle, SPOT.pickles.x + 1.4, F + 0.03, SPOT.pickles.z);
+  at(picklePuddle, SPOT.pickles.x + 1.4, F + 0.06, SPOT.pickles.z);
   picklePuddle.rotation.x = -Math.PI / 2;
   picklePuddle.visible = false;
   root.add(picklePuddle);
@@ -1596,10 +1604,43 @@ export function setupGrocery(ctx: PlaceContext, f: Frame): PlaceRuntime {
       for (const b of bodies) physics.removeRigidBody(b);
       for (const s of slices) s.m.removeFromParent();
       for (const e of extras) e.removeFromParent();
+      kit.group.removeFromParent();
       root.removeFromParent();
     },
   };
   // For the dev page and headless tests.
-  Object.assign(runtime, { debug: { actors, emt, freezerCheckIn: () => checkT, cartKid } });
+  Object.assign(runtime, { debug: { actors, emt, freezerCheckIn: () => checkT, cartKid, detail } });
   return runtime;
+}
+
+/** Parking-lot and storefront street furniture from the shared kit (instanced, with colliders). */
+function lotProps(kit: StreetKit, f: Frame) {
+  const put = (kind: Parameters<StreetKit['prop']>[0], x: number, z: number, rot = 0, y?: number) => {
+    const w = f.toWorld(x, y ?? Math.floor(lotY(z + 0.5)), z);
+    kit.prop(kind, w.x, w.y, w.z, rot + f.yaw);
+  };
+  // Lamps down both edges of the lot and along the storefront.
+  for (let z = 6; z < LOT_TOP - 2; z += 12) {
+    put('lamp', 3, z);
+    put('lamp', 76.5, z);
+  }
+  for (const x of [8, 26, 54, 72]) put('lamp', x, 44.6, 0, F);
+  // Bollards protecting the storefront glass, leaving the doors and the cart path clear.
+  for (let x = 4; x < 76; x += 3) {
+    if (x > SPOT.doorX0 - 3 && x < SPOT.doorX1 + 4) continue;
+    if (Math.abs(x - SPOT.payphone.x) < 2) continue;
+    put('bollard', x, 44.4, 0, F);
+  }
+  // Planters and bins either side of the doors.
+  put('planter', SPOT.doorX0 - 2.5, 44.8, 0, F);
+  put('planter', SPOT.doorX1 + 3.5, 44.8, 0, F);
+  put('bin', SPOT.doorX0 - 4.5, 44.9, 0, F);
+  put('newsStand', SPOT.doorX1 + 6, 45, Math.PI, F);
+  put('bench', 16, 45, Math.PI, F);
+  put('bench', 62, 45, Math.PI, F);
+  put('flowerPot', 21, 45.3, 0, F);
+  put('flowerPot', 58, 45.3, 0, F);
+  put('signPost', 74, 2, 0);
+  put('hydrant', 34, 1.2, 0);
+  kit.finish();
 }
