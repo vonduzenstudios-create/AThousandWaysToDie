@@ -32,7 +32,7 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 | Punch | F | X |
 | Dive | G | RT |
 | Skills | 1–5 (or click the bar) | D-pad up/down to pick, right to use |
-| Interact / possess | E | Y |
+| Interact / possess / talk to townsfolk | E | Y |
 | Scream for help | T | LB |
 | Pee | Q | RB |
 | Death ledger | Tab | Back |
@@ -49,6 +49,7 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 - Medium falls break your legs: crawl, or scream for help (T / LB) and a passerby calls 911.
 - Everyone carries a wallet (cash plus a bank card with a PIN and balance). Rifle your own wallet with skill 1, or withdraw from the card at the downtown ATMs.
 - A 1–5 skill bar: slot 1 is the wallet, and slots 2–5 unlock from the body's job, physical health, mental health and afterlife (Tase Self, Laughing Gas, Adrenaline, Morbid Curiosity, Pray, Hellfire Fart and more).
+- Living townsfolk: everyone has a home, a job and a daily routine on an in-game clock. They walk to work, order at the diner, sleep at night, chat and gossip about deaths, gawk at accidents, and you can talk to them (E). Family and friends recognize the body you are wearing.
 - Fist fights: F punches, punched people fight back (cops nearby join in), and the HUD health bar decides how long you last.
 - Anime-style story cutscenes drawn in code: the opening (Gary's turkey-fryer death, the DENIED stamp, and Death's "Fine. You do it then!"), plus a scene from Death on his day off each time 25 deaths in an area opens the next route (bus to downtown, the harbor boats, the airport). Click, Space, E or A advances; Esc or Start twice skips. Add `?cutscene=opening` (or `smallville:25`, `city:25`, `city:50`) to the URL to replay one.
 - Ragdoll physics, insurance claim cards with payouts, a 1,000-slot death ledger saved in the browser.
@@ -66,6 +67,7 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/town.ts`, `src/voxel.ts`: town generator, voxel mesher with ambient occlusion
 - `src/props.ts`: train, hay bale, signs, hazards
 - `src/npc.ts`, `src/deaths.ts`: townspeople, their files, the death list and save data
+- `src/life/`: NPC life: daily schedules, shops, chatting, gossip, talking to townsfolk (see `docs/npc-life.md`)
 - `src/skills.ts`: skill definitions and the per-body skill bar
 - `src/economy.ts`: ATMs and card withdrawals
 - `src/combat.ts`: punching, angry NPCs, player health

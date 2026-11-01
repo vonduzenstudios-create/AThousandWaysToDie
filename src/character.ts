@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { buildVoxelBody, type VoxelBody } from './chars/build';
+import { specFromFile } from './chars/spec';
+import type { Expression } from './chars/spec';
 import { canvasTexture, hexToCss, noiseTexture, pick, randRange, shadeHex, type Rng } from './util';
 
 export type PartName = 'head' | 'torso' | 'armL' | 'armR' | 'legL' | 'legR';
@@ -124,8 +127,39 @@ export class Character {
   private punchT = 0;
   private punchLeft = false;
   tintColor = new THREE.Color(1, 1, 1);
+  /** Hip height: the spinner pivots here for flips and dives. */
+  readonly hip: number = 0.9;
+  /** Uniform scale of root at rest (pancake/cube deaths scale relative to it). */
+  readonly baseScale: number = 1;
+  /** The detailed voxel model from src/chars, when built from a person's file. */
+  readonly voxel: VoxelBody | null = null;
 
-  constructor(readonly app: Appearance) {
+  /** Build a person whose look matches their scythe-vision file (job, age, health). */
+  static fromFile(file: { job: string; age: number; physical?: string; mental?: string; name?: string }, seed?: number) {
+    const vb = buildVoxelBody(specFromFile(file, seed));
+    return new Character(null, vb);
+  }
+
+  readonly app: Appearance;
+
+  constructor(app: Appearance | null, vb?: VoxelBody) {
+    if (vb) {
+      // Stand-in appearance so older code that reads app.height (head position etc.) still works.
+      this.app = { ...randomAppearance(Math.random), height: vb.headTop / 1.96 };
+      this.voxel = vb;
+      this.parts = vb.parts as Record<PartName, Part>;
+      this.mats.push(vb.material);
+      this.body.add(vb.body);
+      this.hip = vb.headTop * 0.46;
+      this.body.position.y = -this.hip;
+      this.spinner.position.y = this.hip;
+      this.spinner.add(this.body);
+      this.root.add(this.spinner);
+      return;
+    }
+    app ??= randomAppearance(Math.random);
+    this.app = app;
+    this.baseScale = app.height;
     const noise = noiseTexture();
     const mat = (c: number) => {
       const m = new THREE.MeshLambertMaterial({ color: c, map: noise });
@@ -212,6 +246,11 @@ export class Character {
     this.root.scale.setScalar(app.height);
   }
 
+  /** Change the face (only on the detailed models). */
+  setExpression(e: Expression) {
+    this.voxel?.setExpression(e);
+  }
+
   /** Bounce the character with squash and stretch (positive = squash). */
   kick(amount: number) {
     this.squashVel += amount * 20;
@@ -245,6 +284,7 @@ export class Character {
 
     let legL = 0, legR = 0, armL = 0, armR = 0, armSpread = 0;
     let pitch = 0, roll = 0, spinnerY = 0.9, crouch = 1;
+    const hipK = this.hip / 0.9;
 
     if (s.grounded && (st === 'ground' || st === 'locked')) {
       legL = swing;
@@ -331,7 +371,7 @@ export class Character {
 
     if (this.spin !== 0) this.spinner.rotation.x = this.spin;
     else this.spinner.rotation.x += (pitch - this.spinner.rotation.x) * k;
-    this.spinner.position.y += (spinnerY - this.spinner.position.y) * k;
+    this.spinner.position.y += (spinnerY * hipK - this.spinner.position.y) * k;
 
     // Squash spring.
     this.squashVel += (-this.squash * 220 - this.squashVel * 14) * dt;
@@ -341,6 +381,10 @@ export class Character {
   }
 
   dispose() {
+    if (this.voxel) {
+      this.voxel.dispose();
+      return;
+    }
     this.root.traverse((o) => {
       if (o instanceof THREE.Mesh) o.geometry.dispose();
     });
