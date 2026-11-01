@@ -259,7 +259,6 @@ async function boot() {
     const h = 1 / 60;
     let steps = 0;
     while (acc >= h && steps < 5) {
-      rt.step?.(h);
       if (mode === 'play' && character)
         player.update(h, {
           moveX: input.moveX,
@@ -273,6 +272,8 @@ async function boot() {
           sprint: input.sprint,
           faceYaw: input.rmb ? cam.forwardFacing : null,
         });
+      // Same order as src/places/types.ts documents: after the player moves, before physics.
+      rt.step?.(h);
       physics.step();
       if (mode === 'play') {
         rt.checkHazards?.(h);

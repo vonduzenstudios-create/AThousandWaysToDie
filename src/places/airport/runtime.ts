@@ -312,8 +312,9 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
     { x: s404.x, y: 0, z: s404.z, speed: 0.1, hold: 40, tag: 'boarding' },
     { x: 30, y: 0, z: s404.z, speed: 3, reverse: true, tag: 'pushback' },
     { x: 30, y: 0, z: RUNWAY.cz, speed: 8, tag: 'taxi' },
-    { x: 60, y: 0, z: RUNWAY.cz, speed: 4, hold: 7, tag: 'taxi' },
-    { x: 220, y: 0, z: RUNWAY.cz, speed: 4, speedEnd: 46, tag: 'roll' },
+    // Holds east of the runway 0 numbers so its blast doesn't cover Flight 22's touchdown spot.
+    { x: 110, y: 0, z: RUNWAY.cz, speed: 6, hold: 7, tag: 'taxi' },
+    { x: 240, y: 0, z: RUNWAY.cz, speed: 4, speedEnd: 46, tag: 'roll' },
     { x: 320, y: 32, z: RUNWAY.cz, speed: 46, tag: 'climb' },
     { x: 560, y: 80, z: RUNWAY.cz + 40, speed: 50, tag: 'climb' },
   ];
@@ -694,8 +695,13 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
       }
       if (carry && !deathLock) {
         const w = f.dir(carry.x, 0, carry.z).multiplyScalar(h);
-        const t = game.player.body.translation();
-        game.player.body.setTranslation({ x: t.x + w.x, y: t.y, z: t.z + w.z }, true);
+        // Shift both the current pose and the pending kinematic target, so the carry works
+        // whether the loop calls step() before or after player.update().
+        const body = game.player.body;
+        const t = body.translation();
+        const nt = body.nextTranslation();
+        body.setTranslation({ x: t.x + w.x, y: t.y, z: t.z + w.z }, true);
+        body.setNextKinematicTranslation({ x: nt.x + w.x, y: nt.y, z: nt.z + w.z });
       }
     }
     if (freefall && game.player.vel.y < (freefall.bear ? -20 : -30)) game.player.vel.y = freefall.bear ? -20 : -30;
@@ -884,7 +890,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
 
     // Jet blast behind Flight 404 (spooling at the threshold or rolling slowly).
     for (const pl of [f404]) {
-      const spool = pl.tag === 'taxi' && pl.speed < 0.6 && Math.abs(pl.pos.z - RUNWAY.cz) < 1 && pl.pos.x > 55;
+      const spool = pl.tag === 'taxi' && pl.speed < 0.6 && Math.abs(pl.pos.z - RUNWAY.cz) < 1 && pl.pos.x > 105;
       const roll = pl.tag === 'roll' && pl.speed < 30;
       if (!spool && !roll) continue;
       const l = pl.local(d);

@@ -52,5 +52,5 @@ In-flight deaths (exit door, airline food, lavatory, turbulence, wheel well) bel
 
 ## Notes for the game loop
 
-- Moving belts carry the player in `step()` by nudging the player's body. Call the map's `step()` before `player.update()` in the fixed step, otherwise the nudge is overwritten.
+- Moving belts carry the player in `step()` by nudging the player's kinematic body (current pose and pending target), so it works whether `step()` runs before or after `player.update()`.
 - `onLand` handles the jet bridge and skydive landings, so call it before the default fall-damage logic and skip that logic when it returns true.
