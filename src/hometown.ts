@@ -8,6 +8,8 @@ import type { Player } from './player';
 import type { Interactable } from './props';
 import { G, inBox, type TownInfo } from './town';
 import { B } from './voxel';
+import { bull as bullModel, mule as muleModel, goose as gooseModel } from './animals/farm';
+import { walkCycle, type Rig } from './animals/rig';
 
 /**
  * Smallville's extra deaths: everything in the expanded town beyond the original 13.
@@ -104,46 +106,8 @@ function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0
   return m;
 }
 
-function bullMesh() {
-  const g = new THREE.Group();
-  g.add(box(2.6, 1.4, 1.3, 0x3a2418, 0, 1.3, 0));
-  g.add(box(0.9, 0.9, 0.9, 0x3a2418, 1.6, 1.6, 0));
-  g.add(box(0.5, 0.4, 0.7, 0xc89a80, 2.1, 1.4, 0));
-  g.add(box(0.15, 0.15, 1.6, 0xf2eee0, 1.6, 2.1, 0));
-  for (const [x, z] of [[-1, -0.45], [-1, 0.45], [0.9, -0.45], [0.9, 0.45]]) g.add(box(0.35, 0.9, 0.35, 0x2a1810, x, 0.45, z));
-  return g;
-}
-
-function muleMesh() {
-  const g = new THREE.Group();
-  g.add(box(2.2, 1.1, 1, 0x8a7060, 0, 1.4, 0));
-  g.add(box(0.7, 1.2, 0.6, 0x8a7060, 1.2, 2.1, 0));
-  g.add(box(0.8, 0.5, 0.5, 0x6a5040, 1.6, 2.5, 0));
-  g.add(box(0.15, 0.6, 0.15, 0x6a5040, 1.3, 3.0, -0.15));
-  g.add(box(0.15, 0.6, 0.15, 0x6a5040, 1.3, 3.0, 0.15));
-  const legs = new THREE.Group();
-  for (const [x, z] of [[-0.8, -0.3], [-0.8, 0.3], [0.8, -0.3], [0.8, 0.3]]) legs.add(box(0.25, 0.9, 0.25, 0x5a4030, x, 0.45, z));
-  g.add(legs);
-  const hind = new THREE.Group();
-  hind.name = 'hind';
-  hind.position.set(-0.8, 0.9, 0);
-  g.add(hind);
-  return g;
-}
-
-function gooseMesh() {
-  const g = new THREE.Group();
-  g.add(box(0.7, 0.45, 0.4, 0xf4f2ea, 0, 0.45, 0));
-  g.add(box(0.15, 0.55, 0.15, 0xf4f2ea, 0.3, 0.85, 0));
-  g.add(box(0.22, 0.2, 0.2, 0xf4f2ea, 0.38, 1.12, 0));
-  g.add(box(0.22, 0.08, 0.1, 0xf08a24, 0.55, 1.1, 0));
-  g.add(box(0.08, 0.25, 0.08, 0xf08a24, 0, 0.12, -0.1));
-  g.add(box(0.08, 0.25, 0.08, 0xf08a24, 0, 0.12, 0.1));
-  return g;
-}
-
 interface Goose {
-  mesh: THREE.Group;
+  mesh: THREE.Group & { rig: Rig };
   home: THREE.Vector3;
   speed: number;
 }
@@ -163,7 +127,8 @@ export class Hometown {
   private hotdogs = 0;
   private drownT = 0;
   // Animals and props.
-  private bull: THREE.Group;
+  private bull: THREE.Group & { rig: Rig };
+  private bullStep = 0;
   private bullPos: THREE.Vector3;
   private bullTarget: THREE.Vector3;
   private bullCharge = 0;
@@ -186,9 +151,9 @@ export class Hometown {
     // ---- Farm animals.
     this.bullPos = s.bull.clone();
     this.bullTarget = s.bull.clone();
-    this.bull = bullMesh();
+    this.bull = bullModel();
     this.add(this.bull);
-    this.mule = muleMesh();
+    this.mule = muleModel();
     this.mule.position.copy(s.mule);
     this.add(this.mule);
     this.add(this.prop(box(0.3, 0.02, 0.3, 0xe0302a), s.tablecloth, 'tablecloth', 'Take a red tablecloth', 2.2));
@@ -201,7 +166,7 @@ export class Hometown {
     for (let i = 0; i < 7; i++) {
       const a = (i / 7) * Math.PI * 2;
       const home = new THREE.Vector3(s.pond.x + Math.cos(a) * 19, G, s.pond.z + Math.sin(a) * 14);
-      const m = gooseMesh();
+      const m = gooseModel();
       m.position.copy(home);
       this.add(m);
       this.geese.push({ mesh: m, home, speed: 10.5 + Math.random() * 2 });
@@ -884,7 +849,8 @@ export class Hometown {
         to.normalize();
         g.mesh.position.addScaledVector(to, Math.min(d, sp * h));
         g.mesh.rotation.y = Math.atan2(-to.z, to.x);
-      }
+        walkCycle(g.mesh.rig, this.time * (this.geeseAngry > 0 ? 22 : 8) + g.speed, this.geeseAngry > 0 ? 0.8 : 0.4, 0.6);
+      } else walkCycle(g.mesh.rig, 0, 0, 0.3);
       g.mesh.position.y = G + Math.abs(Math.sin(this.time * (this.geeseAngry > 0 ? 18 : 3) + g.speed)) * 0.15;
     }
   }
@@ -900,6 +866,8 @@ export class Hometown {
     this.bullPos.z = Math.min(Math.max(this.bullPos.z, pen.min.z + 1.5), pen.max.z - 1.5);
     this.bull.position.copy(this.bullPos);
     this.bull.rotation.y = Math.atan2(-to.z, to.x);
+    this.bullStep += h * (2 + speed * 0.9);
+    walkCycle(this.bull.rig, this.bullStep, Math.min(0.9, 0.35 + speed * 0.04), 0.5);
   }
 
   /** Per-frame cosmetic animation. */
