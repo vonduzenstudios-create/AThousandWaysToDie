@@ -39,6 +39,11 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 | Scream for help | T | LB |
 | Pee | Q | RB |
 | Death ledger | Tab | Back |
+| Ride / hop off a skateboard or bike | E | Y |
+| Ollie (board) / bunny hop (bike) | Space | A |
+| Kickflip (board, in the air) | G | RT |
+| Wheelie (bike, hold) | Shift | B or LT |
+| Bike bell | T | LB |
 | Ghost: rise / sink | Space or R / Shift or V | A or D-pad up / B or D-pad down |
 
 ## What's in this build
@@ -46,7 +51,8 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 - Smallville: park with a giant oak treehouse, water tower with a diving board, Duke's Garage, the diner, Hoffman Farm with an electric fence and a hay hoist, Whisper Woods, houses and a railroad.
 - Ghost mode with scythe vision: read anyone's file (age, job, scheduled death, insurance, net worth, afterlife, allergies) and possess them. Taking someone who isn't due angers God.
 - Jobs matter: only a Farmhand can work the hay hoist, and only an allergic body dies from the peanut butter cookies.
-- 20 deaths: Treehouse Tumble, Antifreeze Cocktail, Shocking Behavior, Pancake Mode, Water Tower Dive, Forest Fungus, Last Train Home, Faceplant, Edge of the World, Peanut Panic, Resisting Arrest, Don't Tase Me Bro, Baled, Picked the Wrong Fight, Beaten by a Senior, Jaywalker, Cliffhanger, No Seatbelt, Tuck and Roll, Beat the Train.
+- 27 deaths: Treehouse Tumble, Antifreeze Cocktail, Shocking Behavior, Pancake Mode, Water Tower Dive, Forest Fungus, Last Train Home, Faceplant, Edge of the World, Peanut Panic, Resisting Arrest, Don't Tase Me Bro, Baled, Picked the Wrong Fight, Beaten by a Senior, Jaywalker, Cliffhanger, No Seatbelt, Tuck and Roll, Beat the Train, Over the Handlebars, Board Meeting, Evel Kneecap, Grind Rail, Act Your Age, Wheelie Bad Idea, Share the Road.
+- Skateboards and bicycles lie around town (outside the diner, Duke's Garage, the park, the police station, the farm road and the rail line). Ride them for speed with momentum steering. Hit the Dare Ramp in the open field by the rail line flat out, kickflip off the park kicker, grind the rails, try not to wheelie too long, and watch out for traffic. Feeble bodies should not skateboard.
 - Physical health (Feeble, Normal, Athlete) decides run speed and which moves a body can do; mental health is shown on the file.
 - The barn is locked unless you're a Farmhand. Non-cops get thrown out of the police station, and keep coming back at your peril.
 - Medium falls break your legs: crawl, or scream for help (T / LB) and a passerby calls 911.
@@ -58,6 +64,7 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 - GTA-style radar in the top right that rotates with the camera, draws itself from the voxels on any map, shows cars and landmarks, a speedometer while driving, and in ghost mode every soul colored by whether they're due.
 - Anime-style story cutscenes drawn in code: the opening (Gary's turkey-fryer death, the DENIED stamp, and Death's "Fine. You do it then!"), plus a scene from Death on his day off each time 25 deaths in an area opens the next route (bus to downtown, the harbor boats, the airport). Click, Space, E or A advances; Esc or Start twice skips. Add `?cutscene=opening` (or `smallville:25`, `city:25`, `city:50`) to the URL to replay one.
 - Ragdoll physics, insurance claim cards with payouts, a 1,000-slot death ledger saved in the browser.
+- City General Hospital (in the city's hospital lot): four floors and a roof helipad. Anyone can walk into the lobby, but only doctors, surgeons, nurses, EMTs, firefighters, janitors and security get past the badge door; patients stay on the ward and in pre-op, and only surgeons and doctors go in the ORs. Stairs and an elevator connect the floors. 12 deaths: Snack Attack, Code Grey, Clear!, Cold Storage, Fresh Linens, Going Down, Laughing Gas, Physician Heal Thyself, Wrong Surgery, Unplug Yourself, Magnet Personality, Chopper Haircut. Until the game loads the city, play it with `?place=hospital` (Smallville plus an annex south of the tracks). See `docs/hospital.md`.
 
 ## Tech
 
@@ -69,6 +76,7 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/player.ts`: platformer controller and moveset
 - `src/character.ts`: procedural voxel people and animation
 - `src/ragdoll.ts`: jointed physics ragdolls
+- `src/rides.ts`: skateboards, bicycles, ramps, tricks and their deaths (Player.ride switches the controller to momentum steering)
 - `src/town.ts`, `src/voxel.ts`: town generator, voxel mesher with ambient occlusion
 - `src/props.ts`: train, hay bale, signs, hazards
 - `src/npc.ts`, `src/deaths.ts`: townspeople, their files, the death list and save data
@@ -78,8 +86,11 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/combat.ts`: punching, angry NPCs, player health
 - `src/maps/city/`: Big Apple City, a 512 x 640 New York style map (see `docs/city.md`); `src/maps/compose.ts` merges sub-places like the airport and hospital into a map
 - `src/maps/wilderness/`: The Wilds, a 640 x 640 forest, savanna and desert map with animals and 19 deaths (see `docs/wilderness.md`)
+- `src/places/hospital/`: City General Hospital, a drop-in place for any map (`buildHospital`, `setupHospital`, `HOSPITAL_DEATHS`)
 - `src/audio.ts`: synthesized sound effects and the chiptune sequencer
 - `src/story/`: cutscene player (`cutscene.ts`), canvas anime art (`art.ts`), synth stings and voices (`sfx.ts`), scripts (`scenes.ts`) and the director that picks and saves scenes (`director.ts`)
 - `src/ui.ts`: HUD, scythe vision panel, claim card, ledger
+- `src/places/`: big detailed buildings a map stamps into its voxels (`PlaceDef`, the `Frame` rotation helper, scripted staff `Actor`s)
+- `src/places/grocery/`: Smallville Grocery and its 16 deaths. Dev test page: `npm run dev`, then open `/grocery.html` (keys 1-7 pick a job, 8 Feeble, 9 peanut allergy, 0 respawn)
 - `src/minimap.ts`: the radar (works on any VoxelWorld)
 - `src/vehicles/`: road graph and lanes (`roads.ts`), traffic AI (`traffic.ts`), drivable cars on Rapier's ray-cast vehicle controller (`car.ts`), voxel car models (`carModel.ts`), car sounds, and Smallville's roads and parked cars (`smallville.ts`)
