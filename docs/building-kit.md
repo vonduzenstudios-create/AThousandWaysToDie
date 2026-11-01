@@ -1,6 +1,6 @@
 # Building and street-detail kit
 
-`src/kit/` builds detailed voxel buildings, paving and street props in code, at 8 detail voxels per world block (1 voxel = 1/8 block). `src/render/post.ts` holds the shared render upgrades (warm lighting, sky reflections, bloom, color grade, optional GTAO). Open `/buildings.html` on the dev server for a showcase street; `?quality=low|medium|high` picks the post-processing level.
+`src/kit/` builds detailed voxel buildings, paving and street props in code, at 8 detail voxels per world block (1 voxel = 1/8 block). `src/render/post.ts` holds the shared render upgrades (warm lighting, sky reflections, bloom, color grade, optional GTAO). Props (trees, tents, fences, street clutter) have their own guide: [prop-kit.md](prop-kit.md). Open `/buildings.html` on the dev server for a showcase street; `?quality=low|medium|high` picks the post-processing level.
 
 ## Quick start
 

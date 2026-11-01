@@ -687,12 +687,14 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     // Trees: dense groves, avoiding paths, plaza and pond.
     const tree = (x: number, z: number) => {
       const hh = 5 + Math.floor(rng() * 4);
-      fill(x, G, z, x, G + hh - 1, z, B.Wood);
+      // Invisible collision blocks; the detailed tree is a kit prop (docs/prop-kit.md).
+      fill(x, G, z, x, G + hh - 1, z, B.GhostWood);
       const rr = 2 + Math.floor(rng() * 2);
-      const leaf = rng() < 0.5 ? B.Leaves : B.LeavesDark;
+      const oak = rng() < 0.5 ? 0 : 1;
       for (let dx = -rr; dx <= rr; dx++)
         for (let dy = -rr; dy <= rr; dy++)
-          for (let dz = -rr; dz <= rr; dz++) if (dx * dx + dy * dy * 1.6 + dz * dz <= rr * rr + 0.5 && w.get(x + dx, G + hh + dy, z + dz) === 0 && rng() > 0.06) set(x + dx, G + hh + dy, z + dz, leaf);
+          for (let dz = -rr; dz <= rr; dz++) if (dx * dx + dy * dy * 1.6 + dz * dz <= rr * rr + 0.5 && w.get(x + dx, G + hh + dy, z + dz) === 0 && rng() > 0.06) set(x + dx, G + hh + dy, z + dz, B.GhostLeaf);
+      w.prop(`tree:${hh}:${rr}:${oak}`, x + 0.5, G, z + 0.5);
       out.trees.push(V(x + 0.5, G + hh + rr, z + 0.5));
 };
     for (let i = 0; i < 160; i++) {
