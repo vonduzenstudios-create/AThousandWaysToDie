@@ -18,6 +18,8 @@ export type MoveState =
   | 'groundpound'
   | 'fall'
   | 'crawl'
+  | 'swim'
+  | 'tube'
   | 'locked';
 
 export type Tier = 'Feeble' | 'Normal' | 'Athlete';
@@ -53,7 +55,14 @@ export interface PlayerHooks {
   onDive?: () => void;
   /** A move this body is too weak for was attempted. */
   onDenied?: (move: string) => void;
+  /** Hit the water from the air. `drop` is the fall height, `speed` the downward speed. */
+  onSplash?: (e: { drop: number; speed: number; state: MoveState; launchState: MoveState; launchPos: THREE.Vector3 }) => void;
+  /** Ran out of breath underwater. */
+  onDrown?: () => void;
 }
+
+/** Seconds of breath underwater per physical tier. */
+const BREATH: Record<Tier, number> = { Feeble: 7, Normal: 13, Athlete: 22 };
 
 const GRAVITY = 42;
 const RUN_SPEED = 10;
@@ -99,6 +108,29 @@ export class Player {
   hooks: PlayerHooks = {};
   tier: Tier = 'Normal';
   legsBroken = false;
+
+  /**
+   * Water surface height at a column, or NaN where there is no water. Set by maps with
+   * seas, rivers or pools; null means the map has no water.
+   */
+  waterAt: ((x: number, z: number) => number) | null = null;
+  /** True while treading water. */
+  swimming = false;
+  /** True while the head is under the surface. */
+  submerged = false;
+  /** Breath left underwater, 1 = full, 0 = drowning. */
+  breath = 1;
+  /** Floating on something (an inner tube): stays on the surface, paddles faster, can't dive. */
+  floaty = false;
+  /** Swim speed multiplier (bait, flippers, a jet ski tow). */
+  swimMul = 1;
+  /** Water current added to swimming movement (rip currents, rivers), in units per second. */
+  readonly current = new THREE.Vector3();
+  /**
+   * While set, the player's feet are glued to this point every step (rides: barrels,
+   * parasails, being carried off by seagulls). Collisions and input are ignored.
+   */
+  carry: (() => THREE.Vector3) | null = null;
 
   private get canAdvanced() {
     return this.tier !== 'Feeble';
@@ -202,6 +234,18 @@ export class Player {
   update(dt: number, inp: PlayerInput) {
     this.jumpedThisStep = false;
     this.stateTime += dt;
+    if (this.carry) {
+      const f = this.carry();
+      const p = { x: f.x, y: f.y + PLAYER_CENTER, z: f.z };
+      this.body.setNextKinematicTranslation(p);
+      this.vel.set(0, 0, 0);
+      this.grounded = false;
+      this.swimming = false;
+      this.submerged = false;
+      this.maxY = p.y;
+      return;
+    }
+    if (this.updateSwim(dt, inp)) return;
     if (inp.jumpPressed) this.jumpBuf = 0.15;
     else this.jumpBuf -= dt;
     if (inp.divePressed) this.diveBuf = 0.13;
@@ -460,6 +504,128 @@ export class Player {
 
   lock(on: boolean) {
     if (on) this.setState('locked');
-    else this.setState(this.legsBroken ? 'crawl' : 'ground');
+    else this.setState(this.swimming ? (this.floaty ? 'tube' : 'swim') : this.legsBroken ? 'crawl' : 'ground');
+  }
+
+  /** Water surface over the player's column, or NaN. */
+  surfaceHere() {
+    if (!this.waterAt) return NaN;
+    const t = this.body.translation();
+    return this.waterAt(t.x, t.z);
+  }
+
+  /**
+   * Swimming: buoyancy keeps the head above water, Shift dives (unless floating),
+   * Space rises and hops out at the surface. Returns true when it handled the step.
+   */
+  private updateSwim(dt: number, inp: PlayerInput): boolean {
+    const surface = this.surfaceHere();
+    const t = this.body.translation();
+    const feetY = t.y - PLAYER_CENTER;
+    const depth = surface - feetY;
+    const locked = this.state === 'locked';
+    if (!(depth > 0)) {
+      if (this.swimming) this.leaveWater();
+      this.breath = Math.min(1, this.breath + dt * 0.5);
+      return false;
+    }
+    const enter = this.floaty ? 0.55 : 1.15;
+    if (!this.swimming) {
+      if (depth < enter || this.vel.y > 0.5) {
+        this.breath = Math.min(1, this.breath + dt * 0.5);
+        return false;
+      }
+      // Splash down.
+      const drop = this.maxY - t.y;
+      const speed = -this.vel.y;
+      const launchState = this.launchState;
+      const state = this.state;
+      this.swimming = true;
+      this.grounded = false;
+      this.vel.y *= 0.15;
+      this.vel.x *= 0.4;
+      this.vel.z *= 0.4;
+      if (!locked) this.setState(this.floaty ? 'tube' : 'swim');
+      this.legsBroken = false;
+      this.hooks.onSplash?.({ drop, speed, state, launchState, launchPos: this.launchPos.clone() });
+      if (!this.swimming) return false; // the map pulled us out
+    } else if (depth < enter - 0.35 && !this.floaty) {
+      // Waded into the shallows.
+      this.leaveWater();
+      return false;
+    }
+
+    const v = this.vel;
+    const fx = -Math.sin(inp.camYaw), fz = -Math.cos(inp.camYaw);
+    const rx = Math.cos(inp.camYaw), rz = -Math.sin(inp.camYaw);
+    let wx = fx * inp.moveY + rx * inp.moveX;
+    let wz = fz * inp.moveY + rz * inp.moveX;
+    const wishLen = Math.min(1, Math.hypot(wx, wz));
+    if (wishLen > 0.001) {
+      const l = Math.hypot(wx, wz);
+      wx /= l;
+      wz /= l;
+    }
+    if (locked) {
+      approach2(v, 0, 0, 10 * dt);
+    } else {
+      if (!this.floaty) this.setState('swim');
+      else this.setState('tube');
+      const base = (this.floaty ? 6 : 4.2) * (this.tier === 'Feeble' ? 0.6 : this.tier === 'Athlete' ? 1.2 : 1) * this.swimMul;
+      const sp = base * (inp.sprint ? 1.5 : 1) * wishLen;
+      this.sprinting = !!inp.sprint && wishLen > 0.5;
+      if (wishLen > 0.1) this.facing = turnToward(this.facing, Math.atan2(wx, wz), 8 * dt);
+      else if (inp.faceYaw != null) this.facing = inp.faceYaw;
+      approach2(v, wx * sp, wz * sp, 14 * dt);
+    }
+    // Vertical: float with the head out unless diving.
+    const floatFeet = surface - (this.floaty ? 0.55 : 1.3);
+    const diving = !locked && !this.floaty && inp.crouchHeld;
+    if (diving) v.y += (-4 - v.y) * Math.min(1, dt * 4);
+    else {
+      const want = (floatFeet - feetY) * 4;
+      v.y += (Math.max(-6, Math.min(5, want)) - v.y) * Math.min(1, dt * 5);
+    }
+    // Hop out at the surface (climb onto docks and banks).
+    if (!locked && inp.jumpPressed && feetY > floatFeet - 0.4) {
+      this.swimming = false;
+      this.submerged = false;
+      v.y = this.floaty ? 9 : 15;
+      this.jumpChain = 1;
+      this.launch('jump');
+      this.hooks.onJump?.('jump', 1);
+    }
+
+    const c = this.current;
+    const desired = { x: (v.x + c.x) * dt, y: (v.y + c.y) * dt, z: (v.z + c.z) * dt };
+    this.kcc.computeColliderMovement(this.collider, desired, undefined, this.filter);
+    const mv = this.kcc.computedMovement();
+    this.body.setNextKinematicTranslation({ x: t.x + mv.x, y: t.y + mv.y, z: t.z + mv.z });
+    this.maxY = t.y + mv.y;
+    this.launchPos.set(t.x, t.y, t.z);
+    this.airTime = 0;
+    this.grounded = false;
+
+    // Breath.
+    const head = feetY + 1.55;
+    this.submerged = this.swimming && head < surface - 0.1;
+    if (this.submerged) {
+      this.breath -= dt / BREATH[this.tier];
+      if (this.breath <= 0) {
+        this.breath = 0;
+        this.hooks.onDrown?.();
+      }
+    } else this.breath = Math.min(1, this.breath + dt * 0.5);
+    return this.swimming;
+  }
+
+  private leaveWater() {
+    this.swimming = false;
+    this.submerged = false;
+    if (this.state === 'swim' || this.state === 'tube') this.setState('fall');
+    const t = this.body.translation();
+    this.maxY = t.y;
+    this.launchPos.set(t.x, t.y, t.z);
+    this.launchState = 'fall';
   }
 }

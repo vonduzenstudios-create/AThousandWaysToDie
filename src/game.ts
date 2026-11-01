@@ -1072,7 +1072,7 @@ export class Game {
       this.kill('roadkill', { kind: 'ragdoll', vel: hit.vel.clone().multiplyScalar(1.4).add(new THREE.Vector3(0, 8 + sp * 0.6, 0)), spin: 16, bounce: 0.65 });
       return;
     }
-    if (p.y < -12) {
+    if (p.y < -12 && !this.player.carry) {
       this.kill('edge', { kind: 'ragdoll', vel: this.player.vel.clone(), spin: 5 });
       return;
     }
