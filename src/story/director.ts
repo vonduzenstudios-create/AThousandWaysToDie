@@ -55,6 +55,12 @@ export class StoryDirector {
     return this.running;
   }
 
+  /** Forget every scene seen (new game / erase save). */
+  forget() {
+    this.seen.clear();
+    this.save();
+  }
+
   hasSeen(id: string) {
     return this.seen.has(id);
   }

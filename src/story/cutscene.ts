@@ -220,7 +220,7 @@ export class CutscenePlayer {
     // The cutscene owns the keyboard while it plays.
     e.stopPropagation();
     if (e.repeat) return;
-    if (e.code === 'Escape') this.skip();
+    if (e.code === 'Escape') this.skip(true);
     else if (['Space', 'Enter', 'KeyE', 'NumpadEnter'].includes(e.code)) {
       e.preventDefault();
       this.advance();
@@ -241,7 +241,7 @@ export class CutscenePlayer {
     const now = this.padButtons();
     const edge = (i: number) => now[i] && !this.padPrev[i];
     if (edge(0) || edge(1)) this.advance();
-    if (edge(9) || edge(8)) this.skip();
+    if (edge(9) || edge(8)) this.skip(true);
     this.padPrev = now;
   }
 

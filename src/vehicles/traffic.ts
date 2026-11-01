@@ -47,7 +47,8 @@ export class Traffic {
     this.graph = new RoadGraph(config.roads);
     this.cruise = config.speed ?? 12;
     const lanes = this.graph.edges.length ? this.graph.totalLaneLength() : 0;
-    this.target = Math.round((lanes / 100) * (config.density ?? 2.2));
+    // Density scales with road length, capped so a big map doesn't turn into a parking lot.
+    this.target = Math.min(config.maxCars ?? 30, Math.round((lanes / 100) * (config.density ?? 0.5)));
     for (let i = 0; i < this.target; i++) this.spawnTraffic(null, true);
     for (const pk of config.parked ?? []) {
       const pos = pk.pos.clone();

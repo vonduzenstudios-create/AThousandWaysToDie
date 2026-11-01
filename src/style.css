@@ -144,3 +144,14 @@ body:not(.pad) .help td:nth-child(3), body:not(.pad) .help th:nth-child(3) { opa
 @keyframes csbob { from { transform: translateY(0); } to { transform: translateY(5px); } }
 .cs-skip { position: absolute; top: calc(7.5% + 10px); right: 16px; font-size: 13px; padding: 5px 12px; border-radius: 14px; background: rgba(0,0,0,0.5); color: #ccc; border: 1px solid #666; }
 .cs-skip.armed { color: #ffd84a; border-color: #ffd84a; }
+
+.title .menu { margin-top: 26px; min-width: 340px; max-width: 92vw; }
+.title { cursor: default; }
+.title .msub { color: #b9a6ff; font-size: 14px; letter-spacing: 2px; margin-bottom: 10px; text-transform: uppercase; }
+.title .mlist { display: flex; flex-direction: column; gap: 6px; max-height: 52vh; overflow: auto; padding: 4px; }
+.title .mi { position: relative; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px 16px; padding: 10px 22px; border: 2px solid rgba(255,255,255,0.15); border-radius: 10px; background: rgba(0,0,0,0.35); font-size: 22px; font-weight: bold; cursor: pointer; user-select: none; transition: transform 0.08s; }
+.title .mi.sel { border-color: #ffd84a; background: rgba(255,216,74,0.14); transform: scale(1.03); }
+.title .mi.dis { opacity: 0.35; cursor: default; }
+.title .mi .mv { color: #ffd84a; font-size: 18px; }
+.title .mi .mh { flex-basis: 100%; font-size: 13px; font-weight: normal; color: #ccc; text-align: left; }
+.title { z-index: 900; }
