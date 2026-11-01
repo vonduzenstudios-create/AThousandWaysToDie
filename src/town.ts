@@ -4,6 +4,7 @@ import { mulberry32, pick, type Rng } from './util';
 import { GROCERY } from './places/grocery';
 import type { PlaceBuild } from './places/types';
 import { buildHospital, type HospitalInfo } from './places/hospital';
+import type { BuildingSpec, Placement } from './kit';
 import {
   GROUND,
   bench,
@@ -135,6 +136,8 @@ export interface TownInfo {
   grocery: PlaceBuild;
   /** City General Hospital, stamped into the E3 lot; game.ts runs setupHospital on it. */
   hospital: HospitalInfo;
+  /** Exterior-only buildings drawn by the building kit (src/kit); game.ts places them. Their footprints are B.Footprint in the voxel world. */
+  kitBuildings: (BuildingSpec & Placement)[];
 }
 
 type TravelStops = TransitStop[];
@@ -254,6 +257,19 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
   const roads: RoadLine[] = [];
   let grocery!: PlaceBuild;
   let hospital!: HospitalInfo;
+  const kitBuildings: (BuildingSpec & Placement)[] = [];
+  /**
+   * A detailed kit house (preset 'house') on a world footprint ex (x) by ez (z), front facing `door`.
+   * The interior is solid, so residents hang around the porch and vanish inside to sleep.
+   * Returns the spot just outside the front door.
+   */
+  const kitHouse = (x0: number, z0: number, ex: number, ez: number, door: Side, floors: number) => {
+    const ns = door === 'n' || door === 's';
+    kitBuildings.push({ preset: 'house', seed: Math.floor(rng() * 1e9), x: x0, z: z0, y: G, face: door, w: ns ? ex : ez, d: ns ? ez : ex, floors, chimney: rng() < 0.6 });
+    w.fill(x0, G, z0, x0 + ex - 1, G, z0 + ez - 1, B.Footprint);
+    const front = { s: v(x0 + ex / 2, G, z0 + ez + 1), n: v(x0 + ex / 2, G, z0 - 1), w: v(x0 - 1, G, z0 + ez / 2), e: v(x0 + ex + 1, G, z0 + ez / 2) } as const;
+    return front[door];
+  };
 
   const place = (p: Place) => places.push(p);
   const sign = (lines: string[], x: number, y: number, z: number, rotY: number, bg: string, fg: string, wd = 6, h = 1.5) =>
@@ -611,8 +627,8 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
 
   // ================================================================ E1: two backyards on Tower Rd (kiddie pool target)
   {
-    const a = house(w, rng, { x0: 482, z0: 76, w: 14, d: 12, door: 'w' });
-    const b = house(w, rng, { x0: 482, z0: 116, w: 14, d: 12, door: 'w' });
+    const a = kitHouse(482, 76, 14, 12, 'w', 2);
+    const b = kitHouse(482, 116, 14, 12, 'w', 1);
     // Backyards sit between the road and the houses here.
     fenceLine(w, 448, 70, 480, 70, B.White, 1);
     fenceLine(w, 448, 110, 480, 110, B.White, 1);
@@ -628,8 +644,8 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
     // Garden gnome and a grill.
     w.set(466, G, 90, B.RedPaint);
     w.fill(470, G, 120, 470, G + 1, 120, B.Black);
-    place({ id: 'home-tower-1', name: '3 Tower Rd', kind: 'home', door: v(a.door.x, G, a.door.z), inside: box(483, G, 77, 494, G, 86) });
-    place({ id: 'home-tower-2', name: '7 Tower Rd', kind: 'home', door: v(b.door.x, G, b.door.z), inside: box(483, G, 117, 494, G, 126) });
+    place({ id: 'home-tower-1', name: '3 Tower Rd', kind: 'home', door: a });
+    place({ id: 'home-tower-2', name: '7 Tower Rd', kind: 'home', door: b });
     for (let z = 74; z < 140; z += 20) mailbox(w, 446, z);
   }
 
@@ -810,8 +826,8 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
     place({ id: 'apartments', name: 'Elm Street Apartments', kind: 'home', door: v(177, G, az1 + 2.5), inside: inner(ax0, az0, ax1, az1), residents: 8 });
     // Two houses facing Church St.
     for (const x0 of [206, 226]) {
-      const h = house(w, rng, { x0, z0: 304, w: 14, d: 12, door: 's' });
-      place({ id: `home-church-${x0}`, name: `${x0 - 180} Church St`, kind: 'home', door: v(h.door.x, G, h.door.z), inside: box(x0 + 1, G, 305, x0 + 12, G, 314) });
+      const door = kitHouse(x0, 304, 14, 12, 's', 2);
+      place({ id: `home-church-${x0}`, name: `${x0 - 180} Church St`, kind: 'home', door });
       mailbox(w, x0 + 2, 324);
     }
   }
@@ -856,8 +872,8 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
     sign(["UNCLE BOOMER'S", 'FIREWORKS · 100% LEGAL-ISH'], 310, G + 5.6, 316.6, 0, '#ffe000', '#c01818', 7, 1.6);
     place({ id: 'fireworks', name: "Uncle Boomer's Fireworks", kind: 'shop', door: v(310, G, 318.5), inside: inner(300, 304, 320, 316), staffSpots: [v(310, G, 308)], jobs: ['Cashier'], hours: [10, 22], sells: [{ item: 'sparklers', price: 5 }, { item: 'Grand Finale', price: 250 }] });
     // A house on the corner.
-    const h = house(w, rng, { x0: 262, z0: 306, w: 14, d: 12, door: 's' });
-    place({ id: 'home-church-262', name: '82 Church St', kind: 'home', door: v(h.door.x, G, h.door.z), inside: box(263, G, 307, 274, G, 316) });
+    const door = kitHouse(262, 306, 14, 12, 's', 2);
+    place({ id: 'home-church-262', name: '82 Church St', kind: 'home', door });
   }
 
   // ================================================================ D3: church, bell tower, BBQ lawn (x 356..434, z 246..324)
@@ -1017,7 +1033,11 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
     let num = 2;
     for (const lot of lots) {
       const isMaple12 = lot.x0 === 358 && lot.z0 === 352;
-      const h = house(w, rng, { x0: lot.x0, z0: lot.z0, w: 16, d: 13, door: lot.door, floors: rng() < 0.3 ? 2 : 1 });
+      // 12 Maple St stays walk-in (bathtub, garage); the rest of the street is kit houses.
+      const floors = rng() < 0.3 ? 2 : 1;
+      const h = isMaple12 ? house(w, rng, { x0: lot.x0, z0: lot.z0, w: 16, d: 13, door: lot.door, floors }) : null;
+      const kitDoor = h ? null : kitHouse(lot.x0, lot.z0, 16, 13, lot.door, floors);
+      const frontDoor = h ? v(h.door.x, G, h.door.z) : kitDoor!;
       const street = lot.z0 === 432 ? 'School St' : 'Maple St';
       const addr = isMaple12 ? 12 : num;
       num += 2;
@@ -1043,10 +1063,10 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
         else if (r < 0.7) building(w, { x0: lot.x0 + 10, z0: yz, x1: lot.x0 + 15, z1: yz + 4, wall: B.Plank, roof: 'flat', roofMat: B.RoofBrown, floorH: 3, winEvery: 0, doors: [{ side: 'w', at: yz + 1, width: 1 }] });
         tops.push(tree(w, rng, lot.x0 + 14, Math.max(by0, by1) - 2));
       }
-      place({ id: `home-${street.split(' ')[0].toLowerCase()}-${addr}`, name: `${addr} ${street}`, kind: 'home', door: v(h.door.x, G, h.door.z), inside: box(lot.x0 + 1, G, lot.z0 + 1, lot.x0 + 14, G, lot.z0 + 11), residents: isMaple12 ? 2 : undefined, tags: isMaple12 ? ['maple12'] : undefined });
+      place({ id: `home-${street.split(' ')[0].toLowerCase()}-${addr}`, name: `${addr} ${street}`, kind: 'home', door: frontDoor, inside: h ? box(lot.x0 + 1, G, lot.z0 + 1, lot.x0 + 14, G, lot.z0 + 11) : undefined, residents: isMaple12 ? 2 : undefined, tags: isMaple12 ? ['maple12'] : undefined });
       if (isMaple12) {
         // 12 Maple St: Gary's old house. Garage with the antifreeze, a bathroom with the tub, the trampoline next door.
-        building(w, { x0: lot.x0 + 16, z0: lot.z0 + 2, x1: lot.x0 + 24, z1: lot.z0 + 12, wall: h.wall, trim: B.Wood, floor: B.Concrete, floorH: 5, roof: 'flat', roofMat: B.Dark, winEvery: 0, doors: [{ side: 's', at: lot.x0 + 18, width: 5, height: 4 }] });
+        building(w, { x0: lot.x0 + 16, z0: lot.z0 + 2, x1: lot.x0 + 24, z1: lot.z0 + 12, wall: h!.wall, trim: B.Wood, floor: B.Concrete, floorH: 5, roof: 'flat', roofMat: B.Dark, winEvery: 0, doors: [{ side: 's', at: lot.x0 + 18, width: 5, height: 4 }] });
         w.fill(lot.x0 + 23, G, lot.z0 + 3, lot.x0 + 23, G, lot.z0 + 8, B.Wood); // garage workbench
         w.fill(lot.x0 + 23, G + 2, lot.z0 + 3, lot.x0 + 23, G + 2, lot.z0 + 8, B.Plank); // top shelf
         spots.mapleGarageShelf = v(lot.x0 + 23.5, G + 3, lot.z0 + 5.5);
@@ -1069,7 +1089,7 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
       }
       if (lot.x0 === 406 && lot.z0 === 352) {
         // Neighbor with Christmas lights in November.
-        for (let x = lot.x0; x < lot.x0 + 16; x++) if (x % 2 === 0) w.set(x, G + 4, lot.z0 + 13, pick(rng, [B.RedPaint, B.RoofGreen, B.Yellow, B.WallBlue]));
+        for (let x = lot.x0; x < lot.x0 + 16; x++) if (x % 2 === 0) w.set(x, G + 2, lot.z0 + 13, pick(rng, [B.RedPaint, B.RoofGreen, B.Yellow, B.WallBlue]));
         spots.christmasLights = v(lot.x0 + 8, G, lot.z0 + 15);
       }
     }
@@ -1164,6 +1184,7 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
     zones,
     grocery,
     hospital,
+    kitBuildings,
   };
 }
 
