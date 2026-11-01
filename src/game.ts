@@ -90,6 +90,8 @@ export class Game {
   private lastT = performance.now();
   private helpShown = false;
   private latched = { jump: false, crouch: false, dive: false };
+  /** The yaw WASD moves relative to. Frozen while left mouse orbits the camera, so looking around doesn't steer. */
+  private moveYaw = 0;
   private barnTries = 0;
   private stationVisits = 0;
   private deniedToastT = 0;
@@ -1563,6 +1565,7 @@ export class Game {
     this.cam.minDist = this.mode === 'dying' || this.mode === 'claim' ? 6 : 0;
     // Right mouse (or first person) makes the character face where the camera looks.
     const steer = inp.rmb || this.cam.firstPerson;
+    if (!(inp.lmb && !inp.rmb && !this.cam.firstPerson)) this.moveYaw = this.cam.yaw;
     const lookDX = inp.mouseDX * mouseSens + inp.lookX * realDt * 2.6;
     const lookDY = inp.mouseDY * mouseSens + inp.lookY * realDt * 2;
 
@@ -1592,7 +1595,7 @@ export class Game {
           this.player.update(h, {
             moveX: peeing || this.ui.ledgerOpen ? 0 : inp.moveX,
             moveY: peeing || this.ui.ledgerOpen ? 0 : inp.moveY,
-            camYaw: this.cam.yaw,
+            camYaw: this.moveYaw,
             jumpPressed: first && this.latched.jump && !this.life.isTalking,
             jumpHeld: inp.held('jump'),
             crouchHeld: inp.held('crouch'),
@@ -1726,7 +1729,7 @@ export class Game {
 
   private updateGhost(dt: number, lookDX: number, lookDY: number) {
     const inp = this.input;
-    const yaw = this.cam.yaw;
+    const yaw = this.moveYaw;
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
     const rx = Math.cos(yaw), rz = -Math.sin(yaw);
     const sp = 14;
