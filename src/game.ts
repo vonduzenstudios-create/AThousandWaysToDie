@@ -323,7 +323,7 @@ export class Game {
     this.spawnInitialNpcs();
     {
       registerMapDeaths(HOSPITAL_DEATHS, 'smallville');
-      this.places.push(setupHospital({ scene: this.scene, physics: this.physics, world: this.town.world, rng: this.rng, game: this.api() }, hospital));
+      this.places.push(setupHospital({ scene: this.scene, physics: this.physics, world: this.town.world, rng: this.rng, game: this.api() }, hospital, { name: 'Smallville General Hospital' }));
     }
     this.ui.blip = () => this.sound.blip(0.6);
     this.ui.setHud(this.ledger, null);

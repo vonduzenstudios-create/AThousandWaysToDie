@@ -7,6 +7,9 @@ import { Npc } from '../../npc';
 import type { NavGrid } from '../../life/nav';
 import { canvasTexture, mulberry32, noiseTexture } from '../../util';
 import { FLOOR_H, FLOOR_NAMES, ROOF, type Box3, type HospitalInfo } from './layout';
+import { buildHospitalFacade } from './facade';
+import { ambulanceModel, heliModel } from './models';
+import { StreetKit, propModel, type PropKind } from '../../kit';
 
 /** Jobs that get past the lobby. */
 export const HOSPITAL_STAFF: readonly string[] = ['Doctor', 'Surgeon', 'Nurse', 'EMT', 'Firefighter', 'Janitor', 'Security Guard'];
@@ -147,8 +150,28 @@ export function setupHospital(ctx: MapContext, info: HospitalInfo, opts: Hospita
     root.add(m);
     return m;
   };
-  sign([name.toUpperCase()], P(32, 7, -0.06), 22, 2.2, Math.PI, '#ffffff', '#c8231c');
-  sign(['EMERGENCY'], P(32, 4.5, -3.08), 8, 1, Math.PI, '#c8231c', '#ffffff');
+  // The name, red cross, canopy and EMERGENCY sign are part of the detailed facade.
+  const facade = buildHospitalFacade(info, root, physics, name);
+  // Street furniture out front, from the kit (colliders added here so dispose() removes them).
+  {
+    const kit = new StreetKit({ parent: root, physics: null, sync: true, lod: false });
+    const o = info.origin;
+    kit.street({ x0: o.x - 1, z0: o.z - 3, x1: o.x + 65, z1: o.z, y: o.y, kind: 'plaza' });
+    const prop = (kind: PropKind, lx: number, lz: number, rot = 0) => {
+      const at = P(lx, 0, lz);
+      kit.prop(kind, at.x, at.y, at.z, rot, { collide: false });
+      const h = propModel(kind).half;
+      if (h) solid(new THREE.Vector3(at.x, at.y + h[1], at.z), Math.max(h[0], h[2]), h[1], Math.max(h[0], h[2]));
+    };
+    for (const lx of [4, 10, 16, 48, 54, 60]) prop('planter', lx, -1.4);
+    for (const lx of [7, 13, 51, 57]) prop('bench', lx, -1.2, Math.PI);
+    for (const lx of [20.5, 43.5]) prop('lamp', lx, -2.2);
+    for (const lx of [24, 26, 38, 40]) prop('bollard', lx, -2.4);
+    prop('bin', 45.5, -1.4);
+    prop('pottedTree', 1.2, -1.6);
+    prop('pottedTree', 62.8, -1.6);
+    kit.finish();
+  }
   sign(['STAFF ONLY', 'Badge required past this point'], P(32, 4.6, 18.94), 6, 1.4, Math.PI, '#c8231c', '#ffffff');
   sign(['WAITING ROOM'], P(11, 4.2, 0.95), 6, 0.9, 0);
   sign(['CAFETERIA', 'Today: mystery loaf'], P(53, 4.2, 0.95), 7, 1.3, 0, '#2f7a4a');
@@ -392,33 +415,14 @@ export function setupHospital(ctx: MapContext, info: HospitalInfo, opts: Hospita
   add(bx(0.6, 0.6, 0.6, M.dark), P(6.5, Yf(3) + 4.2, 14));
   add(bx(4, 0.8, 1.2, mat(0x7a4a8a)), P(55, Yf(3) + 0.4, 3));
   // Helicopter on the roof (nose toward +x).
+  // Air ambulance and ambulance: detail-voxel models (models.ts).
   const heli = new THREE.Group();
-  const rotor = new THREE.Group();
-  const tailRotor = new THREE.Group();
-  {
-    const red = mat(0xd8312b), wh = mat(0xf2f2ee);
-    heli.add(bx(4.2, 2.0, 2.2, wh, 0, 1.4, 0));
-    heli.add(bx(1.6, 1.4, 2.0, M.glass, 2.6, 1.3, 0));
-    heli.add(bx(4.4, 0.4, 2.25, red, 0, 1.1, 0));
-    heli.add(bx(5, 0.7, 0.7, wh, -4.4, 1.8, 0));
-    heli.add(bx(0.8, 1.6, 0.2, red, -6.7, 2.4, 0));
-    for (const sz of [-1.2, 1.2]) heli.add(bx(5, 0.15, 0.15, M.dark, 0, 0.12, sz));
-    heli.add(bx(0.3, 0.6, 0.3, M.dark, 0, 2.7, 0));
-    // red cross
-    heli.add(bx(0.9, 0.3, 0.02, red, -0.2, 1.6, 1.12), bx(0.3, 0.9, 0.02, red, -0.2, 1.6, 1.12));
-    for (let i = 0; i < 4; i++) {
-      const blade = bx(5.6, 0.08, 0.35, M.dark, 2.8, 0, 0);
-      const arm = new THREE.Group();
-      arm.add(blade);
-      arm.rotation.y = (i / 4) * Math.PI * 2;
-      rotor.add(arm);
-    }
-    rotor.position.set(0, 3.1, 0);
-    heli.add(rotor);
-    tailRotor.add(bx(0.06, 1.6, 0.18, M.dark), bx(0.06, 0.18, 1.6, M.dark));
-    tailRotor.position.set(-6.7, 2.4, 0.2);
-    heli.add(tailRotor);
-  }
+  const { body: heliBody, rotor, tailRotor } = heliModel();
+  heli.add(heliBody);
+  rotor.position.set(0, 3.1, 0);
+  heli.add(rotor);
+  tailRotor.position.set(-6.7, 2.4, 0.2);
+  heli.add(tailRotor);
   heli.position.copy(P(40, ROOF, 20));
   root.add(heli);
   solid(P(40, ROOF + 1.4, 20), 2.1, 1.0, 1.1);
@@ -426,20 +430,7 @@ export function setupHospital(ctx: MapContext, info: HospitalInfo, opts: Hospita
   const rotorY = info.origin.y + ROOF + 3.1;
   // Ambulance parked out front.
   const amb = new THREE.Group();
-  {
-    const wh = mat(0xf2f2ee), red = mat(0xd8312b);
-    amb.add(bx(2.4, 2.4, 5.0, wh, 0, 1.6, -0.6));
-    amb.add(bx(2.4, 1.6, 1.8, wh, 0, 1.2, 2.6));
-    amb.add(bx(2.42, 0.4, 6.8, red, 0, 1.4, 0.3));
-    amb.add(bx(2.2, 0.8, 0.06, M.glass, 0, 1.6, 3.52));
-    amb.add(bx(1.4, 0.25, 0.4, red, 0, 2.95, 2.0));
-    for (const sx of [-1.1, 1.1]) for (const sz of [-2.2, 2.4]) {
-      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.3, 10), M.dark);
-      wheel.rotation.z = Math.PI / 2;
-      wheel.position.set(sx, 0.45, sz);
-      amb.add(wheel);
-    }
-  }
+  amb.add(ambulanceModel());
   amb.position.copy(P(46, 0, -6));
   amb.rotation.y = Math.PI / 2;
   root.add(amb);
@@ -1471,6 +1462,7 @@ export function setupHospital(ctx: MapContext, info: HospitalInfo, opts: Hospita
       scene.remove(root);
       for (const n of bodies) n.remove(scene);
       for (const c of colliders) physics.removeCollider(c, false);
+      for (const c of facade.colliders) physics.removeCollider(c, false);
       physics.removeRigidBody(fixed);
     },
   };
