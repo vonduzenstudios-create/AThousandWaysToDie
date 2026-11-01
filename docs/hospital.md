@@ -8,7 +8,11 @@ setup: (ctx) => composeRuntimes([myRuntime, setupHospital(ctx, info)]),
 deaths: [...MY_DEATHS, ...HOSPITAL_DEATHS],
 ```
 
-Footprint 64 x 48 (x by z), entrance on the -z side with a canopy 3 blocks out, about 40 tall.
+Footprint 64 x 48 (x by z), entrance on the -z side with a canopy about 4 blocks out, about 40 tall. Pass `{ name }` to `setupHospital` to change the name on the facade (Smallville uses "Smallville General Hospital").
+
+## Exterior
+
+The coarse voxel shell from `layout.ts` does the collision and the interior. `facade.ts` wraps it in a skin of building-kit detail voxels (see `docs/building-kit.md`): ribbon windows with mullions, sills and a few lit rooms, piers, slab bands, a teal cornice, a taller parapet with coping, the lit red cross, the name in red letters, the entrance portal and canopy, the EMERGENCY sign on the east side, helipad edge lights and a beacon. Thin colliders sit over the skin, so you stand against it, not inside it. `models.ts` has the detail-voxel helicopter and ambulance, and `runtime.ts` adds kit paving, lamps, benches, planters and bollards out front.
 
 ## Floors
 

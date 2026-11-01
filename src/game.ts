@@ -1525,7 +1525,7 @@ export class Game {
     this.pois = this.town ? smallvillePois(this.town) : [];
     const ctx = { scene: this.scene, physics: this.physics, world: this.world, rng, game: this.api };
     const own = b.setup?.(ctx) ?? null;
-    this.runtime = this.town ? composeRuntimes([own, setupHospital(ctx, this.town.hospital)]) : own;
+    this.runtime = this.town ? composeRuntimes([own, setupHospital(ctx, this.town.hospital, { name: 'Smallville General Hospital' })]) : own;
     if (def.waterLevel !== undefined) {
       const water = new THREE.Mesh(
         new THREE.PlaneGeometry(def.size.x + 1200, def.size.z + 1200),
