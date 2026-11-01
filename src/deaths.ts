@@ -103,7 +103,13 @@ export const ADJUSTER_NOTES = [
 const FIRST = ['Linda', 'Gary', 'Doug', 'Brenda', 'Kevin', 'Tammy', 'Earl', 'Darlene', 'Chad', 'Bev', 'Randy', 'Peggy', 'Duane', 'Crystal', 'Walt', 'Rhonda', 'Skip', 'Marge', 'Travis', 'Deb', 'Lyle', 'Shonda', 'Hank', 'Trish'];
 const LAST = ['Pruitt', 'Hoffman', 'Kowalski', 'Butts', 'McGee', 'Dinkel', 'Ferguson', 'Snodgrass', 'Plunkett', 'Wiggins', 'Sauerkraut', 'Bumgarner', 'Weatherby', 'Puckett', 'Hornswoggle', 'Fudge'];
 
-export const JOBS = ['Farmhand', 'Mechanic', 'Mail Carrier', 'Retiree', 'Banker', 'Teen', 'Dentist', 'Diner Cook', 'Insurance Salesman', 'Pastor', 'Crossing Guard', 'Influencer', 'Cop', 'Construction Worker', 'Doctor', 'Nurse', 'EMT', 'Firefighter', 'Janitor', 'Security Guard'] as const;
+export const JOBS = [
+  'Farmhand', 'Mechanic', 'Mail Carrier', 'Retiree', 'Banker', 'Teen', 'Dentist', 'Diner Cook', 'Insurance Salesman', 'Pastor', 'Crossing Guard', 'Influencer', 'Cop', 'Construction Worker',
+  // Smallville Grocery staff (src/places/grocery).
+  'Butcher', 'Stocker', 'Cashier', 'Deli Clerk', 'Produce Manager', 'Store Manager',
+  // City General Hospital staff (src/places/hospital).
+  'Doctor', 'Nurse', 'EMT', 'Firefighter', 'Janitor', 'Security Guard',
+] as const;
 /** Jobs that only exist at their workplace (never rolled for random townsfolk). */
 export const SPECIAL_JOBS = ['Surgeon', 'Patient'] as const;
 export type Physical = 'Feeble' | 'Normal' | 'Athlete';

@@ -89,5 +89,7 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/audio.ts`: synthesized sound effects and the chiptune sequencer
 - `src/story/`: cutscene player (`cutscene.ts`), canvas anime art (`art.ts`), synth stings and voices (`sfx.ts`), scripts (`scenes.ts`) and the director that picks and saves scenes (`director.ts`)
 - `src/ui.ts`: HUD, scythe vision panel, claim card, ledger
+- `src/places/`: big detailed buildings a map stamps into its voxels (`PlaceDef`, the `Frame` rotation helper, scripted staff `Actor`s)
+- `src/places/grocery/`: Smallville Grocery and its 16 deaths. Dev test page: `npm run dev`, then open `/grocery.html` (keys 1-7 pick a job, 8 Feeble, 9 peanut allergy, 0 respawn)
 - `src/minimap.ts`: the radar (works on any VoxelWorld)
 - `src/vehicles/`: road graph and lanes (`roads.ts`), traffic AI (`traffic.ts`), drivable cars on Rapier's ray-cast vehicle controller (`car.ts`), voxel car models (`carModel.ts`), car sounds, and Smallville's roads and parked cars (`smallville.ts`)
