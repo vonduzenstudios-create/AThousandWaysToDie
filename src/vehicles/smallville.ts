@@ -17,7 +17,9 @@ export function smallvilleTraffic(t: TownInfo): TrafficConfig {
       { pos: v(400, 236), facing: Math.PI / 2 }, // town hall
       { pos: v(372, 371), facing: Math.PI / 2 }, // 12 Maple St
     ],
-    density: 4,
+    // A sleepy small town: a car every few blocks, not a traffic jam.
+    density: 0.3,
+    maxCars: 20,
     speed: 12,
   };
 }
