@@ -167,6 +167,8 @@ export class Game {
   private stationVisits = 0;
   private deniedToastT = 0;
   private wasInStation = false;
+  /** Seconds until the next roof check for the indoor exposure/bloom look. */
+  private roofCheckT = 0;
   private screamCooldown = 0;
   private acc = 0;
   private time = 0;
@@ -1058,6 +1060,21 @@ export class Game {
       this.ui.toast(this.skillBar.slots[i]?.skill?.name ?? 'Locked', r.reason, 1600);
       this.sound.denied();
     }
+  }
+
+  /**
+   * Indoors (anything solid overhead), lit white floors and walls bloom into a glare, so switch the
+   * post stack to its dimmer indoor look. Maps can force it with scene.userData.indoor = true/false.
+   */
+  private updateIndoorLook(focus: THREE.Vector3, realDt: number) {
+    this.roofCheckT -= realDt;
+    if (this.roofCheckT > 0) return;
+    this.roofCheckT = 0.2;
+    const forced = this.scene.userData.indoor;
+    if (typeof forced === 'boolean') return this.post.setIndoor(forced);
+    const from = { x: focus.x, y: focus.y + 1.9, z: focus.z };
+    const roof = this.physics.castRay(new RAPIER.Ray(from, { x: 0, y: 1, z: 0 }), 14, true, undefined, QUERY_WORLD);
+    this.post.setIndoor(!!roof);
   }
 
   private updateEffects(realDt: number) {
@@ -2693,6 +2710,7 @@ export class Game {
       if (b.t >= 1) this.camBlend = null;
     }
     this.updateSaturation(realDt);
+    this.updateIndoorLook(focus, realDt);
 
     if (!this.driving) this.engine.set(false, 0, 0);
     this.post.render();

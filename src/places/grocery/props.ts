@@ -363,7 +363,7 @@ export function disguiseMesh(i: number): THREE.Group {
 export function lights(): THREE.Object3D {
   const g = new THREE.Group();
   for (const [x, z] of [[20, 58], [56, 58], [20, 80], [56, 80], [38, 96]]) {
-    const l = new THREE.PointLight(0xfff4e0, 60, 40, 1.2);
+    const l = new THREE.PointLight(0xfff4e0, 40, 40, 1.2);
     l.position.set(x, CEIL - 1.5, z);
     g.add(l);
   }
