@@ -167,6 +167,31 @@ const JOB_LOOKS: Partial<Record<JobName, (r: Rng) => Partial<PersonSpec>>> = {
     accent: pick(r, [0xff7a1a, 0xd8f02a]), bottoms: pick(r, DENIM), shoes: 0x8a5a2a, held: r() < 0.6 ? 'hammer' : 'none',
     build: pick(r, ['average', 'heavy'] as const), facial: r() < 0.4 ? pick(r, ['stubble', 'beard'] as const) : 'none',
   }),
+  // Airport staff (src/places/airport).
+  Pilot: (r) => ({
+    outfit: 'suit', hat: 'police', hatColor: 0x1e2a4a, top: 0x1e2a4a, accent: GOLD_C, bottoms: 0x1e2a4a, shoes: 0x111114,
+    glasses: r() < 0.5 ? 'sun' : 'none', held: r() < 0.4 ? 'briefcase' : 'none', hairStyle: pick(r, ['slick', 'short', 'buzz'] as const),
+  }),
+  'Flight Attendant': (r) => ({
+    outfit: 'suit', top: pick(r, [0xb02a2a, 0x2a4ab0]), accent: 0xf2f2f2, bottoms: pick(r, [0xb02a2a, 0x1e2a4a]),
+    lower: r() < 0.5 ? 'skirt' : 'pants', hairStyle: pick(r, ['bun', 'bun', 'slick', 'bob'] as const), extras: ['scarf'], shoes: 0x111114,
+  }),
+  'TSA Agent': (r) => ({
+    outfit: 'police', hat: 'none', top: pick(r, [0x4a6a9a, 0x5a7aa8]), accent: 0xc8c8d0, bottoms: 0x1e1e2a, shoes: 0x111114,
+    build: pick(r, ['average', 'heavy', 'heavy'] as const), held: 'none', glasses: r() < 0.3 ? 'round' : 'none',
+  }),
+  'Baggage Handler': (r) => ({
+    outfit: 'hiVis', hat: r() < 0.5 ? 'capBack' : 'none', hatColor: 0x2a2a30, top: pick(r, [0x3a3a3a, 0x2a3a5a]), accent: 0xff7a1a,
+    bottoms: pick(r, DENIM), shoes: 0x8a5a2a, extras: ['headphones'], build: pick(r, ['average', 'buff', 'heavy'] as const),
+  }),
+  'Ground Crew': (r) => ({
+    outfit: 'hiVis', hat: 'cap', hatColor: 0xff7a1a, top: pick(r, [0xe8ecf2, 0x8a8a8a]), accent: 0xd8f02a,
+    bottoms: 0x3a3a3a, shoes: 0x1a1a1e, glasses: r() < 0.4 ? 'sun' : 'none',
+  }),
+  'Air Traffic Controller': (r) => ({
+    outfit: pick(r, ['polo', 'sweaterVest'] as const), top: pick(r, [0x5a7aa0, 0x6a6a5a, 0x8a5a6a]), accent: pick(r, SHIRTS),
+    bottoms: pick(r, [0x3a3a48, 0x6a6a6a]), extras: ['headphones'], glasses: r() < 0.6 ? 'round' : 'none', marks: ['eyebags'],
+  }),
 };
 
 const GOLD_C = 0xe8b830;
