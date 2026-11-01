@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import { RAPIER } from './physics';
 import { Sound } from './audio';
 import { FollowCam } from './camera';
+import { Atms, withdraw } from './economy';
+import { SkillBar, hasPassive, type SkillHost } from './skills';
+import { Combat } from './combat';
 import { Character } from './character';
 import {
   ADJUSTER_NOTES,
   DEATH_BY_ID,
   DENIAL_REASONS,
-  JOBS,
   Ledger,
   UNINSURED_LINES,
   isDeserving,
@@ -16,6 +18,8 @@ import {
 } from './deaths';
 import { Input } from './input';
 import { Npc } from './npc';
+import { LifeSystem } from './life';
+import { deathGossip, smallvilleLife } from './life/maps/smallville';
 import { Particles } from './particles';
 import { Player, PLAYER_CENTER, type LandEvent } from './player';
 import { Props } from './props';
@@ -24,9 +28,6 @@ import { G, SIZE, buildTown, inBox, type TownInfo } from './town';
 import { HOMETOWN_DEATHS, Hometown } from './hometown';
 import { UI } from './ui';
 import { mulberry32, pick, type Rng } from './util';
-
-/** How many townspeople walk around Smallville. */
-const TOWN_POPULATION = 44;
 
 type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing';
 
@@ -70,7 +71,11 @@ export class Game {
   private player: Player;
   private character: Character | null = null;
   private body: PersonFile | null = null;
-  private npcs: Npc[] = [];
+  private life!: LifeSystem;
+  /** Townsfolk bodies (owned by the life system). */
+  private get npcs(): Npc[] {
+    return this.life.npcs;
+  }
   private ragdolls: Ragdoll[] = [];
   private pancakes: THREE.Object3D[] = [];
   private activeRagdoll: Ragdoll | null = null;
@@ -98,8 +103,22 @@ export class Game {
   private pendingDeath: { id: string; victim: PersonFile; startPos: THREE.Vector3 } | null = null;
   private crosshair: HTMLElement;
   private hornCooldown = 0;
-  private npcRespawnT = 0;
   private hometown: Hometown;
+  private atms!: Atms;
+  private skillBar = new SkillBar();
+  private combat!: Combat;
+  private skillHost!: SkillHost;
+  /** Effect timers (real seconds) from skills. */
+  private slowmoT = 0;
+  private slowmoScale = 1;
+  private hueT = 0;
+  private numbT = 0;
+  private trainHold = 0;
+  private payoutMul = 1;
+  private payoutWhy = '';
+  private withdrawn = 0;
+  private beam: THREE.Mesh | null = null;
+  private beamT = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -152,6 +171,10 @@ export class Game {
     this.town = buildTown();
     this.town.world.build(this.scene, this.physics);
     this.props = new Props(this.scene, this.physics, this.town);
+    this.atms = new Atms(this.scene, this.physics, this.town.world, this.town.areas.downtown, this.props.interactables);
+    this.combat = this.makeCombat();
+    this.skillHost = this.makeSkillHost();
+    this.ui.onSkillClick = (i) => this.useSkill(i);
     this.particles = new Particles(this.scene);
     registerDeaths(HOMETOWN_DEATHS);
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -241,47 +264,28 @@ export class Game {
   }
 
   private spawnInitialNpcs() {
-    const a = this.town.areas;
-    const plan: [keyof typeof a, (typeof JOBS)[number] | undefined][] = [
-      ['downtown', undefined],
-      ['downtown', 'Diner Cook'],
-      ['downtown', undefined],
-      ['park', undefined],
-      ['park', 'Retiree'],
-      ['farm', 'Farmhand'],
-      ['farm', 'Farmhand'],
-      ['woods', undefined],
-      ['tower', 'Construction Worker'],
-      ['garage', 'Mechanic'],
-      ['downtown', undefined],
-      ['station', 'Cop'],
-      ['station', 'Cop'],
-      ['construction', 'Construction Worker'],
-    ];
-    plan.forEach(([area, job], i) => {
-      const n = new Npc(this.scene, this.town.world, a[area], mulberry32(500 + i * 77 + (Date.now() % 1000)), job);
-      if (i === 1) {
-        n.file.peanutAllergy = true;
-        n.file.quirk = 'Has a peanut allergy. Like, a bad one.';
-      }
-      if (i === 2) n.file.daysLeft = 2; // always at least one fair mark nearby
-      if (i === 8) {
-        n.file.physical = 'Athlete'; // someone who can do the water tower long jump
-        n.file.age = 27;
-        n.file.daysLeft = 12;
-      }
-      if (i === 4) n.file.physical = 'Feeble';
-      this.npcs.push(n);
+    this.life = new LifeSystem(this.scene, smallvilleLife(this.town), {
+      seed: 500 + (Date.now() % 1000),
+      blip: () => this.sound.blip(0.6),
     });
-    // Fill the bigger town: a few more people in every neighborhood.
-    while (this.npcs.length < TOWN_POPULATION) this.spawnRandomNpc();
-  }
-
-  private spawnRandomNpc() {
-    const keys = Object.keys(this.town.areas);
-    const key = pick(this.rng, keys);
-    const area = this.town.areas[key];
-    this.npcs.push(new Npc(this.scene, this.town.world, area, mulberry32(Math.floor(this.rng() * 1e9)), key === 'station' ? 'Cop' : undefined));
+    this.life.populate();
+    // Guarantee a few marks for the demo's deaths.
+    const byJob = (job: string) => this.npcs.filter((n) => n.file.job === job);
+    const cook = byJob('Diner Cook')[0];
+    if (cook) {
+      cook.file.peanutAllergy = true;
+      cook.file.quirk = 'Has a peanut allergy. Like, a bad one.';
+    }
+    const due = this.npcs[2];
+    if (due) due.file.daysLeft = 2; // always at least one fair mark nearby
+    const worker = byJob('Construction Worker')[0];
+    if (worker) {
+      worker.file.physical = 'Athlete'; // someone who can do the water tower long jump
+      worker.file.age = 27;
+      worker.file.daysLeft = 12;
+    }
+    const old = byJob('Retiree')[0];
+    if (old) old.file.physical = 'Feeble';
   }
 
   private wirePlayerHooks() {
@@ -332,6 +336,14 @@ export class Game {
     this.hometown.onBody(file);
     this.barnTries = 0;
     this.stationVisits = 0;
+    this.skillBar.setBody(file);
+    this.combat.setBody(file);
+    this.withdrawn = 0;
+    this.payoutMul = 1;
+    this.payoutWhy = '';
+    this.player.boostT = 0;
+    this.player.floatT = 0;
+    this.ui.setSkills(this.skillBar, this.input.padConnected);
     this.ui.setHud(this.ledger, file);
   }
 
@@ -342,6 +354,10 @@ export class Game {
     this.player.setEnabled(false);
     this.body = null;
     this.character = null;
+    this.skillBar.setBody(null);
+    this.combat.setBody(null);
+    this.ui.setSkills(null);
+    this.ui.setHealth(null);
     if (first) this.cam.dist = 8;
     this.cam.autoOrbit = 0;
     this.sound.setStyle('ghost');
@@ -379,14 +395,12 @@ export class Game {
           this.ghost.visible = false;
           this.ghost.scale.setScalar(1);
           this.ui.flash('#c9b8ff', 400);
-          const idx = this.npcs.indexOf(n);
-          if (idx >= 0) this.npcs.splice(idx, 1);
+          this.life.take(n);
           this.scene.remove(n.character.root);
           const facing = n.character.root.rotation.y;
           this.setBody(n.file, n.character, n.pos.clone(), facing);
           this.sound.setStyle('town');
           this.mode = 'play';
-          this.npcRespawnT = 4;
           if (!this.helpShown) {
             this.helpShown = true;
             this.ui.toggleHelp();
@@ -417,12 +431,17 @@ export class Game {
     this.ui.setHueShift(0);
     const victim = this.body;
     const ch = this.character;
+    ch.setExpression('dead');
     this.player.setEnabled(false);
     this.pendingDeath = { id, victim, startPos: this.player.position() };
     this.timeScale = 0.35;
+    this.slowmoT = 0;
+    this.hueT = 0;
+    this.combat.releaseAll();
+    this.ui.setHealth(null);
 
     if (style.kind === 'cube') {
-      ch.root.scale.set(ch.app.height * 1.1, ch.app.height * 0.45, ch.app.height * 1.1);
+      ch.root.scale.set(ch.baseScale * 1.1, ch.baseScale * 0.45, ch.baseScale * 1.1);
       ch.spinner.rotation.set(0, 0, 0);
       ch.tint(0xe3c25a, 0.7);
       ch.root.position.copy(this.town.baler).add(new THREE.Vector3(-1.6, 0, 0));
@@ -432,7 +451,7 @@ export class Game {
       this.particles.burst(ch.root.position.clone().add(new THREE.Vector3(0, 0.5, 0)), 40, 0xe3c25a, 6, { life: 1.4, size: 0.18 });
       this.activeRagdoll = null;
     } else if (style.kind === 'pancake') {
-      ch.root.scale.set(ch.app.height * 1.7, ch.app.height * 0.08, ch.app.height * 1.7);
+      ch.root.scale.set(ch.baseScale * 1.7, ch.baseScale * 0.08, ch.baseScale * 1.7);
       ch.root.position.y = this.player.feet().y + 0.02;
       ch.spinner.rotation.set(0, 0, 0);
       this.pancakes.push(ch.root);
@@ -450,6 +469,8 @@ export class Game {
       if (this.ragdolls.length > 6) this.ragdolls.shift()!.dispose();
     }
     this.character = null;
+    this.life.closeTalk();
+    this.life.event({ kind: 'death', at: this.player.position(), victim, what: deathGossip(id, def.name), where: def.location });
     this.ui.toast(def.name.toUpperCase(), def.category, 2600);
     this.runSeq([
       { at: 1.4, fn: () => (this.timeScale = 1) },
@@ -477,8 +498,9 @@ export class Game {
     } else if (!mult) {
       note = pick(this.rng, UNINSURED_LINES);
     } else {
-      total = Math.round((def.payout + bonus) * mult);
+      total = Math.round((def.payout + bonus) * mult * this.payoutMul);
       note = pick(this.rng, ADJUSTER_NOTES);
+      if (this.payoutMul > 1) note += ` (${this.payoutWhy}: paid x${this.payoutMul}.)`;
     }
     const isNew = !already;
     this.ledger.claimNo++;
@@ -542,7 +564,12 @@ export class Game {
       ch.kick(0.15 + heavy * 0.4);
       if (e.drop > 3) this.particles.burst(this.player.feet(), 8, 0xcdbf9a, 3, { life: 0.5, size: 0.2, gravity: 6 });
     }
-    const [breakH, fatalH] = this.player.tier === 'Feeble' ? [3.5, 7] : this.player.tier === 'Athlete' ? [6, 11] : [5, 9];
+    let [breakH, fatalH] = this.player.tier === 'Feeble' ? [3.5, 7] : this.player.tier === 'Athlete' ? [6, 11] : [5, 9];
+    if (this.body && hasPassive(this.body, 'hardhat')) fatalH += 2;
+    if (this.numbT > 0) {
+      breakH += 3;
+      fatalH += 3;
+    }
     if (e.drop >= breakH && e.drop < fatalH && this.mode === 'play' && !this.player.legsBroken && e.landState !== 'groundpound') {
       this.player.breakLegs();
       this.sound.crunch();
@@ -586,6 +613,19 @@ export class Game {
     const ch = this.character;
     if (!ch || !this.body) return;
     if (this.hometown.interact(id)) return;
+    if (id.startsWith('atm:')) {
+      const r = withdraw(this.body, this.withdrawn);
+      this.ui.toast(r.title, r.sub, 3200);
+      if (r.ok) {
+        this.withdrawn += r.amount;
+        this.addMoney(r.amount);
+        this.sound.cash();
+        const it = this.props.interactables.find((x) => x.id === id);
+        if (it) this.particles.burst(it.pos.clone().add(new THREE.Vector3(0, 1.2, 0)), 14, 0x55d16a, 3, { life: 0.9, size: 0.16 });
+        if (this.rng() < 0.25) setTimeout(() => this.ui.say('Death', "You know you can't take it with you. Oh wait. You literally can.", 3200), 600);
+      } else this.sound.denied();
+      return;
+    }
     if (id === 'barndoor') {
       if (this.body.job === 'Farmhand') {
         this.ui.toast('Door is open', "You're the farmer. Walk right in.", 1600);
@@ -733,6 +773,176 @@ export class Game {
     ]);
   }
 
+  // ---------------------------------------------------------------- money, skills, fighting
+  private addMoney(n: number) {
+    this.ledger.balance += n;
+    this.ledger.total += n;
+    this.ledger.save();
+    this.ui.setHud(this.ledger, this.body);
+  }
+
+  private useSkill(i: number) {
+    if (this.mode !== 'play' || !this.body || this.player.state === 'locked') return;
+    this.skillBar.selected = i;
+    const r = this.skillBar.use(i, this.skillHost, performance.now());
+    this.ui.pulseSkill(i, r.ok);
+    if (!r.ok && r.reason) {
+      this.ui.toast(this.skillBar.slots[i]?.skill?.name ?? 'Locked', r.reason, 1600);
+      this.sound.denied();
+    }
+  }
+
+  private updateEffects(realDt: number) {
+    if (this.slowmoT > 0) {
+      this.slowmoT -= realDt;
+      if (this.mode === 'play') this.timeScale = this.slowmoT > 0 ? this.slowmoScale : 1;
+    }
+    if (this.hueT > 0) {
+      this.hueT -= realDt;
+      if (this.mode === 'play') this.ui.setHueShift(this.hueT > 0 ? (this.time * 120) % 360 : 0);
+    }
+    this.numbT -= realDt;
+    this.trainHold -= realDt;
+    if (this.beam) {
+      this.beamT -= realDt;
+      const m = this.beam.material as THREE.MeshBasicMaterial;
+      m.opacity = Math.max(0, Math.min(0.45, this.beamT * 0.4)) * (0.8 + Math.sin(this.time * 8) * 0.2);
+      if (this.beamT <= 0) {
+        this.scene.remove(this.beam);
+        this.beam.geometry.dispose();
+        m.dispose();
+        this.beam = null;
+      }
+    }
+  }
+
+  private revealNearestHazard(seconds: number) {
+    const p = this.player.feet();
+    let best: THREE.Vector3 | null = null;
+    let bd = Infinity;
+    const cands = this.props.interactables.filter((it) => it.enabled && !it.id.startsWith('atm')).map((it) => it.pos);
+    const t = this.town;
+    const center = (b: { min: THREE.Vector3; max: THREE.Vector3 }) => b.min.clone().add(b.max).multiplyScalar(0.5);
+    cands.push(center(t.treeZone), center(t.towerZone), new THREE.Vector3(p.x, G, t.trackZ + 0.5));
+    for (const c of cands) {
+      const d = Math.hypot(c.x - p.x, c.z - p.z);
+      if (d > 2.5 && d < bd) {
+        bd = d;
+        best = c;
+      }
+    }
+    if (!best) return false;
+    if (this.beam) this.scene.remove(this.beam);
+    this.beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.9, 0.9, 80, 12, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0x9a7cff, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    this.beam.position.set(best.x, G + 40, best.z);
+    this.scene.add(this.beam);
+    this.beamT = seconds;
+    return true;
+  }
+
+  private makeSkillHost(): SkillHost {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const g = this;
+    return {
+      get body() {
+        return g.body!;
+      },
+      get player() {
+        return g.player;
+      },
+      feet: () => this.player.feet(),
+      toast: (a, b, ms) => this.ui.toast(a, b, ms),
+      say: (who, line, ms) => this.ui.say(who, line, ms),
+      addMoney: (n) => this.addMoney(n),
+      burst: (pos, n, color, speed, opts) => this.particles.burst(pos, n, color, speed, opts),
+      sfx: (name) => {
+        if (name === 'scream') this.sound.scream(1.1);
+        else this.sound[name]();
+      },
+      slowmo: (sec, scale) => {
+        this.slowmoT = sec;
+        this.slowmoScale = scale;
+        this.timeScale = scale;
+      },
+      hueTrip: (sec) => (this.hueT = sec),
+      gather: (n, radius, onArrive) => {
+        const p = this.player.feet();
+        const near = this.npcs
+          .filter((x) => !x.helping && !x.controlled && !x.away && x.pos.distanceTo(p) < radius)
+          .sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p))
+          .slice(0, n);
+        let first = true;
+        for (const x of near)
+          x.summon(this.player.feet(), () => {
+            if (first && this.mode === 'play') onArrive(x.file.name);
+            first = false;
+          });
+        return near.length;
+      },
+      nearbyCount: (r) => this.npcs.filter((x) => x.pos.distanceTo(this.player.feet()) < r).length,
+      pauseTrain: (sec) => {
+        if (!this.props.train.moving) return false;
+        this.trainHold = sec;
+        this.sound.horn();
+        return true;
+      },
+      revealNearestHazard: (sec) => this.revealNearestHazard(sec),
+      numb: (sec) => (this.numbT = sec),
+      payoutBonus: (mult, why) => {
+        this.payoutMul = Math.max(this.payoutMul, mult);
+        this.payoutWhy = why;
+      },
+      heal: (hp) => this.combat.heal(hp),
+      godAnger: (d) => {
+        this.ledger.godAnger = Math.max(0, this.ledger.godAnger + d);
+        this.ledger.save();
+        this.ui.setHud(this.ledger, this.body);
+      },
+      godAngerLevel: () => this.ledger.godAnger,
+      trigger: (id) => this.interact(id),
+    };
+  }
+
+  private makeCombat() {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const g = this;
+    return new Combat({
+      npcs: () => this.life.visibleNpcs(),
+      get player() {
+        return g.player;
+      },
+      character: () => this.character,
+      body: () => this.body,
+      playing: () => this.mode === 'play' && !!this.body,
+      hit: (kind) => {
+        if (kind === 'whiff') this.sound.whoosh();
+        else if (kind === 'punch') {
+          this.sound.noise({ dur: 0.09, vol: 0.7, freq: 500, type: 'lowpass', q: 1 });
+          this.sound.tone({ f: 140, f2: 60, dur: 0.1, type: 'square', vol: 0.25 });
+        } else if (kind === 'hurt') {
+          this.sound.noise({ dur: 0.12, vol: 0.8, freq: 350, type: 'lowpass', q: 1 });
+          this.sound.tone({ f: 220, f2: 90, dur: 0.15, type: 'sawtooth', vol: 0.2 });
+        } else {
+          this.sound.tone({ f: 900, f2: 300, dur: 0.5, type: 'triangle', vol: 0.3 });
+          this.sound.crunch();
+        }
+      },
+      shake: (a) => this.cam.shake(a),
+      burst: (pos, n, color, speed, opts) => this.particles.burst(pos, n, color, speed, opts),
+      say: (who, line, ms) => this.ui.say(who, line, ms),
+      hurtFlash: () => this.ui.flash('#ff2020', 260),
+      died: (by) => {
+        const frail = by.file.physical === 'Feeble' || by.file.job === 'Retiree';
+        const away = this.player.feet().sub(by.pos).setY(0).normalize();
+        this.kill(frail ? 'grandma' : 'brawl', { kind: 'ragdoll', vel: new THREE.Vector3(away.x * 10, 9, away.z * 10), spin: 12, bounce: 0.5 });
+        if (frail) setTimeout(() => this.ui.say('Death', `Beaten to death by ${by.file.name}, age ${by.file.age}. I'm putting this one on the fridge.`, 4000), 1500);
+      },
+    });
+  }
+
   private scream() {
     if (!this.character || performance.now() < this.screamCooldown) return;
     this.screamCooldown = performance.now() + 1500;
@@ -740,7 +950,7 @@ export class Game {
     this.character.kick(-0.3);
     const p = this.player.feet();
     const near = this.npcs
-      .filter((n) => !n.helping && n.pos.distanceTo(p) < 28)
+      .filter((n) => !n.helping && !n.away && !n.controlled && n.pos.distanceTo(p) < 28)
       .sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p))
       .slice(0, 2);
     if (!near.length) {
@@ -814,6 +1024,7 @@ export class Game {
     // Peeing.
     if (this.input.held('pee') && this.player.grounded && (this.player.state === 'ground' || this.player.state === 'locked')) {
       this.peeTime += dt;
+      if (this.peeTime >= 0.4 && this.peeTime - dt < 0.4) this.life.event({ kind: 'pee', at: this.player.feet(), radius: 12 });
       const fd = new THREE.Vector3(Math.sin(this.player.facing), 0, Math.cos(this.player.facing));
       const origin = this.player.feet().add(new THREE.Vector3(0, 0.75, 0)).addScaledVector(fd, 0.3);
       for (let i = 0; i < 2; i++)
@@ -906,12 +1117,12 @@ export class Game {
     while (this.acc >= h && steps < 5) {
       if (this.mode === 'play' || this.mode === 'dying') {
         if (this.mode === 'play' && this.character) {
-          const peeing = inp.held('pee') && this.player.grounded;
+          const peeing = (inp.held('pee') && this.player.grounded) || this.life.isTalking;
           this.player.update(h, {
             moveX: peeing || this.ui.ledgerOpen ? 0 : inp.moveX,
             moveY: peeing || this.ui.ledgerOpen ? 0 : inp.moveY,
             camYaw: this.cam.yaw,
-            jumpPressed: first && this.latched.jump,
+            jumpPressed: first && this.latched.jump && !this.life.isTalking,
             jumpHeld: inp.held('jump'),
             crouchHeld: inp.held('crouch'),
             crouchPressed: first && this.latched.crouch,
@@ -921,7 +1132,7 @@ export class Game {
           });
         }
       }
-      this.props.train.update(h);
+      if (this.trainHold <= 0) this.props.train.update(h);
       this.props.bale.update(h);
       this.hometown.step(h);
       this.physics.step();
@@ -935,7 +1146,13 @@ export class Game {
     if (steps === 5) this.acc = 0;
 
     for (const r of this.ragdolls) r.update();
-    for (const n of this.npcs) n.update(dt);
+    this.life.update(dt, {
+      camera: this.camera,
+      player: this.mode === 'play' && this.body ? { pos: this.player.feet(), file: this.body } : null,
+      menu: { up: inp.pressed('up'), down: inp.pressed('down'), confirm: inp.pressed('confirm'), back: inp.pressed('crouch') },
+    });
+    this.combat.update(dt);
+    this.updateEffects(realDt);
     this.props.update(dt, this.time);
     this.hometown.update(dt, this.time);
     this.particles.update(dt);
@@ -947,12 +1164,6 @@ export class Game {
         this.props.train.smokeTimer = 0.08;
         this.particles.emit(this.props.train.smokePos(), new THREE.Vector3(-4, 4, 0), 0xdddddd, { life: 1.6, size: 0.6, gravity: -1, spread: 1 });
       }
-    }
-
-    // Keep the town populated.
-    if (this.npcRespawnT > 0) {
-      this.npcRespawnT -= dt;
-      if (this.npcRespawnT <= 0 && this.npcs.length < TOWN_POPULATION) this.spawnRandomNpc();
     }
 
     // Mode-specific per-frame logic and camera.
@@ -968,10 +1179,23 @@ export class Game {
         stateTime: this.player.stateTime,
         airTime: this.player.airTime,
       });
-      const it = this.player.state !== 'locked' ? this.nearestInteractable() : null;
-      this.ui.prompt(it ? `<span class="key">E</span>${it.prompt}` : null);
+      const free = this.player.state !== 'locked' && !this.life.isTalking;
+      const it = free ? this.nearestInteractable() : null;
+      const who = free && !it && this.player.grounded ? this.life.talkable(feet) : null;
+      this.ui.prompt(it ? `<span class="key">E</span>${it.prompt}` : who ? `<span class="key">E</span>Talk to ${who.file.name.split(' ')[0]}` : null);
       if (it && inp.pressed('interact')) this.interact(it.id);
+      else if (who && inp.pressed('interact') && this.body) this.life.talkTo(who, this.body, feet);
       if (inp.pressed('scream') && this.player.state !== 'locked') this.scream();
+      if (inp.pressed('punch') && !this.ui.ledgerOpen) this.combat.punch();
+      (['skill1', 'skill2', 'skill3', 'skill4', 'skill5'] as const).forEach((b, i) => {
+        if (inp.pressed(b)) this.useSkill(i);
+      });
+      if (inp.pressed('up')) this.skillBar.selected = (this.skillBar.selected + 4) % 5;
+      if (inp.pressed('down')) this.skillBar.selected = (this.skillBar.selected + 1) % 5;
+      if (inp.pressed('skillUse')) this.useSkill(this.skillBar.selected);
+      this.ui.setSkills(this.skillBar, inp.padConnected);
+      this.ui.updateSkills(this.skillBar, performance.now(), inp.padConnected);
+      this.ui.setHealth(this.combat.hp, this.combat.maxHp);
       const eyeH = this.player.state === 'crawl' ? 0.6 : this.player.state === 'crouch' ? 1.1 : 1.65;
       this.cam.update(realDt, feet.clone().add(new THREE.Vector3(0, 1.6, 0)), lookDX, lookDY, feet.clone().add(new THREE.Vector3(0, eyeH, 0)));
       ch.root.visible = !this.cam.firstPerson;
@@ -1027,6 +1251,7 @@ export class Game {
     let best: Npc | null = null;
     let bestScore = Infinity;
     for (const n of this.npcs) {
+      if (n.away) continue;
       const to = n.pos.clone().add(new THREE.Vector3(0, 1, 0)).sub(camPos);
       const d = to.length();
       if (d > 45) continue;
