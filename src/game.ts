@@ -37,6 +37,8 @@ import { DOOR_OUT, HALF, RIDE } from './vehicles/carModel';
 import { carSfx, EngineSound } from './vehicles/carSound';
 import { smallvillePois, smallvilleTraffic } from './vehicles/smallville';
 import { StoryDirector } from './story/director';
+import { TitleMenu, type DevMap } from './titlemenu';
+import { loadOptions, saveOptions, type Options } from './options';
 
 type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing';
 
@@ -95,6 +97,8 @@ export class Game {
   private latched = { jump: false, crouch: false, dive: false };
   /** The yaw WASD moves relative to. Frozen while left mouse orbits the camera, so looking around doesn't steer. */
   private moveYaw = 0;
+  private title: TitleMenu | null = null;
+  readonly options: Options = loadOptions();
   private barnTries = 0;
   private stationVisits = 0;
   private deniedToastT = 0;
@@ -261,7 +265,24 @@ export class Game {
     this.cam.snap(new THREE.Vector3(90, G + 6, 80));
 
     this.story.onPause = (p) => this.sound.duck(p);
-    this.ui.showTitle(() => this.start());
+    this.title = new TitleMenu(document.getElementById('ui')!, {
+      hasSave: () => this.ledger.foundCount > 0 || this.ledger.total > 0 || this.story.hasSeen('opening'),
+      newGame: () => {
+        this.eraseProgress();
+        this.start('new');
+      },
+      continueGame: () => this.start('continue'),
+      devMaps: () => this.devMaps(),
+      devStart: (id) => this.start('dev', id),
+      options: this.options,
+      optionsChanged: () => this.applyOptions(),
+      eraseSave: () => this.eraseProgress(),
+      blip: () => {
+        this.sound.init();
+        this.sound.blip(0.8);
+      },
+    });
+    this.applyOptions();
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
@@ -416,12 +437,42 @@ export class Game {
     );
   }
 
-  private start() {
+  /** Maps Dev Mode can jump to. The map loader extends this list. */
+  devMaps(): DevMap[] {
+    return [{ id: 'smallville', name: 'Smallville', note: 'Hometown' }];
+  }
+
+  /** Dev Mode: load a map by id. Smallville is already loaded; the map loader overrides this. */
+  protected loadDevMap(_id: string) {}
+
+  private applyOptions() {
+    this.sound.setVolumes(this.options.music, this.options.sfx);
+    saveOptions(this.options);
+  }
+
+  private eraseProgress() {
+    this.ledger.reset();
+    this.story.forget();
+    this.ui.setHud(this.ledger, null);
+  }
+
+  private start(how: 'new' | 'continue' | 'dev' = 'continue', mapId = 'smallville') {
+    this.title?.close();
     this.sound.init();
+    this.applyOptions();
     this.sound.startMusic();
     this.input.requestLock();
     this.cam.autoOrbit = 0;
     const go = () => this.enterGhost(this.start0.clone(), true);
+    if (how === 'dev') {
+      this.loadDevMap(mapId);
+      go();
+      return;
+    }
+    if (how === 'new') {
+      void this.story.opening(true).then(go);
+      return;
+    }
     // ?cutscene=<id> replays one scene (e.g. opening, smallville:25) for testing.
     const forced = new URLSearchParams(location.search).get('cutscene');
     if (forced) void this.story.replay(forced).then(go);
@@ -1618,21 +1669,27 @@ export class Game {
     if (this.story.active) return;
     const inp = this.input;
 
-    if (inp.pressed('music')) this.sound.toggleMusic();
+    if (this.mode === 'title' && this.title?.open) {
+      if (inp.pressed('menuUp')) this.title.nav('up');
+      if (inp.pressed('menuDown')) this.title.nav('down');
+      if (inp.pressed('menuLeft')) this.title.nav('left');
+      if (inp.pressed('menuRight')) this.title.nav('right');
+      if (inp.pressed('confirm')) this.title.nav('confirm');
+      if (inp.pressed('back')) this.title.nav('back');
+    } else if (inp.pressed('music')) this.sound.toggleMusic();
     if (inp.pressed('help')) this.ui.toggleHelp();
     if (inp.pressed('ledger') && this.mode !== 'title') this.ui.toggleLedger(this.ledger);
     if (this.mode === 'claim' && inp.pressed('confirm')) this.ui.pendingClaim?.();
-    if (this.mode === 'title' && inp.pressed('confirm')) this.ui.titleGo?.();
     this.ui.setPadMode(inp.padConnected);
 
-    const mouseSens = 0.0032;
+    const mouseSens = 0.0032 * this.options.sens;
     if (this.mode === 'play' || this.mode === 'ghost') this.cam.zoom(inp.wheel);
     this.cam.minDist = this.mode === 'dying' || this.mode === 'claim' ? 6 : 0;
     // Right mouse (or first person) makes the character face where the camera looks.
     const steer = inp.rmb || this.cam.firstPerson;
     if (!(inp.lmb && !inp.rmb && !this.cam.firstPerson)) this.moveYaw = this.cam.yaw;
     const lookDX = inp.mouseDX * mouseSens + inp.lookX * realDt * 2.6;
-    const lookDY = inp.mouseDY * mouseSens + inp.lookY * realDt * 2;
+    const lookDY = (inp.mouseDY * mouseSens + inp.lookY * realDt * 2) * (this.options.invertY ? -1 : 1);
 
     const dt = realDt * this.timeScale;
     this.time += dt;
