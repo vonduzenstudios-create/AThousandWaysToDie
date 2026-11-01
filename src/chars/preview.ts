@@ -107,7 +107,8 @@ function grid() {
   const n = cells.length;
   const cols = n === 1 ? 1 : innerWidth > innerHeight ? 6 : 3;
   const rows = Math.ceil(n / cols);
-  const top = 50;
+  const bar = document.getElementById('bar');
+  const top = bar ? bar.getBoundingClientRect().bottom + 8 : 50;
   return { cols, rows, w: innerWidth / cols, h: (innerHeight - top) / rows, top };
 }
 function layoutLabels() {
