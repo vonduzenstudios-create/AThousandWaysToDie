@@ -50,6 +50,8 @@ export class Car {
   pathKind: 'lane' | 'turn' = 'lane';
   s = 0;
   next: LaneEdge | null = null;
+  /** Cached curve through the next intersection. */
+  turn: Path | null = null;
   holding: RoadNode | null = null;
   cruise = 12;
   blockedT = 0;
@@ -59,6 +61,8 @@ export class Car {
   /** Blown up: charred and smoking, can't be driven. */
   burnt = false;
   screechT = 0;
+  /** What traffic AI last braked for (debugging and honking). */
+  blockedBy: 'car' | 'person' | 'line' | null = null;
 
   // Driving state.
   airborne = false;
@@ -159,7 +163,7 @@ export class Car {
   /** Switch to full physics. Used when hijacked or rammed. */
   makeDynamic(mode: 'driven' | 'wreck', vel?: THREE.Vector3) {
     const v = vel ?? this.velocity();
-    if (this.holding) this.holding.holder = null;
+    this.holding?.holders.delete(this.id);
     this.holding = null;
     this.mode = mode;
     if (this.vc) return;
@@ -286,7 +290,7 @@ export class Car {
   }
 
   dispose() {
-    if (this.holding) this.holding.holder = null;
+    this.holding?.holders.delete(this.id);
     if (this.vc) this.physics.removeVehicleController(this.vc);
     this.physics.removeRigidBody(this.body);
     this.scene.remove(this.model.root);

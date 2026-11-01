@@ -38,8 +38,8 @@ export interface RoadNode {
   out: LaneEdge[];
   /** Road width at this node (widest road touching it). */
   width: number;
-  /** Car currently crossing this intersection, if any. */
-  holder: number | null;
+  /** Cars crossing this intersection right now, with the curve each one is driving. */
+  holders: Map<number, Path>;
 }
 
 /** One direction of one road segment between two nodes, offset to its right-hand lane. */
@@ -127,7 +127,7 @@ export class RoadGraph {
         n.width = Math.max(n.width, width);
         return n;
       }
-    const n: RoadNode = { id: this.nodes.length, pos: p.clone(), out: [], width, holder: null };
+    const n: RoadNode = { id: this.nodes.length, pos: p.clone(), out: [], width, holders: new Map() };
     this.nodes.push(n);
     return n;
   }
@@ -140,7 +140,8 @@ export class RoadGraph {
   /** How far from a node the straight lane stops and the turn curve begins. */
   setback(n: RoadNode) {
     if (n.out.length === 1) return 0;
-    return this.isJunction(n) ? n.width / 2 + 0.5 : 2.5;
+    // At a junction the lane stops far enough back that a waiting car's nose stays out of the crossing.
+    return this.isJunction(n) ? n.width / 2 + 3.2 : 2.5;
   }
 
   /** The straight lane path for an edge, offset to the right-hand side. */
@@ -172,6 +173,17 @@ export class RoadGraph {
     const db = new THREE.Vector3().subVectors(b.to.pos, b.from.pos).normalize();
     const c = lineMeet(p0, da, p2, db) ?? p0.clone().lerp(p2, 0.5);
     return bezier(p0, c, p2, 10);
+  }
+
+  /** Can a car start this turn through the junction while the cars already in it finish theirs? */
+  canEnter(n: RoadNode, id: number, turn: Path) {
+    for (const [other, p] of n.holders) {
+      if (other === id) continue;
+      // Cars coming from the same lane just follow each other through.
+      if (turn.pts[0].distanceTo(p.pts[0]) < 0.5) continue;
+      if (pathsClash(turn, p)) return false;
+    }
+    return true;
   }
 
   /** Total lane length, for picking how many cars to spawn. */
@@ -216,4 +228,10 @@ function crossXZ(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.
   const eps = 0.02;
   if (t < -eps || t > 1 + eps || u < -eps || u > 1 + eps) return null;
   return { t, u, p: new THREE.Vector3(a.x + r.x * t, a.y + (b.y - a.y) * t, a.z + r.z * t) };
+}
+
+/** True if two curves come within a car's width of each other anywhere. */
+function pathsClash(a: Path, b: Path) {
+  for (const p of a.pts) for (const q of b.pts) if (Math.hypot(p.x - q.x, p.z - q.z) < 3.4) return true;
+  return false;
 }

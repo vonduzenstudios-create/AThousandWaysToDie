@@ -194,6 +194,16 @@ export class Game {
     this.particles = new Particles(this.scene);
     this.traffic = new Traffic(this.scene, this.physics, smallvilleTraffic());
     this.traffic.onHonk = (car, tag) => this.onHonk(car, tag);
+    this.traffic.onShoo = (car, tag) => {
+      // The honked-at townsperson hops out of the lane.
+      const n = this.npcs[Number(tag?.split(':')[1])];
+      if (!n) return;
+      const r = car.toWorld(new THREE.Vector3(-1, 0, 0)).sub(car.pos).setY(0).normalize();
+      const lat = r.dot(n.pos.clone().sub(car.pos));
+      const side = lat >= 0 ? 1 : -1;
+      n.pos.addScaledVector(r, side * 3 - lat);
+      n.character.kick(0.6);
+    };
     this.minimap = new Minimap(document.getElementById('ui')!);
     this.minimap.setWorld(this.town.world, 'Smallville', G);
     this.minimap.setVisible(false);
@@ -988,7 +998,7 @@ export class Game {
   private checkHazards(dt: number) {
     if (this.mode !== 'play' || !this.character) return;
     const p = this.player.position();
-    const hit = this.traffic.hitTest(p, 0.3, 4);
+    const hit = this.traffic.hitTest(p, 0.8, 4); // the capsule gets shoved ahead of the bumper, so reach a little past it
     if (hit) {
       this.sound.splat();
       carSfx.horn(this.sound);
@@ -1085,7 +1095,9 @@ export class Game {
   private buildObstacles() {
     const o = this.obstacles;
     o.length = 0;
-    for (const n of this.npcs) if (!n.away) o.push({ pos: n.pos, person: true });
+    this.npcs.forEach((n, i) => {
+      if (!n.away) o.push({ pos: n.pos, person: true, tag: `npc:${i}` });
+    });
     if (this.mode === 'play' && !this.driving && this.character) o.push({ pos: this.player.feet(), person: true, tag: 'player' });
     const tr = this.props.train;
     // The train and where it will be in the next couple of seconds, like a crossing gate.

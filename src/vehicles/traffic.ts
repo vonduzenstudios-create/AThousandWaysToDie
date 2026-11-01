@@ -3,7 +3,7 @@ import type { RAPIER } from '../physics';
 import { mulberry32, type Rng } from '../util';
 import { Car } from './car';
 import { HALF, RIDE } from './carModel';
-import { RoadGraph, type LaneEdge, type TrafficConfig } from './roads';
+import { RoadGraph, type LaneEdge, type Path, type TrafficConfig } from './roads';
 
 /** Something traffic should not drive through (a person, a train car). */
 export interface Obstacle {
@@ -14,7 +14,7 @@ export interface Obstacle {
   tag?: string;
 }
 
-const ACCEL = 5;
+const ACCEL = 7;
 const BRAKE = 16;
 const LOOK = 38;
 const MAX_WRECKS = 6;
@@ -34,6 +34,8 @@ export class Traffic {
   private cruise: number;
   /** Called when a traffic car leans on the horn. `tag` is the obstacle that's in the way. */
   onHonk: ((car: Car, tag: string | undefined) => void) | null = null;
+  /** Called when a car has waited a while for someone (not the player) standing in the road. */
+  onShoo: ((car: Car, tag: string | undefined) => void) | null = null;
 
   constructor(
     private scene: THREE.Scene,
@@ -77,6 +79,7 @@ export class Traffic {
       car.pathKind = 'lane';
       car.s = s;
       car.next = this.chooseNext(e);
+      car.turn = null;
       car.cruise = this.cruise * (0.8 + this.rng() * 0.4);
       car.speed = anywhere ? car.cruise : car.cruise * 0.6;
       car.blockedT = 0;
@@ -85,6 +88,12 @@ export class Traffic {
       return car;
     }
     return null;
+  }
+
+  /** The curve this car will take at the end of its lane (cached). */
+  private turnFor(car: Car): Path {
+    if (!car.turn) car.turn = this.graph.turnPath(car.edge!, car.next!);
+    return car.turn;
   }
 
   private chooseNext(e: LaneEdge): LaneEdge {
@@ -113,8 +122,12 @@ export class Traffic {
     let gap = Infinity;
     let tag: string | undefined;
     let what: 'car' | 'person' | 'line' | null = null;
+    // A car crossing an intersection ignores cars waiting at its edge, and if it is still
+    // stuck after a while it creeps through anyway (a nudge beats gridlock).
+    const crossing = car.holding !== null;
     for (const o of this.cars) {
       if (o === car) continue;
+      if (crossing && (car.blockedT > 4 || (o.blockedBy === 'line' && o.speed < 0.5))) continue;
       const dx = o.pos.x - car.pos.x, dz = o.pos.z - car.pos.z;
       const along = dx * fwd.x + dz * fwd.z;
       if (along <= 0 || along > LOOK) continue;
@@ -143,8 +156,7 @@ export class Traffic {
     }
     // Wait at the line if someone else is crossing the intersection.
     if (car.pathKind === 'lane' && car.edge && car.path && this.graph.isJunction(car.edge.to)) {
-      const holder = car.edge.to.holder;
-      if (holder !== null && holder !== car.id) {
+      if (!this.graph.canEnter(car.edge.to, car.id, this.turnFor(car))) {
         const g = car.path.len - car.s - 0.5;
         if (g < gap) {
           gap = g;
@@ -174,6 +186,7 @@ export class Traffic {
   private stepTraffic(car: Car, h: number, obstacles: Obstacle[], player: THREE.Vector3) {
     if (!car.path || !car.edge || !car.next) return;
     const { gap, what, tag } = this.gapAhead(car, obstacles);
+    car.blockedBy = what;
     // Speed that still lets us stop before the gap closes.
     const safe = Math.sqrt(2 * BRAKE * 0.7 * Math.max(0, gap - 0.5));
     const want = Math.min(car.cruise, safe);
@@ -186,6 +199,7 @@ export class Traffic {
       if (what !== 'line' && car.blockedT > 1.2 && car.honkT <= 0) {
         car.honkT = 2 + this.rng() * 2;
         this.onHonk?.(car, tag);
+        if (what === 'person' && tag !== 'player') this.onShoo?.(car, tag);
       }
       // Stuck behind a wreck for ages: quietly move on, if nobody is watching.
       if (car.blockedT > 12 && car.pos.distanceTo(player) > 40) {
@@ -204,25 +218,27 @@ export class Traffic {
           return;
         }
         if (this.graph.isJunction(node)) {
-          if (node.holder !== null && node.holder !== car.id) {
+          if (!this.graph.canEnter(node, car.id, this.turnFor(car))) {
             car.s = car.path.len;
             car.speed = 0;
             break;
           }
-          node.holder = car.id;
+          node.holders.set(car.id, this.turnFor(car));
           car.holding = node;
         }
         car.s -= car.path.len;
-        car.path = this.graph.turnPath(car.edge, car.next);
+        car.path = this.turnFor(car);
+        car.turn = null;
         car.pathKind = 'turn';
       } else {
-        if (car.holding) car.holding.holder = null;
+        car.holding?.holders.delete(car.id);
         car.holding = null;
         car.s -= car.path.len;
         car.edge = car.next;
         car.path = this.graph.lanePath(car.edge);
         car.pathKind = 'lane';
         car.next = this.chooseNext(car.edge);
+        car.turn = null;
       }
     }
     car.path.at(car.s, _p, _t);
