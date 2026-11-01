@@ -12,6 +12,7 @@ import type { Sound } from '../audio';
 import type { Particles } from '../particles';
 import type { Input } from '../input';
 import type { Npc } from '../npc';
+import type { MapPoi } from '../mapscreen/pois';
 
 /**
  * The multi-map interface. Every place in the game (Smallville, the city, the beach,
@@ -165,6 +166,16 @@ export interface MapBuild {
   life?: unknown;
   /** Who lives here. Defaults to a few random people in each area. */
   npcs?: NpcSpawn[];
+  /**
+   * Extra points of interest for the full-screen map. The map already shows every life place
+   * (shops, workplaces, landmarks...), every stop, ramp and death spot; add anything else here.
+   */
+  pois?: MapPoi[];
+  /**
+   * Where deaths happen whose `location` doesn't match a place name: location -> a position,
+   * or the id of the place it belongs to. E.g. { 'Thunder Gorge Bridge': new Vector3(310, 0, 88) }.
+   */
+  deathSpots?: Record<string, { x: number; z: number } | string>;
   /** Add props, interactables and per-map logic after the voxels are built. */
   setup?(ctx: MapContext): MapRuntime;
 }

@@ -14,6 +14,7 @@ import {
   UNINSURED_LINES,
   isDeserving,
   registerMapDeaths,
+  mapOfDeath,
   type PersonFile,
 } from './deaths';
 import { Input } from './input';
@@ -54,6 +55,10 @@ import { StoryDirector } from './story/director';
 import { arrest, commit } from './maps/institutions/common';
 import { TitleMenu, type DevMap } from './titlemenu';
 import { loadOptions, saveOptions, type Options } from './options';
+import { MapScreen, type Waypoint } from './mapscreen/mapscreen';
+import { Gps } from './mapscreen/gps';
+import type { Road } from './vehicles/roads';
+import { placeDeaths, poisFromPlaces, type MapPoi } from './mapscreen/pois';
 
 type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing' | 'travel';
 
@@ -197,6 +202,14 @@ export class Game {
   // Vehicles and the radar.
   private traffic!: Traffic;
   private minimap: Minimap;
+  /** Full-screen map (N / right stick click / click the radar) and the GPS waypoint it sets. */
+  private mapScreen: MapScreen;
+  private gps!: Gps;
+  private mapPois: MapPoi[] = [];
+  private waypoint: Waypoint | null = null;
+  private route: { x: number; z: number }[] | null = null;
+  private routeAt = { x: NaN, z: NaN, t: 0 };
+  private beacon: THREE.Mesh;
   private pois: Blip[] = [];
   /** The car Gary is driving, if any. */
   driving: Car | null = null;
@@ -269,6 +282,18 @@ export class Game {
     registerMapDeaths(GROCERY.deaths, 'smallville');
     this.minimap = new Minimap(document.getElementById('ui')!);
     this.minimap.setVisible(false);
+    this.mapScreen = new MapScreen(document.getElementById('ui')!, this.minimap.tiles);
+    this.mapScreen.onWaypoint = (wp) => this.setWaypoint(wp);
+    this.minimap.onClick = () => {
+      if (this.mode !== 'title' && !this.story.active) this.mapScreen.show(this.mapView());
+    };
+    // A tall purple light marks the waypoint in the world.
+    const beamGeo = new THREE.CylinderGeometry(0.6, 0.6, 60, 12, 1, true);
+    beamGeo.translate(0, 30, 0);
+    this.beacon = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xc45cff, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    this.beacon.visible = false;
+    this.beacon.renderOrder = 5;
+    this.scene.add(this.beacon);
     this.engine = new EngineSound(this.sound);
 
     this.input = new Input(canvas);
@@ -1543,6 +1568,7 @@ export class Game {
     this.skyMat.uniforms.bottom.value.setHex(bottom);
     this.scene.fog = new THREE.Fog(bottom === 0xcfeaff ? 0x9fd3ff : bottom, def.sky?.fogNear ?? 90, fogFar);
     this.spawnInitialNpcs();
+    this.setupMapScreen(this.town ? smallvilleTraffic(this.town).roads : (b.roads ?? []));
     this.mapObjects = this.scene.children.filter((o) => !before.has(o) && o !== this.character?.root);
     console.info(`[map] ${def.id} loaded in ${Math.round(performance.now() - t0)} ms, ${this.streamer.loaded} sections`);
   }
@@ -2246,6 +2272,85 @@ export class Game {
     }
   }
 
+  // ---------------------------------------------------------------- full map + GPS
+  /** Points of interest, death spots and GPS roads for the full-screen map, for whichever map just loaded. */
+  private setupMapScreen(roads: Road[]) {
+    const b = this.mapBuild, t = this.town;
+    const places = this.life.places;
+    const deaths = Object.values(DEATH_BY_ID).filter((d) => mapOfDeath(d.id) === this.mapDef.id);
+    // Homes stay off the map, except the story's 12 Maple St and homes where someone can die.
+    const homeDeath = new Set(deaths.map((d) => d.location.toLowerCase()));
+    const keepHomes = places.filter((p) => p.tags?.includes('maple12') || homeDeath.has(p.name.toLowerCase())).map((p) => p.id);
+    const pois = poisFromPlaces(places, b.stops, keepHomes);
+    pois.push(...(b.pois ?? []));
+    for (const r of this.rides.ramps) pois.push({ id: `ramp:${r.id}`, x: r.base.x, z: r.base.z, name: r.name, kind: 'ride' });
+    for (const it of this.props?.interactables ?? []) if (it.id.startsWith('atm:')) pois.push({ id: it.id, x: it.pos.x, z: it.pos.z, name: 'ATM', kind: 'atm' });
+    const mid = (bx: { min: THREE.Vector3; max: THREE.Vector3 }) => ({ x: (bx.min.x + bx.max.x) / 2, z: (bx.min.z + bx.max.z) / 2 });
+    const spots: Record<string, { x: number; z: number } | string> = { ...(b.deathSpots ?? {}) };
+    if (t)
+      Object.assign(spots, {
+        'Smallville Rail Crossing': t.crossing,
+        'Hoffman Silo': mid(t.zones.silo),
+        'Hoffman Bull Pen': t.spots.bull,
+        'Maple St Backyards': mid(t.zones.trampoline),
+        'Tower Rd Backyard': mid(t.zones.kiddiePool),
+        'Smallville DMV': 'dmv',
+        'First Church Bell Tower': 'church',
+        'Smallville Police Station': 'police',
+        'The Dare Ramp': 'ramp:dare',
+      });
+    const missed = placeDeaths(pois, deaths, spots);
+    if (missed.length) console.debug(`[map] ${this.mapDef.id} deaths with no spot:`, missed.map((d) => `${d.id} @ ${d.location}`));
+    this.mapPois = pois;
+    this.mapScreen.setMap(this.mapDef.name, pois);
+    this.gps = new Gps(roads);
+    this.setWaypoint(null);
+  }
+
+  private mapView() {
+    const c = this.focusPos();
+    const facing = this.driving ? this.driving.facing : this.mode === 'play' ? this.player.facing : this.cam.forwardFacing;
+    return { player: { x: c.x, z: c.z, facing }, waypoint: this.waypoint, route: this.route, found: (id: string) => !!this.ledger.found[id] };
+  }
+
+  private setWaypoint(wp: Waypoint | null) {
+    this.waypoint = wp;
+    this.routeAt.x = NaN;
+    this.route = null;
+    if (wp) {
+      this.sound.blip(1.2);
+      const ground = this.world.topY(Math.floor(wp.x), Math.floor(wp.z));
+      this.beacon.position.set(wp.x, ground, wp.z);
+    }
+    this.beacon.visible = !!wp;
+    this.updateRoute(0);
+  }
+
+  /** Re-route when the player has moved a bit; clear the waypoint on arrival. */
+  private updateRoute(dt: number) {
+    const wp = this.waypoint;
+    if (!wp) {
+      this.minimap.setWaypoint(null, null);
+      return;
+    }
+    const c = this.focusPos();
+    const left = Math.hypot(wp.x - c.x, wp.z - c.z);
+    if (left < 6 && this.mode !== 'title') {
+      this.ui.toast('You have arrived', wp.name ?? 'Waypoint reached', 2200);
+      this.setWaypoint(null);
+      return;
+    }
+    this.routeAt.t -= dt;
+    if (Number.isNaN(this.routeAt.x) || (this.routeAt.t <= 0 && Math.hypot(c.x - this.routeAt.x, c.z - this.routeAt.z) > 2)) {
+      this.route = this.gps.route({ x: c.x, z: c.z }, wp);
+      this.routeAt = { x: c.x, z: c.z, t: 0.4 };
+    } else if (this.route) this.route[0] = { x: c.x, z: c.z };
+    this.minimap.setWaypoint(wp, this.route, this.route ? Gps.length(this.route) : left);
+    // The beacon pulses gently and fades out up close.
+    const m = this.beacon.material as THREE.MeshBasicMaterial;
+    m.opacity = Math.min(1, left / 40) * (0.28 + Math.sin(performance.now() / 300) * 0.08);
+  }
+
   private drawMinimap(dt: number) {
     if (this.mode === 'title') {
       this.minimap.setVisible(false);
@@ -2289,6 +2394,18 @@ export class Game {
     // A story cutscene covers the screen: freeze the game underneath it.
     if (this.story.active) return;
     const inp = this.input;
+
+    // The full map pauses the game while it is open.
+    if (this.mapScreen.open || (inp.pressed('map') && this.mode !== 'title')) {
+      if (!this.mapScreen.open) {
+        this.mapScreen.show(this.mapView());
+      } else this.mapScreen.update(inp, realDt, this.mapView());
+      this.minimap.setVisible(!this.mapScreen.open && this.mode !== 'title');
+      this.updateRoute(0);
+      this.post.render();
+      this.input.endFrame();
+      return;
+    }
 
     if (this.mode === 'title' && this.title?.open) {
       if (inp.pressed('menuUp')) this.title.nav('up');
@@ -2488,6 +2605,7 @@ export class Game {
     this.streamer?.update(focus, 5);
     this.sun.position.set(focus.x + 30, focus.y + 60, focus.z + 20);
     this.sun.target.position.copy(focus);
+    this.updateRoute(realDt);
     this.drawMinimap(realDt);
 
     if (!this.driving) this.engine.set(false, 0, 0);

@@ -86,6 +86,7 @@ export class UI {
         <tr><td>Pee</td><td>Q</td><td>RB</td></tr>
         <tr><td>Ghost rise / sink</td><td>Space / Shift</td><td>A / B</td></tr>
         <tr><td>Ledger · music</td><td>Tab · M</td><td>View · D-pad left</td></tr>
+        <tr><td>Full map · waypoints</td><td>N (or click the radar)</td><td>Click right stick</td></tr>
       </table>
     </div>`);
 
