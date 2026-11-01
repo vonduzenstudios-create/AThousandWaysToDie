@@ -38,7 +38,7 @@ export const B = {
 } as const;
 
 /** Base color and how much per-voxel color noise each block gets. */
-const PALETTE: Record<number, [number, number]> = {
+export const PALETTE: Record<number, [number, number]> = {
   [B.Grass]: [0x6cbf3f, 0.16],
   [B.Dirt]: [0x8a5a35, 0.14],
   [B.Stone]: [0x8a8f96, 0.12],
@@ -70,6 +70,14 @@ const PALETTE: Record<number, [number, number]> = {
   [B.WallPeach]: [0xf2c6a0, 0.05],
   [B.RoofBrown]: [0x6b4330, 0.08],
 };
+
+/**
+ * Register a block color. Maps own id ranges so they don't collide: Smallville < 100,
+ * beach 100-139, city 140-179, wilderness 180-219.
+ */
+export function defineBlock(id: number, hex: number, variation = 0.1) {
+  PALETTE[id] = [hex, variation];
+}
 
 const AO_CURVE = [0.42, 0.62, 0.8, 1.0];
 
