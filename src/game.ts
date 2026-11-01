@@ -72,6 +72,7 @@ export class Game {
   private sun: THREE.DirectionalLight;
   private lastT = performance.now();
   private helpShown = false;
+  private latched = { jump: false, crouch: false, dive: false };
   private acc = 0;
   private time = 0;
   private timeScale = 1;
@@ -689,6 +690,11 @@ export class Game {
     // Fixed-step physics + player.
     this.acc += dt;
     const h = 1 / 60;
+    // Latch button presses until a physics step consumes them, so a press on a
+    // frame with no fixed step (common on 120/144 Hz screens) is never lost.
+    if (inp.pressed('jump')) this.latched.jump = true;
+    if (inp.pressed('crouch')) this.latched.crouch = true;
+    if (inp.pressed('dive')) this.latched.dive = true;
     let first = true;
     let steps = 0;
     while (this.acc >= h && steps < 5) {
@@ -699,11 +705,11 @@ export class Game {
             moveX: peeing || this.ui.ledgerOpen ? 0 : inp.moveX,
             moveY: peeing || this.ui.ledgerOpen ? 0 : inp.moveY,
             camYaw: this.cam.yaw,
-            jumpPressed: first && inp.pressed('jump'),
+            jumpPressed: first && this.latched.jump,
             jumpHeld: inp.held('jump'),
             crouchHeld: inp.held('crouch'),
-            crouchPressed: first && inp.pressed('crouch'),
-            divePressed: first && inp.pressed('dive'),
+            crouchPressed: first && this.latched.crouch,
+            divePressed: first && this.latched.dive,
           });
         }
       }
@@ -712,6 +718,7 @@ export class Game {
       this.physics.step();
       if (this.mode === 'play') this.checkHazards(h);
       this.acc -= h;
+      if (first) this.latched = { jump: false, crouch: false, dive: false };
       first = false;
       steps++;
     }

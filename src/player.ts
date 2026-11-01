@@ -151,7 +151,7 @@ export class Player {
   update(dt: number, inp: PlayerInput) {
     this.jumpedThisStep = false;
     this.stateTime += dt;
-    if (inp.jumpPressed) this.jumpBuf = 0.13;
+    if (inp.jumpPressed) this.jumpBuf = 0.15;
     else this.jumpBuf -= dt;
     if (inp.divePressed) this.diveBuf = 0.13;
     else this.diveBuf -= dt;
@@ -242,12 +242,19 @@ export class Player {
         this.launch('dive');
         this.hooks.onDive?.();
       } else {
-        v.y = -2;
+        v.y = -6; // stick to the ground so grounded detection doesn't flicker
       }
     } else {
       // Airborne.
       this.airTime += dt;
-      if (st === 'gpFreeze') {
+      // Coyote time: a jump just after running off a ledge still counts.
+      if (st === 'fall' && this.airTime < 0.14 && this.jumpBuf > 0) {
+        this.jumpBuf = 0;
+        this.jumpChain = 1;
+        v.y = 13.5;
+        this.launch('jump');
+        this.hooks.onJump?.('jump', 1);
+      } else if (st === 'gpFreeze') {
         v.set(0, 0, 0);
         if (this.stateTime > 0.28) {
           v.y = -38;
