@@ -265,34 +265,6 @@ export function airlinerMesh(livery = 'LAST CALL AIRLINES', stripe = '#c8302a', 
   return g;
 }
 
-/** The skydive club's tiny prop plane. Local nose +x. */
-export function propPlaneMesh() {
-  const g = new THREE.Group();
-  const body = lambert(0xe0b030);
-  const dark = lambert(0x2a2a2e);
-  const f = boxMesh(9, 2, 2, body);
-  f.position.set(0, 2.2, 0);
-  const wing = boxMesh(2.4, 0.3, 13, lambert(0xeeeeee));
-  wing.position.set(0.8, 3.3, 0);
-  const fin = boxMesh(1.6, 2, 0.3, lambert(0xd8443a));
-  fin.position.set(-4, 3.6, 0);
-  const hs = boxMesh(1.4, 0.2, 4, lambert(0xeeeeee));
-  hs.position.set(-4, 2.6, 0);
-  const win = boxMesh(1.2, 0.7, 2.05, dark);
-  win.position.set(2, 2.8, 0);
-  const prop = boxMesh(0.15, 2.8, 0.3, dark);
-  prop.position.set(4.6, 2.2, 0);
-  prop.name = 'prop';
-  g.add(f, wing, fin, hs, win, prop);
-  for (const z of [-1.2, 1.2]) {
-    const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.3, 8), dark);
-    wh.rotation.x = Math.PI / 2;
-    wh.position.set(1, 0.45, z);
-    g.add(wh);
-  }
-  return g;
-}
-
 /**
  * An airliner with physics and a scripted route through design space.
  * Holds at the end of the route until restarted.
@@ -499,24 +471,3 @@ export function suitcaseMesh(color: number) {
   return g;
 }
 
-/** The lost-and-found "parachute": a teddy bear that pops out of the backpack. */
-export function teddyMesh() {
-  const g = new THREE.Group();
-  const fur = lambert(0x9a6a3a);
-  const body = boxMesh(1.4, 1.6, 1, fur);
-  body.position.y = 0;
-  const head = boxMesh(1.2, 1.1, 1, fur);
-  head.position.y = 1.35;
-  const snout = boxMesh(0.5, 0.4, 0.3, lambert(0xd8b48a));
-  snout.position.set(0, 1.2, 0.6);
-  g.add(body, head, snout);
-  for (const s of [-1, 1]) {
-    const ear = boxMesh(0.4, 0.4, 0.3, fur);
-    ear.position.set(s * 0.5, 2, 0);
-    const arm = boxMesh(0.4, 1.2, 0.4, fur);
-    arm.position.set(s * 0.95, 0.5, 0);
-    arm.rotation.z = s * 2.4;
-    g.add(ear, arm);
-  }
-  return g;
-}

@@ -133,6 +133,8 @@ export class Player {
   private launchPos = new THREE.Vector3();
   private launchSpeed = 0;
   private jumpedThisStep = false;
+  /** Set by teleport: the collider only catches up with the body after a physics step, so the next ground test is stale. */
+  private teleported = false;
   private readonly filter = groups(G_PLAYER, G_WORLD | G_PROP);
   hooks: PlayerHooks = {};
   tier: Tier = 'Normal';
@@ -162,6 +164,13 @@ export class Player {
    * parasails, being carried off by seagulls). Collisions and input are ignored.
    */
   carry: (() => THREE.Vector3) | null = null;
+  /**
+   * While set and airborne, this drives the velocity instead of gravity and air control
+   * (skydiving: terminal velocity, tracking, canopy flight). Collisions and landing still apply.
+   */
+  sky: ((dt: number, inp: PlayerInput, vel: THREE.Vector3) => void) | null = null;
+  /** A body pose the map asks for (seated, free-fall arch, hanging under a canopy). Read by the game's animator. */
+  pose: 'sit' | 'freefall' | 'canopy' | null = null;
 
   /** Launch the player from outside (thrown out of buildings, explosions). */
   knock(v: THREE.Vector3) {
@@ -232,6 +241,7 @@ export class Player {
     this.grounded = false;
     this.maxY = p.y;
     this.launchPos.set(p.x, p.y, p.z);
+    this.teleported = true;
   }
 
   setEnabled(on: boolean) {
@@ -461,6 +471,9 @@ export class Player {
         this.diveBuf = 0;
         this.hooks.onRideTrick?.();
       }
+    } else if (this.sky) {
+      this.airTime += dt;
+      this.sky(dt, inp, v);
     } else {
       // Airborne.
       this.airTime += dt;
@@ -510,7 +523,8 @@ export class Player {
 
     const wasGrounded = this.grounded;
     let grounded = this.kcc.computedGrounded();
-    if (this.jumpedThisStep || (v.y > 0.5 && !this.onSlope)) grounded = false;
+    if (this.jumpedThisStep || (v.y > 0.5 && !this.onSlope) || this.teleported) grounded = false;
+    this.teleported = false;
     this.onSlope = false;
     this.groundN.set(0, 1, 0);
 

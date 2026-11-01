@@ -58,6 +58,8 @@ export interface AnimState {
   airTime: number;
   /** Knocked out flat on their back. */
   ko?: boolean;
+  /** Scripted poses: seated on a bench, belly-to-earth free fall, hanging under a canopy. */
+  pose?: 'sit' | 'freefall' | 'canopy' | null;
 }
 
 /** A voxel-style person built entirely from boxes and generated textures. */
@@ -245,6 +247,35 @@ export class Character {
       kneeL = 0.9;
       kneeR = 0.5;
       elbowL = elbowR = -0.35;
+    }
+
+    if (s.pose === 'sit') {
+      legL = legR = -1.5;
+      kneeL = kneeR = 1.5;
+      armL = armR = -0.35;
+      armSpread = 0.12;
+      elbowL = elbowR = -0.9;
+      spinnerY = 0.52;
+    } else if (s.pose === 'freefall') {
+      // Belly to earth: arched, arms out and bent up, knees bent.
+      pitch = 1.5;
+      const wob = Math.sin(this.phase * 0.9) * 0.08;
+      armL = -1.5 + wob;
+      armR = -1.5 - wob;
+      armSpread = 1.25;
+      elbowL = elbowR = -0.9;
+      legL = 0.35 - wob;
+      legR = 0.35 + wob;
+      kneeL = kneeR = 1.1;
+    } else if (s.pose === 'canopy') {
+      // Hands up on the toggles, legs dangling.
+      armL = armR = -2.75;
+      armSpread = 0.4;
+      elbowL = elbowR = -0.3;
+      const sw = Math.sin(this.phase * 0.5) * 0.12;
+      legL = 0.1 + sw;
+      legR = -0.05 - sw;
+      kneeL = kneeR = 0.25;
     }
 
     if (s.ko) {
