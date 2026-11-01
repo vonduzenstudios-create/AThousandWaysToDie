@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { RAPIER } from './physics';
+import { RAPIER, QUERY_WORLD } from './physics';
 import { Sound } from './audio';
 import { FollowCam } from './camera';
 import { Atms, withdraw } from './economy';
@@ -179,6 +179,7 @@ export class Game {
   private camBlend: { pos: THREE.Vector3; quat: THREE.Quaternion; t: number; dur: number } | null = null;
   /** Current world saturation (eased; Death sees the world washed out). */
   private sat = 1.1;
+  private inspectHead = new THREE.Vector3();
   private peeTime = 0;
   private peeSoundT = 0;
   /** Times (ms) of recent screams that turned out to be about nothing. Three in a minute gets you committed. */
@@ -566,8 +567,9 @@ export class Game {
     this.mode = 'possessing';
     this.ui.showFile(null);
     this.ui.showScythe(null);
+    document.getElementById('ui')?.classList.remove('inspecting');
     if (this.inspect) {
-      const head = n.pos.clone().add(new THREE.Vector3(0, 1.55, 0));
+      const head = this.inspectHead.clone();
       this.possessCam = { fromPos: this.camera.position.clone(), quat: this.camera.quaternion.clone(), toPos: head, t: 0 };
       // Come out the other side looking the same way we flew in.
       const d = this.camera.position.clone().sub(head);
@@ -2607,19 +2609,35 @@ export class Game {
   private enterInspect(n: Npc) {
     this.mode = 'inspect';
     this.ui.setBanner(null);
+    document.getElementById('ui')?.classList.add('inspecting');
     this.crosshair.classList.add('hidden');
     this.sound.blip(0.8);
-    const head = n.pos.clone().add(new THREE.Vector3(0, 1.55, 0));
+    // Frame their face: characters come in many sizes, so measure the model.
+    const box = new THREE.Box3().setFromObject(n.character.root);
+    const tall = Math.max(0.6, box.max.y - n.pos.y);
+    const head = n.pos.clone().add(new THREE.Vector3(0, tall * 0.82, 0));
     // Approach from where we're looking, so there's open space between us.
-    const away = this.camera.position.clone().sub(head).setY(0);
-    if (away.lengthSq() < 0.01) away.set(0, 0, 1);
-    away.normalize();
-    const toPos = head.clone().addScaledVector(away, 2.7).add(new THREE.Vector3(0, 0.25, 0));
+    const dist = 1.2 + tall * 0.9;
+    const ours = this.camera.position.clone().sub(head).setY(0);
+    if (ours.lengthSq() < 0.01) ours.set(0, 0, 1);
+    ours.normalize();
+    // Prefer to see their face (in front of them, leaning toward our side), unless a wall is in the way.
+    const ry = n.character.root.rotation.y;
+    const front = new THREE.Vector3(Math.sin(ry), 0, Math.cos(ry));
+    let away = front.clone().addScaledVector(ours, 0.6).normalize();
+    const clear = (d: THREE.Vector3) => {
+      const ray = new RAPIER.Ray(head, d);
+      const hit = this.physics.castRay(ray, dist + 0.4, true, undefined, QUERY_WORLD);
+      return !hit;
+    };
+    if (!clear(away)) away = clear(front) ? front : ours;
+    const toPos = head.clone().addScaledVector(away, dist).add(new THREE.Vector3(0, tall * 0.08, 0));
     // Look a little to their right (our left) so they stand right of the menu.
-    const side = new THREE.Vector3(-away.z, 0, away.x); // camera's right
-    const look = head.clone().addScaledVector(side, -1.0).add(new THREE.Vector3(0, -0.1, 0));
+    const side = new THREE.Vector3(away.z, 0, -away.x); // camera's right
+    const look = head.clone().addScaledVector(side, -0.35 * dist).add(new THREE.Vector3(0, -tall * 0.12, 0));
     const m = new THREE.Matrix4().lookAt(toPos, look, new THREE.Vector3(0, 1, 0));
     const toQuat = new THREE.Quaternion().setFromRotationMatrix(m);
+    this.inspectHead.copy(head);
     this.inspect = { npc: n, sel: 0, t: 0, fromPos: this.camera.position.clone(), fromQuat: this.camera.quaternion.clone(), toPos, toQuat };
     this.renderScythe();
   }
@@ -2656,6 +2674,7 @@ export class Game {
     }
     // Pass: zoom back out to Death's view.
     this.ui.showScythe(null);
+    document.getElementById('ui')?.classList.remove('inspecting');
     this.camBlend = { pos: this.camera.position.clone(), quat: this.camera.quaternion.clone(), t: 0, dur: 0.6 };
     this.inspect = null;
     this.mode = 'ghost';
@@ -2685,7 +2704,7 @@ export class Game {
 
   /** Death sees the world washed out; color floods back as you possess someone. */
   private updateSaturation(dt: number) {
-    const want = this.mode === 'ghost' || this.mode === 'inspect' ? 0.22 : 1.1;
+    const want = this.mode === 'ghost' || this.mode === 'inspect' ? 0.12 : 1.1;
     this.sat += (want - this.sat) * (1 - Math.exp(-dt * (want > this.sat ? 3.5 : 2.5)));
     if (Math.abs(want - this.sat) < 0.002) this.sat = want;
     this.post.grade.uniforms.saturation.value = this.sat;

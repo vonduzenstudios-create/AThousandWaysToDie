@@ -194,3 +194,4 @@ body:not(.pad) .help td:nth-child(3), body:not(.pad) .help th:nth-child(3) { opa
 .scythe .swarn { font-family: sans-serif; font-size: 11px; letter-spacing: 0; color: #ff8a7a; margin-top: 4px; }
 .scythe .shint { margin-top: 12px; text-align: center; font-size: 13px; color: #b3abcc; }
 .scythe .shint b { color: #ffd84a; }
+#ui.inspecting .hud, #ui.inspecting .dialog, #ui.inspecting .banner, #ui.inspecting .skills, #ui.inspecting .toast { display: none; }
