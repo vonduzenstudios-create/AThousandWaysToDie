@@ -16,7 +16,7 @@ import { specForJob, type Age, type Expression, type PersonSpec } from './spec';
  */
 const params = new URLSearchParams(location.search);
 let seed = Number(params.get('seed') ?? 7);
-const view = params.get('view') ?? 'sheet';
+let view = params.get('view') ?? (location.hash === '#hero' ? 'hero' : 'sheet');
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -141,6 +141,10 @@ button('Expression', () => {
   for (const c of cells) c.vb.setExpression(EXPRESSIONS[exprI]);
 });
 button('Spin', () => (spin = !spin));
+button('Close-up / Sheet', () => {
+  view = view === 'hero' ? 'sheet' : 'hero';
+  build();
+});
 button('Ragdoll everyone', async () => {
   if (!physics) {
     await RAPIER.init();
