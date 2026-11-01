@@ -73,6 +73,7 @@ const NAME_ICON: [RegExp, string, string?][] = [
   [/garage/i, 'G'],
   [/diner|bakery|pizza|burger|deli|subs/i, 'F'],
   [/airport/i, '✈'],
+  [/motel|hotel/i, 'Zz'],
   [/station/i, 'T'],
 ];
 

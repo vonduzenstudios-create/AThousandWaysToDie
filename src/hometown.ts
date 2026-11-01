@@ -45,7 +45,6 @@ export const HOMETOWN_DEATHS: DeathDef[] = [
   { id: 'quarry', name: 'Rock Bottom', category: 'Gravity', location: 'Smallville Quarry', payout: 1100, blurb: 'Found the bottom of the quarry the fast way.' },
   { id: 'drowned', name: 'Sleeps With the Fishes', category: 'Water', location: 'Any water in Smallville', payout: 700, blurb: 'Forgot how to swim. Also never knew.' },
   { id: 'piano', name: 'Piano Recital', category: 'Crushing', location: 'Elm Street Apartments', payout: 2200, blurb: 'Told the movers "a little to the left" and stood on the X. Final note: C flat.' },
-  { id: 'tubeman', name: 'Wacky Inflatable Exit', category: 'Machines', location: "Honest Al's Used Cars", payout: 1200, blurb: 'Climbed into the tube man\'s fan. Flailed one last time.' },
   { id: 'dmv', name: 'Died in Line', category: 'Stupidity', location: 'Smallville DMV', payout: 800, blurb: 'Took number 9,412. They were serving number 4.' },
   { id: 'bookshelf', name: 'Overdue', category: 'Crushing', location: 'Smallville Public Library', payout: 1300, blurb: 'Climbed the shelves for a 30-year-overdue book. The shelves were also overdue.' },
   { id: 'dryer', name: 'Spin Cycle', category: 'Machines', location: 'Suds City Laundromat', payout: 1100, blurb: 'Climbed into the industrial dryer. Came out fluffy, folded and dead.' },
@@ -134,7 +133,6 @@ export class Hometown {
   private mule: THREE.Group;
   private geese: Goose[] = [];
   private geeseAngry = 0;
-  private tubeMan: THREE.Group;
   private piano: THREE.Group;
   private pianoState: 'hanging' | 'creaking' | 'falling' | 'down' = 'hanging';
   private pianoT = 0;
@@ -175,20 +173,6 @@ export class Hometown {
     this.add(this.prop(bread, s.gooseNest, 'goosenest', 'Steal bread from the goose nest', 2.4));
 
     // ---- Downtown and civic deaths.
-    this.tubeMan = new THREE.Group();
-    const tubeColors = [0xff3a3a, 0xff6a2a, 0xff3a3a, 0xffd23a, 0xff3a3a, 0xff3a3a];
-    for (let i = 0; i < 6; i++) {
-      const seg = box(0.9, 1.1, 0.9, tubeColors[i], 0, 0.55, 0);
-      const pivot = new THREE.Group();
-      pivot.add(seg);
-      if (i > 0) pivot.position.y = 1.1;
-      (i === 0 ? this.tubeMan : this.tubeMan.children[0].getObjectByName(`seg${i - 1}`)!).add(pivot);
-      pivot.name = `seg${i}`;
-    }
-    this.tubeMan.position.copy(s.tubeMan).setY(G + 0.6);
-    this.add(this.tubeMan);
-    this.add(this.prop(box(1.4, 0.6, 1.4, 0x555a60), s.tubeMan.clone().setY(G + 0.3), 'tubeman', "Climb into the tube man's fan", 2.6));
-
     this.interactables.push({ id: 'dmv', pos: s.dmv.clone(), radius: 2.4, prompt: 'Take a number (#9,412)', enabled: true });
     this.interactables.push({ id: 'bookshelf', pos: s.bookshelf.clone(), radius: 3, prompt: 'Climb the shelves for the overdue book', enabled: true });
     this.interactables.push({ id: 'dryer', pos: s.dryer.clone(), radius: 2.4, prompt: 'Climb into the industrial dryer', enabled: true });
@@ -361,14 +345,6 @@ export class Hometown {
         this.geeseAngry = 12;
         for (const g of this.geese) g.speed = 10.5 + Math.random() * 2.5;
         api.sound.tone({ f: 700, f2: 500, dur: 0.3, type: 'sawtooth', vol: 0.25 });
-        return true;
-      case 'tubeman':
-        p.lock(true);
-        api.sound.noise({ dur: 1.5, vol: 0.5, freq: 400, freq2: 1600 });
-        api.runSeq([
-          ...Array.from({ length: 8 }, (_, i) => ({ at: i * 0.1, fn: () => (ch.kick(i % 2 ? 0.6 : -0.6), api.shake(0.2)) })),
-          { at: 0.9, fn: () => api.kill('tubeman', ragdoll(new THREE.Vector3((Math.random() - 0.5) * 12, 34, (Math.random() - 0.5) * 12), 24, 0.6)) },
-        ]);
         return true;
       case 'dmv': {
         p.lock(true);
@@ -759,15 +735,6 @@ export class Hometown {
   /** Per-frame cosmetic animation. */
   update(dt: number, time: number) {
     this.time = time;
-    // Tube man flails.
-    let seg: THREE.Object3D | undefined = this.tubeMan.children[0];
-    let i = 0;
-    while (seg) {
-      seg.rotation.z = Math.sin(time * 5 + i * 1.3) * (0.25 + i * 0.05);
-      seg.rotation.x = Math.cos(time * 4 + i) * 0.15;
-      seg = seg.getObjectByName(`seg${i + 1}`);
-      i++;
-    }
     // Bell swing.
     if (this.bellSwing > 0) this.bellSwing = Math.max(0, this.bellSwing - dt * 0.8);
     this.bell.rotation.z = Math.sin(time * 6) * 0.4 * this.bellSwing;
