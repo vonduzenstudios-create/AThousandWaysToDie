@@ -20,6 +20,14 @@ It is 512 x 64 x 640 voxels (x, y, z), street level y = 12, water level y = 10.
 
 Travel stops: `city:bus` (avenue 138), `city:train` (rail yard platform), `city:harbor` (ferry pier), `city:airport` (from the airport module).
 
+## Buildings
+
+Ordinary buildings (walk-ups, shops, tower podiums, Little Italy) are drawn by the shared building kit (`src/kit`, see `docs/building-kit.md`). `build.ts` only records a `KitLot` per lot in `L.kit`, marks the footprint in `L.blocked` (the NPC nav treats those columns as walls, since kit buildings have no voxels) and pushes the place. `kitcity.ts` places them in setup: buildings within 70 blocks of the spawn at once, the rest nearest-to-the-player first, about 6 ms per frame (`scenery.kit.flush()` places everything, as `dev/city.html` does unless `?stream`).
+
+- Shops get `hollowShop`: the ground floor is cleared to a plastered room with ceiling lights and shelves, the body collider is swapped for walls with a gap at the kit's door, and the awning collider is lifted above head height. The voxel plank floor and counter are still written by `build.ts`.
+- Walk-ups get a black iron fire escape on the front (landings plus stairs, all solid) and a dumpster under it; flat roofs get wooden water tanks.
+- Landmarks whose interiors the deaths depend on stay voxel (`voxel: true`): Mortalis lobby, the station, the half-demolished building, the bait shack and the ferry terminal. Don Calzone's Pizzeria is a hollow kit shop with its voxel back room inside.
+
 ## Deaths (`src/maps/city/deaths.ts`, logic in `logic.ts`)
 
 | Death | How |

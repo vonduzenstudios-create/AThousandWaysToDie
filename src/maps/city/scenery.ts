@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { canvasTexture, mulberry32 } from '../../util';
 import type { CityLayout, TowerSpec } from './build';
 import { BoxBatch, Scenery, signMesh } from './mesh';
+import { buildKitCity } from './kitcity';
 import { G, POND, RAIL, RAIL_PLATFORM, SEWER_FLOOR, SUBWAY, SX, SZ, TUNNEL_FLOOR, WATER } from './layout';
 
 /** Facade looks for the mesh skyscrapers: wall, window, lit window, frame. */
@@ -124,12 +125,14 @@ export interface SceneryHandles {
   water: THREE.Mesh;
   steam: THREE.Vector3[];
   lampHeads: THREE.InstancedMesh;
-  tick(dt: number, t: number): void;
+  kit: ReturnType<typeof buildKitCity>;
+  tick(dt: number, t: number, focus?: THREE.Vector3 | null): void;
 }
 
 /** Everything static that isn't voxels: skyline, water, signs, billboards, benches, parked cars, rails. */
-export function buildScenery(sc: Scenery, L: CityLayout): SceneryHandles {
+export function buildScenery(sc: Scenery, L: CityLayout, focus: THREE.Vector3): SceneryHandles {
   buildTowers(sc, L.towers);
+  const kit = buildKitCity(sc, L, focus);
 
   // Water: one big sheet at the waterline, the park pond, the sewer.
   const water = sc.add(new THREE.Mesh(new THREE.PlaneGeometry(SX + 800, SZ + 800), waterMaterial(0x2f6f9e, 0.82)));
@@ -247,7 +250,9 @@ export function buildScenery(sc: Scenery, L: CityLayout): SceneryHandles {
     water: water2,
     steam: L.steam,
     lampHeads,
-    tick(dt) {
+    kit,
+    tick(dt, _t, focus) {
+      kit.tick(focus ?? null);
       const map = (water2.material as THREE.MeshLambertMaterial).map!;
       map.offset.x += dt * 0.01;
       map.offset.y += dt * 0.004;
