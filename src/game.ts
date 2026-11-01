@@ -20,6 +20,8 @@ import { Input } from './input';
 import { Npc } from './npc';
 import { LifeSystem, type LifeMap } from './life';
 import { autoLifeMap } from './travel/autolife';
+import { setupHospital } from './places/hospital';
+import { composeRuntimes } from './maps/compose';
 import { deathGossip, smallvilleLife } from './life/maps/smallville';
 import { Particles } from './particles';
 import { Player, PLAYER_CENTER, type LandEvent } from './player';
@@ -35,6 +37,11 @@ import { TicketUI, type TicketOption } from './travel/ticket';
 import { Transit, onArrive, onDepart, type Service } from './travel/transit';
 import { checkUnlocks, isOpen, lockReason, onUnlock } from './travel/progress';
 import { Rides } from './rides';
+import { HOMETOWN_DEATHS, Hometown } from './hometown';
+import { GROCERY } from './places/grocery';
+import type { PlaceRuntime } from './places/types';
+import { PostFX, warmLighting } from './render/post';
+import { StreetKit } from './kit';
 import { UI } from './ui';
 import { mulberry32, pick, turnToward, type Rng } from './util';
 import { Minimap, type Blip } from './minimap';
@@ -44,6 +51,9 @@ import { DOOR_OUT, HALF, RIDE } from './vehicles/carModel';
 import { carSfx, EngineSound } from './vehicles/carSound';
 import { smallvillePois, smallvilleTraffic } from './vehicles/smallville';
 import { StoryDirector } from './story/director';
+import { arrest, commit } from './maps/institutions/common';
+import { TitleMenu, type DevMap } from './titlemenu';
+import { loadOptions, saveOptions, type Options } from './options';
 
 type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing' | 'travel';
 
@@ -134,9 +144,15 @@ export class Game {
   private activeRagdoll: Ragdoll | null = null;
   private mode: Mode = 'title';
   private sun: THREE.DirectionalLight;
+  /** Post-processing (bloom, grade, AO by quality). Render through this, not the renderer. */
+  private post!: PostFX;
   private lastT = performance.now();
   private helpShown = false;
   private latched = { jump: false, crouch: false, dive: false };
+  /** The yaw WASD moves relative to. Frozen while left mouse orbits the camera, so looking around doesn't steer. */
+  private moveYaw = 0;
+  private title: TitleMenu | null = null;
+  readonly options: Options = loadOptions();
   private barnTries = 0;
   private stationVisits = 0;
   private deniedToastT = 0;
@@ -149,14 +165,19 @@ export class Game {
   private seqT = 0;
   private rng: Rng = mulberry32(Date.now() & 0xffff);
   /** Places stamped into the map (the hospital annex for now): their runtime hooks. */
+  private start0 = new THREE.Vector3();
   private ghost: THREE.Group;
   private ghostPos = new THREE.Vector3();
   private ghostTarget: Npc | null = null;
   private peeTime = 0;
   private peeSoundT = 0;
+  /** Times (ms) of recent screams that turned out to be about nothing. Three in a minute gets you committed. */
+  private falseAlarms: number[] = [];
   private pendingDeath: { id: string; victim: PersonFile; startPos: THREE.Vector3 } | null = null;
   private crosshair: HTMLElement;
   private hornCooldown = 0;
+  private hometown: Hometown | null = null;
+  private grocery: PlaceRuntime | null = null;
   private atms!: Atms;
   private rides!: Rides;
   private skillBar = new SkillBar();
@@ -202,6 +223,7 @@ export class Game {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.post?.setSize(window.innerWidth, window.innerHeight);
     });
 
     // Sky dome and lighting.
@@ -219,7 +241,8 @@ export class Game {
     sky.renderOrder = -1;
     this.scene.add(sky);
     (sky as THREE.Mesh).onBeforeRender = () => sky.position.copy(this.camera.position);
-    this.scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x6a5a3a, 1.4));
+    const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x6a5a3a, 1.4);
+    this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight(0xfff2d6, 2.2);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -232,6 +255,9 @@ export class Game {
     sc.far = 200;
     this.sun.shadow.bias = -0.0008;
     this.scene.add(this.sun, this.sun.target);
+    // Shared render upgrades (src/render/post.ts): warm sun, sky reflections, bloom and grading.
+    warmLighting(this.scene, this.renderer, { sun: this.sun, hemi });
+    this.post = new PostFX(this.renderer, this.scene, this.camera);
 
     // Physics (each map gets a fresh world in loadMap) and the persistent actors.
     this.physics = new RAPIER.World({ x: 0, y: -30, z: 0 });
@@ -239,6 +265,8 @@ export class Game {
     this.skillHost = this.makeSkillHost();
     this.ui.onSkillClick = (i) => this.useSkill(i);
     this.particles = new Particles(this.scene);
+    registerMapDeaths(HOMETOWN_DEATHS, 'smallville');
+    registerMapDeaths(GROCERY.deaths, 'smallville');
     this.minimap = new Minimap(document.getElementById('ui')!);
     this.minimap.setVisible(false);
     this.engine = new EngineSound(this.sound);
@@ -270,7 +298,7 @@ export class Game {
     this.cam.pitch = 0.45;
     this.cam.dist = 26;
     this.cam.autoOrbit = 0.08;
-    this.cam.snap(new THREE.Vector3(90, G + 6, 80));
+    this.cam.snap(this.mapBuild.spawn.clone().setY(G + 6));
 
     this.story.onPause = (p) => this.sound.duck(p);
     // Death's milestone scenes play when 25 unique deaths open a route.
@@ -278,7 +306,24 @@ export class Game {
     // Townsfolk ride the scheduled buses, trains, ferries and planes.
     onArrive((e) => this.life?.vehicleArrived(e.stopId, e.door));
     onDepart((e) => this.life?.vehicleDeparted(e.stopId));
-    this.ui.showTitle(() => this.start());
+    this.title = new TitleMenu(document.getElementById('ui')!, {
+      hasSave: () => this.ledger.foundCount > 0 || this.ledger.total > 0 || this.story.hasSeen('opening'),
+      newGame: () => {
+        this.eraseProgress();
+        this.start('new');
+      },
+      continueGame: () => this.start('continue'),
+      devMaps: () => this.devMaps(),
+      devStart: (id) => this.start('dev', id),
+      options: this.options,
+      optionsChanged: () => this.applyOptions(),
+      eraseSave: () => this.eraseProgress(),
+      blip: () => {
+        this.sound.init();
+        this.sound.blip(0.8);
+      },
+    });
+    this.applyOptions();
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
@@ -397,12 +442,52 @@ export class Game {
     );
   }
 
-  private start() {
+  /** Maps Dev Mode can jump to: every registered map, plus test places. */
+  devMaps(): DevMap[] {
+    return [
+      ...MAPS.map((m) => ({ id: m.id, name: m.name, note: m.id === 'smallville' ? 'Hometown' : 'Map' })),
+      { id: 'place:hospital', name: 'City General Hospital', note: 'Test place (in Smallville)' },
+    ];
+  }
+
+  /** Dev Mode: load a map by id (or a test place inside one). */
+  protected loadDevMap(id: string) {
+    if (id === 'place:hospital') {
+      if (this.mapDef.id !== 'smallville') this.loadMap('smallville');
+      if (this.town) this.start0 = this.town.hospital.entrance.clone().add(new THREE.Vector3(0, 4, -8));
+      return;
+    }
+    if (MAP_BY_ID[id] && id !== this.mapDef.id) this.loadMap(id);
+  }
+
+  private applyOptions() {
+    this.sound.setVolumes(this.options.music, this.options.sfx);
+    saveOptions(this.options);
+  }
+
+  private eraseProgress() {
+    this.ledger.reset();
+    this.story.forget();
+    this.ui.setHud(this.ledger, null);
+  }
+
+  private start(how: 'new' | 'continue' | 'dev' = 'continue', mapId = 'smallville') {
+    this.title?.close();
     this.sound.init();
+    this.applyOptions();
     this.sound.startMusic();
     this.input.requestLock();
     this.cam.autoOrbit = 0;
-    const go = () => this.enterGhost(new THREE.Vector3(80.5, G + 4, 86), true);
+    const go = () => this.enterGhost(this.start0.clone(), true);
+    if (how === 'dev') {
+      this.loadDevMap(mapId);
+      go();
+      return;
+    }
+    if (how === 'new') {
+      void this.story.opening(true).then(go);
+      return;
+    }
     // ?cutscene=<id> replays one scene (e.g. opening, smallville:25) for testing.
     const forced = new URLSearchParams(location.search).get('cutscene');
     if (forced) void this.story.replay(forced).then(go);
@@ -425,6 +510,7 @@ export class Game {
     this.player.healLegs();
     this.player.lock(false);
     this.props?.setBarnOpen(file.job === 'Farmhand');
+    this.hometown?.onBody(file);
     this.barnTries = 0;
     this.stationVisits = 0;
     this.skillBar.setBody(file);
@@ -665,6 +751,7 @@ export class Game {
   private onLand(e: LandEvent) {
     const ch = this.character;
     if (!ch) return;
+    if (this.mode === 'play' && !this.rides.isRiding && this.hometown?.onLand(e)) return;
     if (this.rides.isRiding && this.rides.onLand(e)) return;
     if (this.mode === 'play' && this.runtime?.onLand?.(e)) return;
     const heavy = Math.min(e.drop / 12, 1);
@@ -678,7 +765,9 @@ export class Game {
       ch.kick(0.15 + heavy * 0.4);
       if (e.drop > 3) this.particles.burst(this.player.feet(), 8, 0xcdbf9a, 3, { life: 0.5, size: 0.2, gravity: 6 });
     }
-    let [breakH, fatalH] = this.player.tier === 'Feeble' ? [3.5, 7] : this.player.tier === 'Athlete' ? [6, 11] : [5, 9];
+    // Heights are measured from the top of the arc. A triple jump or backflip peaks at about 5.3,
+    // so ordinary platforming (even off a small ledge) never breaks legs; only real drops do.
+    let [breakH, fatalH] = this.player.tier === 'Feeble' ? [6, 9] : this.player.tier === 'Athlete' ? [9, 13] : [7.5, 11];
     if (this.body && hasPassive(this.body, 'hardhat')) fatalH += 2;
     if (this.numbT > 0) {
       breakH += 3;
@@ -701,6 +790,7 @@ export class Game {
       if (this.pendingFall) id = this.pendingFall;
       else if (town && inBox(e.launchPos, town.treeZone)) id = 'treehouse';
       else if (town && inBox(e.launchPos, town.towerZone) && e.launchState === 'longjump') id = 'watertower';
+      id = this.hometown?.fallDeathId(e, this.player.feet()) ?? id;
       this.sound.splat();
       this.cam.shake(0.8);
       this.kill(id, { kind: 'ragdoll', vel: v, spin: 12, bounce: 0.6 });
@@ -727,6 +817,11 @@ export class Game {
   private interact(id: string) {
     const ch = this.character;
     if (!ch || !this.body) return;
+    if (this.hometown?.interact(id)) return;
+    if (id.startsWith('groc:')) {
+      this.grocery?.interact(id);
+      return;
+    }
     if (this.rides.tryInteract(id)) return;
     if (id.startsWith('travel:')) return this.openTickets(id.slice(7));
     if (id.startsWith('wheelwell:')) return this.stowAway(id.slice(10));
@@ -1095,7 +1190,26 @@ export class Game {
             this.ui.toast('PATCHED UP', 'The paramedics put casts on both legs. Somehow you can run.', 2600);
           }, 3500);
         } else {
-          this.ui.say(n.file.name, pick(this.rng, ["What? What happened? ...You look fine.", 'Was that you screaming? Weirdo.', "I'm calling the cops if you do that again."]), 2600);
+          // Screaming at people for no reason: twice is weird, three times in a minute gets you committed
+          // (or arrested, if the person who came running is a cop).
+          const now = performance.now();
+          this.falseAlarms = this.falseAlarms.filter((t) => now - t < 60000);
+          this.falseAlarms.push(now);
+          const strikes = this.falseAlarms.length;
+          if (strikes >= 3) {
+            this.falseAlarms = [];
+            if (n.file.job === 'Cop') {
+              this.ui.say(n.file.name, "Third time. That's disturbing the peace, pal.", 2600);
+              arrest(this.api, 'Disturbing the peace (screaming at nothing, three times)');
+            } else {
+              this.ui.say(n.file.name, "Okay, I'm calling someone. Not the cops. The OTHER someone.", 2600);
+              setTimeout(() => this.mode === 'play' && commit(this.api, 'Screamed at strangers three times for no reason'), 1800);
+            }
+          } else if (strikes === 2) {
+            this.ui.say(n.file.name, "Again? Do that one more time and I'm calling somebody.", 2600);
+          } else {
+            this.ui.say(n.file.name, pick(this.rng, ["What? What happened? ...You look fine.", 'Was that you screaming? Weirdo.']), 2600);
+          }
         }
       });
   }
@@ -1158,7 +1272,17 @@ export class Game {
     // Peeing.
     if (this.input.held('pee') && this.player.grounded && (this.player.state === 'ground' || this.player.state === 'locked')) {
       this.peeTime += dt;
-      if (this.peeTime >= 0.4 && this.peeTime - dt < 0.4) this.life.event({ kind: 'pee', at: this.player.feet(), radius: 12 });
+      if (this.peeTime >= 0.4 && this.peeTime - dt < 0.4) {
+        this.life.event({ kind: 'pee', at: this.player.feet(), radius: 12 });
+        // Peeing in front of a cop is a crime. Cops peeing in front of cops is professional courtesy.
+        const p = this.player.feet();
+        const cop = this.body?.job !== 'Cop' && this.npcs.find((n) => n.file.job === 'Cop' && !n.away && !n.controlled && n.pos.distanceTo(p) < 14);
+        if (cop) {
+          this.ui.say(cop.file.name, 'Whoa, WHOA. Zip it up. You are under arrest.', 2600);
+          this.peeTime = 0;
+          arrest(this.api, 'Indecent exposure in front of an officer');
+        }
+      }
       const fd = new THREE.Vector3(Math.sin(this.player.facing), 0, Math.cos(this.player.facing));
       const origin = this.player.feet().add(new THREE.Vector3(0, 0.75, 0)).addScaledVector(fd, 0.3);
       for (let i = 0; i < 2; i++)
@@ -1316,6 +1440,67 @@ export class Game {
       this.props = new Props(this.scene, this.physics, this.town);
       this.props.setBarnOpen(this.body?.job === 'Farmhand');
       this.atms = new Atms(this.scene, this.physics, this.world, this.town.areas.downtown, this.props.interactables);
+      const town = this.town;
+      // Detailed exterior-only buildings from the building kit (docs/building-kit.md).
+      const kit = new StreetKit({ parent: this.scene, physics: this.physics });
+      for (const kb of town.kitBuildings) kit.building(kb);
+      kit.finish();
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      const game = this;
+      this.hometown = new Hometown(this.scene, this.physics, town, {
+        get player() {
+          return game.player;
+        },
+        get body() {
+          return game.body;
+        },
+        get character() {
+          return game.character;
+        },
+        sound: this.sound,
+        particles: this.particles,
+        kill: (id, style) => this.kill(id, style),
+        runSeq: (steps) => this.runSeq(steps),
+        toast: (t, b, ms) => this.ui.toast(t, b, ms),
+        say: (who, line, ms) => this.ui.say(who, line, ms),
+        shake: (a) => this.cam.shake(a),
+      });
+      this.props.interactables.push(...this.hometown.interactables);
+      // The grocery store is its own place stamp with its own deaths and runtime.
+      this.grocery = town.grocery.setup({
+        scene: this.scene,
+        physics: this.physics,
+        world: this.world,
+        rng: mulberry32(4242),
+        game: {
+          get player() {
+            return game.player;
+          },
+          get body() {
+            return game.body;
+          },
+          get character() {
+            return game.character;
+          },
+          sound: this.sound,
+          particles: this.particles,
+          input: this.input,
+          kill: (id, style) => this.kill(id, style),
+          runSeq: (steps) => this.runSeq(steps),
+          toast: (t, b, ms) => this.ui.toast(t, b, ms),
+          say: (who, line, ms) => this.ui.say(who, line, ms),
+          shake: (a) => this.cam.shake(a),
+          flash: (c, ms) => this.ui.flash(c, ms),
+        },
+      });
+      this.props.interactables.push(...this.grocery.interactables);
+      // ?place=hospital starts the ghost at the door of the hospital stamped into the E3 lot.
+      this.start0 = town.spawn.clone().setY(G + 4);
+      if (new URLSearchParams(location.search).get('place') === 'hospital') this.start0 = town.hospital.entrance.clone().add(new THREE.Vector3(0, 4, -8));
+    } else {
+      this.hometown = null;
+      this.grocery = null;
+      this.start0 = b.spawn.clone().setY(this.mapGround + 4);
     }
     // Townsfolk, traffic and the radar for this map.
     const lifeMap = this.town ? smallvilleLife(this.town) : ((b.life as LifeMap | undefined) ?? autoLifeMap(def, b, this.world, this.mapGround));
@@ -1324,7 +1509,7 @@ export class Game {
       blip: () => this.sound.blip(0.6),
       maxPopulation: this.town ? undefined : 120,
     });
-    this.traffic = new Traffic(this.scene, this.physics, this.town ? smallvilleTraffic() : { roads: b.roads ?? [], parked: [] });
+    this.traffic = new Traffic(this.scene, this.physics, this.town ? smallvilleTraffic(this.town) : { roads: b.roads ?? [], parked: [] });
     this.traffic.onHonk = (car, tag) => this.onHonk(car, tag);
     this.traffic.onShoo = (car, tag) => {
       // The honked-at townsperson hops out of the lane.
@@ -1338,7 +1523,9 @@ export class Game {
     };
     this.minimap.setWorld(this.world, def.name, this.mapGround);
     this.pois = this.town ? smallvillePois(this.town) : [];
-    this.runtime = b.setup?.({ scene: this.scene, physics: this.physics, world: this.world, rng, game: this.api }) ?? null;
+    const ctx = { scene: this.scene, physics: this.physics, world: this.world, rng, game: this.api };
+    const own = b.setup?.(ctx) ?? null;
+    this.runtime = this.town ? composeRuntimes([own, setupHospital(ctx, this.town.hospital)]) : own;
     if (def.waterLevel !== undefined) {
       const water = new THREE.Mesh(
         new THREE.PlaneGeometry(def.size.x + 1200, def.size.z + 1200),
@@ -1377,6 +1564,7 @@ export class Game {
     const out: { id: string; pos: THREE.Vector3; radius: number; prompt: string; enabled: boolean }[] = [];
     for (const s of this.mapBuild.stops) {
       if (this.ticket?.stopId === s.id) continue;
+      if (!routesFrom(this.stopKey(s.id), (to) => !!MAP_BY_ID[to.split(':')[0]]).length) continue; // e.g. prison intake
       out.push({ id: `travel:${s.id}`, pos: s.pos, radius: 3.2, prompt: `Buy a ${s.kind === 'plane' ? 'plane' : s.kind === 'boat' ? 'ferry' : s.kind} ticket`, enabled: true });
     }
     for (const svc of this.transit?.services.values() ?? []) {
@@ -2102,20 +2290,27 @@ export class Game {
     if (this.story.active) return;
     const inp = this.input;
 
-    if (inp.pressed('music')) this.sound.toggleMusic();
+    if (this.mode === 'title' && this.title?.open) {
+      if (inp.pressed('menuUp')) this.title.nav('up');
+      if (inp.pressed('menuDown')) this.title.nav('down');
+      if (inp.pressed('menuLeft')) this.title.nav('left');
+      if (inp.pressed('menuRight')) this.title.nav('right');
+      if (inp.pressed('confirm')) this.title.nav('confirm');
+      if (inp.pressed('back')) this.title.nav('back');
+    } else if (inp.pressed('music')) this.sound.toggleMusic();
     if (inp.pressed('help')) this.ui.toggleHelp();
     if (inp.pressed('ledger') && this.mode !== 'title') this.ui.toggleLedger(this.ledger, this.mapDef, MAPS);
     if (this.mode === 'claim' && inp.pressed('confirm')) this.ui.pendingClaim?.();
-    if (this.mode === 'title' && inp.pressed('confirm')) this.ui.titleGo?.();
     this.ui.setPadMode(inp.padConnected);
 
-    const mouseSens = 0.0032;
+    const mouseSens = 0.0032 * this.options.sens;
     if (this.mode === 'play' || this.mode === 'ghost') this.cam.zoom(inp.wheel);
     this.cam.minDist = this.mode === 'dying' || this.mode === 'claim' ? 6 : 0;
     // Right mouse (or first person) makes the character face where the camera looks.
     const steer = inp.rmb || this.cam.firstPerson;
+    if (!(inp.lmb && !inp.rmb && !this.cam.firstPerson)) this.moveYaw = this.cam.yaw;
     const lookDX = inp.mouseDX * mouseSens + inp.lookX * realDt * 2.6;
-    const lookDY = inp.mouseDY * mouseSens + inp.lookY * realDt * 2;
+    const lookDY = (inp.mouseDY * mouseSens + inp.lookY * realDt * 2) * (this.options.invertY ? -1 : 1);
 
     const dt = realDt * this.timeScale;
     this.time += dt;
@@ -2143,7 +2338,7 @@ export class Game {
           this.player.update(h, {
             moveX: peeing || this.ui.ledgerOpen || this.tickets.open ? 0 : inp.moveX,
             moveY: peeing || this.ui.ledgerOpen || this.tickets.open ? 0 : inp.moveY,
-            camYaw: this.cam.yaw,
+            camYaw: this.moveYaw,
             jumpPressed: first && this.latched.jump && !this.life.isTalking && !this.tickets.open,
             jumpHeld: inp.held('jump'),
             crouchHeld: inp.held('crouch'),
@@ -2158,6 +2353,8 @@ export class Game {
       this.props?.bale.update(h);
       this.transit?.step(h);
       this.runtime?.step?.(h);
+      this.hometown?.step(h);
+      this.grocery?.step(h);
       this.traffic.step(h, this.obstacles, focus0);
       this.physics.step();
       this.traffic.afterStep();
@@ -2168,6 +2365,8 @@ export class Game {
         else {
           this.rides.step(h);
           this.checkHazards(h);
+          if (this.mode === 'play' && this.character) this.hometown?.checkHazards(h);
+          if (this.mode === 'play' && this.character) this.grocery?.checkHazards(h);
         }
       }
       this.acc -= h;
@@ -2189,6 +2388,8 @@ export class Game {
     this.updateBurning(dt);
     this.props?.update(dt, this.time);
     this.runtime?.update?.(dt, this.time);
+    this.hometown?.update(dt, this.time);
+    this.grocery?.update(dt, this.time);
     this.particles.update(dt);
 
     // Train smoke.
@@ -2270,7 +2471,7 @@ export class Game {
       this.ghost.position.y += Math.sin(this.time * 3) * 0.15;
       this.ghost.rotation.y = this.cam.yaw + Math.PI;
     } else {
-      this.cam.update(realDt, new THREE.Vector3(90, G + 6, 80), 0, 0);
+      this.cam.update(realDt, this.mapBuild.spawn.clone().setY(this.mapGround + 6), 0, 0);
     }
 
     if (this.mode !== 'play') this.rides.update(realDt);
@@ -2290,13 +2491,13 @@ export class Game {
     this.drawMinimap(realDt);
 
     if (!this.driving) this.engine.set(false, 0, 0);
-    this.renderer.render(this.scene, this.camera);
+    this.post.render();
     this.input.endFrame();
   }
 
   private updateGhost(dt: number, lookDX: number, lookDY: number) {
     const inp = this.input;
-    const yaw = this.cam.yaw;
+    const yaw = this.moveYaw;
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
     const rx = Math.cos(yaw), rz = -Math.sin(yaw);
     const sp = 14;

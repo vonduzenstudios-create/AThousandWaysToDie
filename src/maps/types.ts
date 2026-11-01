@@ -97,10 +97,11 @@ export interface GameApi {
    * Send the player (in their current body) to another map's stop without a ticket, e.g. an arrest
    * to 'prison:intake'. Fades out, shows a trip card with `line`, loads the map and arrives on that
    * stop's vehicle (or just appears at the stop if it has no service). No-op unless alive in a body.
+   * Optional so dev harnesses (src/dev) can leave it out; the game always provides it.
    */
-  travelTo(stopKey: string, opts?: { line?: string; title?: string }): void;
-  /** Id of the loaded map. */
-  readonly mapId: string;
+  travelTo?(stopKey: string, opts?: { line?: string; title?: string }): void;
+  /** Id of the loaded map (optional for the same reason). */
+  readonly mapId?: string;
 }
 
 /** Things a map can do at runtime once it is loaded. All optional except dispose. */

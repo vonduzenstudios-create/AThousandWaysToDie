@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { B, type VoxelWorld } from '../voxel';
-import { G, SIZE, box, buildTown, type TownInfo } from '../town';
+import { G, HEIGHT, SIZE, box, buildTown, type TownInfo } from '../town';
 import type { MapBuild, MapDef, TravelStop } from './types';
 
 /** Smallville's build carries the TownInfo that game.ts uses for the original deaths. */
@@ -64,7 +64,7 @@ function stampTransit(w: VoxelWorld): TravelStop[] {
 export const smallville: MapDef = {
   id: 'smallville',
   name: 'Smallville',
-  size: { x: SIZE, y: 64, z: SIZE },
+  size: { x: SIZE, y: HEIGHT, z: SIZE },
   build(world): SmallvilleBuild {
     const town = buildTown(world);
     const stops = stampTransit(world);

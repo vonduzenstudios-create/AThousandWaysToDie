@@ -35,7 +35,42 @@ export const B = {
   LeavesDark: 28,
   WallPeach: 29,
   RoofBrown: 30,
+  Water: 31,
+  Corn: 32,
+  Tile: 33,
+  Carpet: 34,
+  Lamp: 35,
+  Orange: 36,
+  Purple: 37,
+  Pink: 38,
+  Steel: 39,
+  Marble: 40,
+  Chalk: 41,
+  Black: 42,
+  Tombstone: 43,
+  Linoleum: 44,
+  Shelf: 45,
+  Navy: 46,
+  Rubber: 47,
+  Grain: 48,
+  Mud: 49,
+  Ice: 50,
+  /** Draws nothing; marks a footprint that a mesh from elsewhere (the building kit) stands on, so nav and collision see it. */
+  Footprint: 51,
+  // Prison and asylum blocks (src/maps/institutions). Ids 230-238 (beach 100-139, city 140-179, wilderness 180-219, travel 220-229).
+  PrisonGrey: 230,
+  CellFloor: 231,
+  ShowerTile: 232,
+  Padding: 233,
+  PoolTile: 234,
+  AsylumWall: 235,
+  AsylumLino: 236,
+  OrangePaint: 237,
+  OfficeCarpet: 238,
 } as const;
+
+/** Blocks you can walk (or sink) through. They still render and hide faces behind them. */
+export const PASSABLE = new Set<number>([B.Water, B.Corn, B.Grain]);
 
 /** Base color and how much per-voxel color noise each block gets. Maps may add blocks with registerBlock. */
 export const PALETTE: Record<number, [number, number]> = {
@@ -69,6 +104,36 @@ export const PALETTE: Record<number, [number, number]> = {
   [B.LeavesDark]: [0x2f7a2c, 0.2],
   [B.WallPeach]: [0xf2c6a0, 0.05],
   [B.RoofBrown]: [0x6b4330, 0.08],
+  [B.Water]: [0x3f86c8, 0.06],
+  [B.Corn]: [0x9cc244, 0.25],
+  [B.Tile]: [0xd9dde0, 0.03],
+  [B.Carpet]: [0x8a2f3c, 0.08],
+  [B.Lamp]: [0xfff3b0, 0.0],
+  [B.Orange]: [0xf08a24, 0.05],
+  [B.Purple]: [0x7a4fb8, 0.06],
+  [B.Pink]: [0xf59ac8, 0.06],
+  [B.Steel]: [0xc0582a, 0.08],
+  [B.Marble]: [0xe8e4dc, 0.03],
+  [B.Chalk]: [0x2f5a3a, 0.05],
+  [B.Black]: [0x18181b, 0.05],
+  [B.Tombstone]: [0x9a9ca0, 0.1],
+  [B.Linoleum]: [0xcfc7a8, 0.05],
+  [B.Shelf]: [0xd9d2c0, 0.05],
+  [B.Navy]: [0x24305e, 0.05],
+  [B.Rubber]: [0x26262b, 0.03],
+  [B.Grain]: [0xd9b85a, 0.18],
+  [B.Mud]: [0x5e4128, 0.12],
+  [B.Ice]: [0xcdeefa, 0.04],
+  [B.Footprint]: [0x8c6e60, 0],
+  [B.PrisonGrey]: [0x7c8088, 0.08],
+  [B.CellFloor]: [0x5d6168, 0.1],
+  [B.ShowerTile]: [0xdfe8ec, 0.05],
+  [B.Padding]: [0xf1ead2, 0.07],
+  [B.PoolTile]: [0x4aa8d8, 0.06],
+  [B.AsylumWall]: [0xc9d8c2, 0.05],
+  [B.AsylumLino]: [0xb9c4a8, 0.12],
+  [B.OrangePaint]: [0xf07a2a, 0.04],
+  [B.OfficeCarpet]: [0x7a3a4a, 0.12],
 };
 
 const AO_CURVE = [0.42, 0.62, 0.8, 1.0];
@@ -193,7 +258,13 @@ export class VoxelWorld {
   }
 
   private solid(x: number, y: number, z: number) {
-    return this.get(x, y, z) !== 0 ? 1 : 0;
+    const b = this.get(x, y, z);
+    return b !== 0 && b !== B.Footprint ? 1 : 0;
+  }
+
+  private collides(x: number, y: number, z: number) {
+    const b = this.get(x, y, z);
+    return b !== 0 && !PASSABLE.has(b);
   }
 
   /**
@@ -224,7 +295,7 @@ export class VoxelWorld {
             for (let lz = 0; lz < CS; lz++)
               for (let lx = 0; lx < CS; lx++) {
                 const b = c[(ly << 8) | (lz << 4) | lx];
-                if (!b) continue;
+                if (!b || b === B.Footprint) continue;
                 const x = ccx * CS + lx, y = cy * CS + ly, z = ccz * CS + lz;
                 const [hex, vari] = PALETTE[b] ?? [0xff00ff, 0];
                 const f = 1 + (hash3(x, y, z) - 0.5) * vari * 2;
@@ -276,6 +347,80 @@ export class VoxelWorld {
         }
     if (!pos.length) return null;
     return { pos: new Float32Array(pos), nor: new Float32Array(nor), col: new Float32Array(col), ind: new Uint32Array(ind) };
+  }
+
+  /**
+   * Collider triangles for one section. Faces are merged greedily into big rectangles, so a flat
+   * street is a handful of triangles instead of thousands. Water, crops and other PASSABLE blocks
+   * are left out, and so are faces they hide (a riverbed under water still collides).
+   */
+  sectionCollider(sxi: number, szi: number) {
+    const x0 = sxi * SECTION, z0 = szi * SECTION;
+    const lo = [x0, 0, z0];
+    const hi = [Math.min(x0 + SECTION, this.sx), Math.min(this.sectionTop(sxi, szi), this.sy), Math.min(z0 + SECTION, this.sz)];
+    if (hi[0] <= lo[0] || hi[1] <= 0 || hi[2] <= lo[2]) return null;
+    const verts: number[] = [];
+    const ind: number[] = [];
+    const p = [0, 0, 0];
+    for (let a = 0; a < 3; a++) {
+      const u = (a + 1) % 3;
+      const v = (a + 2) % 3;
+      const nu = hi[u] - lo[u];
+      const nv = hi[v] - lo[v];
+      const mask = new Uint8Array(nu * nv);
+      for (const s of [1, -1]) {
+        for (let d = lo[a]; d < hi[a]; d++) {
+          let any = false;
+          for (let j = 0; j < nv; j++)
+            for (let i = 0; i < nu; i++) {
+              p[a] = d;
+              p[u] = lo[u] + i;
+              p[v] = lo[v] + j;
+              let m = 0;
+              if (this.collides(p[0], p[1], p[2])) {
+                p[a] += s;
+                if (!this.collides(p[0], p[1], p[2])) m = 1;
+              }
+              mask[j * nu + i] = m;
+              if (m) any = true;
+            }
+          if (!any) continue;
+          const plane = d + (s > 0 ? 1 : 0);
+          for (let j = 0; j < nv; j++)
+            for (let i = 0; i < nu; ) {
+              if (!mask[j * nu + i]) {
+                i++;
+                continue;
+              }
+              let w = 1;
+              while (i + w < nu && mask[j * nu + i + w]) w++;
+              let h = 1;
+              outer: while (j + h < nv) {
+                for (let k = 0; k < w; k++) if (!mask[(j + h) * nu + i + k]) break outer;
+                h++;
+              }
+              for (let jj = 0; jj < h; jj++) for (let k = 0; k < w; k++) mask[(j + jj) * nu + i + k] = 0;
+              const base = verts.length / 3;
+              const corner = (du: number, dv: number) => {
+                const q = [0, 0, 0];
+                q[a] = plane;
+                q[u] = lo[u] + i + du;
+                q[v] = lo[v] + j + dv;
+                verts.push(q[0], q[1], q[2]);
+              };
+              corner(0, 0);
+              corner(w, 0);
+              corner(w, h);
+              corner(0, h);
+              if (s > 0) ind.push(base, base + 1, base + 2, base, base + 2, base + 3);
+              else ind.push(base, base + 2, base + 1, base, base + 3, base + 2);
+              i += w;
+            }
+        }
+      }
+    }
+    if (!ind.length) return null;
+    return { pos: new Float32Array(verts), ind: new Uint32Array(ind) };
   }
 
   /**
@@ -354,8 +499,8 @@ export class ChunkStreamer {
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
     this.scene.add(mesh);
-    const cd = RAPIER.ColliderDesc.trimesh(m.pos, m.ind).setFriction(0.9).setCollisionGroups(groups(G_WORLD, G_ALL));
-    const collider = this.physics.createCollider(cd, this.body);
+    const c = this.world.sectionCollider(sx, sz);
+    const collider = c ? this.physics.createCollider(RAPIER.ColliderDesc.trimesh(c.pos, c.ind).setFriction(0.9).setCollisionGroups(groups(G_WORLD, G_ALL)), this.body) : null;
     this.sections.set(k, { mesh, collider });
   }
 

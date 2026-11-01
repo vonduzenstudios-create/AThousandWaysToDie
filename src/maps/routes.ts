@@ -34,6 +34,9 @@ export const ROUTES: Route[] = [
   // Once a place is open, local links between places you can already reach.
   { a: 'beach:bus', b: 'wilderness:bus', kind: 'bus', fare: 20, minutes: 90, unlock: { map: 'beach', deaths: DEATHS_PER_UNLOCK } },
   { a: 'city:train', b: 'wilderness:train', kind: 'train', fare: 50, minutes: 180, unlock: { map: 'wilderness', deaths: DEATHS_PER_UNLOCK } },
+  // 25 deaths in the city: visitor shuttles to the prison and the asylum. (Or get arrested / committed for free.)
+  { a: 'city:bus', b: 'prison:visitor', kind: 'bus', fare: 45, minutes: 60, unlock: { map: 'city', deaths: DEATHS_PER_UNLOCK } },
+  { a: 'city:bus', b: 'asylum:gate', kind: 'bus', fare: 45, minutes: 75, unlock: { map: 'city', deaths: DEATHS_PER_UNLOCK } },
 ];
 
 /** Routes leaving a stop, oriented so `to` is the far end. Routes to stops that don't exist are skipped. */

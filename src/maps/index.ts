@@ -4,12 +4,13 @@ import { smallville } from './smallville';
 import { WILDERNESS } from './wilderness';
 import { BEACH } from './beach';
 import { CITY_MAP } from './city';
+import { INSTITUTION_MAPS } from './institutions';
 
 /**
  * Every map in the game. To add one: export a MapDef from src/maps/<id>.ts (or <id>/index.ts)
  * and add it here. Then add its routes to routes.ts.
  */
-export const MAPS: MapDef[] = [smallville, CITY_MAP, BEACH, WILDERNESS];
+export const MAPS: MapDef[] = [smallville, CITY_MAP, BEACH, WILDERNESS, ...INSTITUTION_MAPS];
 
 export const MAP_BY_ID: Record<string, MapDef> = Object.fromEntries(MAPS.map((m) => [m.id, m]));
 

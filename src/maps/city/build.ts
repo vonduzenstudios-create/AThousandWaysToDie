@@ -794,17 +794,7 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     fill(L.x + 3, G + 49, L.z, L.x + 3, G + 50, L.z, B.Yellow);
   }
 
-  // ------------------------------------------------------------------ airport lot (placeholder)
-  {
-    // The airport thread's module stamps the real thing here. Until then: grass, a runway
-    // and a little terminal shed so the plane stop has somewhere to be.
-    const A = AIRPORT_LOT;
-    fill(A.x, G - 1, A.z, A.x + A.sx - 1, G - 1, A.z + A.sz - 1, B.Grass);
-    fill(A.x + 10, G - 1, A.z + 30, A.x + A.sx - 11, G - 1, A.z + 50, B.Asphalt);
-    for (let x = A.x + 20; x < A.x + A.sx - 20; x++) if (x % 10 < 6) set(x, G - 1, A.z + 40, B.White);
-    fill(A.x + 140, G - 1, A.z + 51, A.x + 180, G - 1, A.z + A.sz - 1, B.Concrete);
-    building({ x0: A.x + 140, z0: A.z + A.sz - 30, x1: A.x + 180, z1: A.z + A.sz - 10 }, { floors: 2, wall: B.White, trim: B.RoofBlue, front: 's', glassy: true, shop: { name: 'Fuhgeddaboudit International', kind: 'transit', jobs: ['Ticket Clerk'], sign: ['#1a3a6a', '#ffffff'], sells: [{ item: 'plane ticket', price: 400 }] } });
-  }
+  // The airport lot (AIRPORT_LOT) is filled by src/places/airport, called from index.ts.
 
   // ------------------------------------------------------------------ hospital superblock
   {
