@@ -48,7 +48,8 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 
 ## What's in this build
 
-- Smallville: park with a giant oak treehouse, water tower with a diving board, Duke's Garage, the diner, Hoffman Farm with an electric fence and a hay hoist, Whisper Woods, houses and a railroad.
+- Smallville, a 512 x 512 town: Main Street shops (diner, laundromat, pharmacy, bakery, bank), a bar and cinema, the library, town hall with the DMV and the bus stop, the train station, police and fire stations, Duke's Garage, the Gas-N-Grub, Uncle Boomer's Fireworks, the church with its bell tower and BBQ, Honest Al's Used Cars, the school and gym, a trailer park, the cemetery, suburbs with 12 Maple St (Gary's old house), the water tower, a construction site, Hoffman Farm (barn, hay hoist, electric fence, silo, bull pen, mule, cornfield), the quarry, Whisper Woods and the park with the giant oak and the goose pond. Lots are reserved for the full grocery store and hospital.
+- 21 hometown deaths on top of the originals, in `src/hometown.ts`: Bull Launch, For Whom the Bell Tolls, Bathtub Toaster, Forkin' Toast, Shallow End, Piano Recital, Goose Mauling, Grain Expectations, Kicked by a Mule, Trampoline Launch, Rock Bottom, Sleeps With the Fishes, Wacky Inflatable Exit, Died in Line, Overdue, Spin Cycle, Grand Finale, Hot Dog Contest, Gas Pump Fireball, Gas Station Sushi and Nail Gun Demo.
 - Ghost mode with scythe vision: read anyone's file (age, job, scheduled death, insurance, net worth, afterlife, allergies) and possess them. Taking someone who isn't due angers God.
 - Jobs matter: only a Farmhand can work the hay hoist, and only an allergic body dies from the peanut butter cookies.
 - 27 deaths: Treehouse Tumble, Antifreeze Cocktail, Shocking Behavior, Pancake Mode, Water Tower Dive, Forest Fungus, Last Train Home, Faceplant, Edge of the World, Peanut Panic, Resisting Arrest, Don't Tase Me Bro, Baled, Picked the Wrong Fight, Beaten by a Senior, Jaywalker, Cliffhanger, No Seatbelt, Tuck and Roll, Beat the Train, Over the Handlebars, Board Meeting, Evel Kneecap, Grind Rail, Act Your Age, Wheelie Bad Idea, Share the Road.
@@ -78,7 +79,8 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/character.ts`: procedural voxel people and animation
 - `src/ragdoll.ts`: jointed physics ragdolls
 - `src/rides.ts`: skateboards, bicycles, ramps, tricks and their deaths (Player.ride switches the controller to momentum steering)
-- `src/town.ts`, `src/voxel.ts`: town generator, voxel mesher with ambient occlusion
+- `src/town.ts`, `src/townkit.ts`, `src/voxel.ts`: Smallville layout (places, transit stops, roads, signs, death spots), building and street kit, voxel mesher with ambient occlusion and merged colliders
+- `src/hometown.ts`: the expanded town's deaths, animals and moving props
 - `src/props.ts`: train, hay bale, signs, hazards
 - `src/npc.ts`, `src/deaths.ts`: townspeople, their files, the death list and save data
 - `src/life/`: NPC life: daily schedules, shops, chatting, gossip, talking to townsfolk (see `docs/npc-life.md`)
