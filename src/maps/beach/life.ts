@@ -31,6 +31,7 @@ export function beachLife(world: VoxelWorld, L: BeachLayout): LifeMap {
     x = Math.floor(x);
     z = Math.floor(z);
     if (x < 0 || z < 0 || x >= SX || z >= SZ) return false;
+    if (L.solid[z * SX + x]) return false;
     const top = world.topY(x, z);
     if (!Number.isNaN(water[z * SX + x]) && top < 9) return false;
     // Standing space for a person.

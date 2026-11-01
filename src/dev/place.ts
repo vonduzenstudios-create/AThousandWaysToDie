@@ -19,8 +19,9 @@ import { mulberry32 } from '../util';
 import type { DeathStyle, GameApi, MapDef, MapRuntime } from '../maps/types';
 import { airportMap } from '../places/airport';
 import { CITY_MAP } from '../maps/city';
+import { BEACH } from '../maps/beach';
 
-const MAPS: Record<string, MapDef> = { airport: airportMap, city: CITY_MAP };
+const MAPS: Record<string, MapDef> = { airport: airportMap, city: CITY_MAP, beach: BEACH };
 
 async function boot() {
   await RAPIER.init();

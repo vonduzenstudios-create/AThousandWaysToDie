@@ -161,10 +161,14 @@ export class StreetKit {
     return m;
   }
 
-  /** Build and place one building. */
-  building(spec: BuildingSpec & Placement): PlacedBuilding {
+  /**
+   * Build and place one building. `edit` runs on the raw voxels and colliders before meshing,
+   * in building-local units (front at z = 0, facing -z), e.g. to hollow out an enterable shop.
+   */
+  building(spec: BuildingSpec & Placement, edit?: (built: BuiltBuilding) => void): PlacedBuilding {
     const t0 = performance.now();
     const built = buildBuilding(spec);
+    edit?.(built);
     const m = StreetKit.placement(spec, spec.w, spec.d);
     const object = new THREE.Group();
     object.name = 'building';
@@ -385,16 +389,14 @@ export class StreetKit {
     }
   }
 
-  /** Remove everything the kit added: meshes, instanced props and colliders. */
+  /** Take every mesh and collider the kit made back out of the scene and physics world. */
   dispose() {
-    this.group.removeFromParent();
-    this.group.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh) m.geometry.dispose();
-    });
+    this.group.parent?.remove(this.group);
+    // Materials are shared through kitMaterial's cache, so only geometry is freed.
+    this.group.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
     if (this.body && this.physics) this.physics.removeRigidBody(this.body);
     this.body = null;
-    this.jobs = [];
+    this.pool.dispose();
   }
 
   stats() {

@@ -235,24 +235,14 @@ function depot(c: Ctx) {
   // Platform.
   w.fill(56, y, 602, 112, y, 608, B.Concrete);
   w.fill(56, y, 608, 112, y, 608, B.Yellow);
-  // Station house: log cabin with a big porch.
-  const x0 = 66, z0 = 590, x1 = 92, z1 = 600;
-  w.fill(x0, y - 1, z0, x1, y - 1, z1, B.Plank);
-  walls(w, x0, y, z0, x1, z1, 5, B.Wood, W.LogEnd);
-  door(w, 78, y, z1, 'x', 3);
-  door(w, 78, y, z0, 'x', 2);
-  gable(w, x0, y + 5, z0, x1, z1, B.RoofGreen, B.Wood);
-  w.fill(70, y, 593, 76, y, 594, B.Plank); // ticket counter
-  w.fill(84, y, 592, 90, y, 592, B.Plank); // benches
-  // Porch posts and roof.
-  for (const x of [64, 72, 80, 88, 94]) w.fill(x, y, 601, x, y + 4, 601, B.Wood);
-  w.fill(62, y + 5, 601, 96, y + 5, 604, B.RoofGreen);
+  // The station house itself is a kit building (kitbuild.ts); just a step up to the platform.
+  w.fill(66, y, 601, 92, y, 601, B.Plank);
   // Water tank for steam engines.
   w.fill(100, y, 594, 100, y + 6, 594, B.Wood);
   w.fill(104, y, 594, 104, y + 6, 594, B.Wood);
   w.fill(100, y + 7, 591, 104, y + 10, 597, B.Plank);
   spots.trainStop = V(84, y, 605.5);
-  spots.depotSign = V(79.5, y + 6.5, 601.3);
+  spots.depotSign = V(60, y + 1, 603);
   spots.trainLaneFrom = V(-40, y, 614.5);
   spots.trainLaneStop = V(84, y, 614.5);
   spots.trainLaneTo = V(340, y, 614.5);
@@ -262,13 +252,8 @@ function rangerStation(c: Ctx) {
   const { w, spots } = c;
   const p = PADS.ranger;
   const y = p.y!;
-  const x0 = 122, z0 = 551, x1 = 140, z1 = 565;
-  w.fill(x0, y - 1, z0, x1, y - 1, z1, B.Plank);
-  walls(w, x0, y, z0, x1, z1, 5, B.Wood, W.LogEnd);
-  door(w, 130, y, z1, 'x', 2);
-  gable(w, x0, y + 5, z0, x1, z1, B.RoofBrown, B.Wood);
-  w.fill(124, y, 553, 129, y, 554, B.Plank); // desk
-  w.fill(136, y, 553, 139, y + 2, 553, B.Plank); // shelves
+  // The station house is a kit building (kitbuild.ts). The flare gun hangs on a rack by the door.
+  w.fill(125, y, 566, 126, y, 566, B.Plank);
   // Fire lookout tower behind it.
   const tx = 112, tz = 540, ty = 22;
   for (const [dx, dz] of [[0, 0], [4, 0], [0, 4], [4, 4]]) w.fill(tx + dx, y, tz + dz, tx + dx, y + ty, tz + dz, B.Wood);
@@ -280,12 +265,10 @@ function rangerStation(c: Ctx) {
   for (let i = 0; i < ty; i++) w.set(tx + 2, y + i, tz - 1 - (i % 2), B.Plank);
   for (let i = 0; i < ty; i++) w.set(tx + 2, y + i, tz - 1, B.Plank);
   w.set(tx + 2, y + ty + 1, tz - 1, 0);
-  // Flagpole.
-  w.fill(132, y, 568, 132, y + 9, 568, B.Metal);
-  spots.ranger = V(127, y, 556);
-  spots.rangerDoor = V(131, y, 567);
-  spots.flareGun = V(126.5, y + 1, 553.5);
-  spots.rangerSign = V(131, y + 5, 565.6);
+  spots.ranger = V(127, y, 567.5);
+  spots.rangerDoor = V(131.5, y, 567);
+  spots.flareGun = V(125.5, y + 1, 566.5);
+  spots.rangerSign = V(119, y, 569);
   spots.lookout = V(tx + 2.5, y + ty + 1, tz + 2.5);
   spots.flag = V(132.5, y + 9, 568.5);
 }
@@ -461,20 +444,10 @@ function lodge(c: Ctx) {
   const { w, spots } = c;
   const p = PADS.lodge;
   const y = p.y!;
-  // Main lodge: long building with thatch.
-  const x0 = 424, z0 = 542, x1 = 452, z1 = 556;
-  w.fill(x0, y - 1, z0, x1, y - 1, z1, B.Plank);
-  walls(w, x0, y, z0, x1, z1, 5, W.Adobe, B.Wood);
-  door(w, 437, y, z1, 'x', 3);
-  door(w, 452, y, 548, 'z', 2);
-  for (let i = 0; i < 6; i++) w.fill(x0 - 1 + i, y + 5 + i, z0 - 1 + i, x1 + 1 - i, y + 5 + i, z1 + 1 - i, W.Thatch);
-  w.fill(427, y, 545, 434, y, 546, B.Plank); // gift shop counter
-  w.fill(442, y, 545, 449, y, 545, B.Metal); // kitchen counter
-  w.fill(440, y, 543, 440, y + 4, 555, W.Adobe); // inner wall
-  door(w, 440, y, 549, 'z', 2);
-  // Veranda.
-  for (const x of [424, 432, 440, 448, 452]) w.fill(x, y, 559, x, y + 3, 559, B.Wood);
-  w.fill(422, y + 4, 557, 454, y + 4, 560, W.Thatch);
+  // The gift shop and the lodge kitchen are kit buildings (kitbuild.ts). Each has a walk-up
+  // counter out front under its awning.
+  w.fill(427, y, 557, 429, y, 557, B.Plank);
+  w.fill(445, y, 557, 447, y, 557, B.Metal);
   rondavel(w, 462, y, 548, 4, W.Adobe);
   rondavel(w, 464, y, 566, 4, W.Adobe);
   rondavel(w, 428, y, 574, 4, W.Adobe);
@@ -482,10 +455,10 @@ function lodge(c: Ctx) {
   for (const [x, z] of [[444, 570], [458, 570], [444, 584], [458, 584]]) w.fill(x, y, z, x, y + 4, z, B.Wood);
   w.fill(443, y + 5, 569, 459, y + 5, 585, B.Metal);
   w.fill(445, y, 582, 448, y, 583, B.Plank);
-  spots.giftShop = V(430.5, y, 547.5);
-  spots.kitchen = V(445.5, y, 547.5);
-  spots.lodgeDoor = V(438.5, y, 558.5);
-  spots.lodgeSign = V(438, y + 6, 557);
+  spots.giftShop = V(428.5, y, 559);
+  spots.kitchen = V(446.5, y, 559);
+  spots.lodgeDoor = V(445.5, y, 558);
+  spots.lodgeSign = V(438.5, y, 565);
   spots.paintCan = V(446.5, y + 1, 582.5);
   spots.garage = V(451, y, 577);
   spots.jeepHome = V(451.5, y, 577);
@@ -517,15 +490,13 @@ function airstrip(c: Ctx) {
   for (let i = 0; i < 4; i++) w.fill(301, hy + 8 + i, 584 + i * 2, 329, hy + 8 + i, 598 - i * 2, B.Metal);
   // Windsock pole and tiny terminal.
   w.fill(340, y, 598, 340, y + 6, 598, B.Metal);
-  walls(w, 344, hy, 588, 354, 597, 4, B.White, B.Dark);
-  door(w, 348, hy, 597, 'x', 2);
-  w.fill(343, hy + 4, 587, 355, hy + 4, 598, B.RedPaint);
+  // The terminal is a kit building (kitbuild.ts).
   spots.airport = V(349, hy, 600);
   spots.planeLaneFrom = V(620, y, 612);
   spots.planeLaneStop = V(360, y, 612);
   spots.planeLaneTo = V(250, y, 612);
   spots.windsock = V(340.5, y + 6, 598.5);
-  spots.airSign = V(349, hy + 5, 597.6);
+  spots.airSign = V(362, hy, 599);
 }
 
 function overlook(c: Ctx) {
@@ -560,11 +531,7 @@ function gasStation(c: Ctx) {
   const { w, spots } = c;
   const p = PADS.gas;
   const y = p.y!;
-  // Diner + store.
-  walls(w, 286, y, 134, 306, 146, 5, W.Adobe, B.RedPaint);
-  door(w, 295, y, 146, 'x', 2);
-  w.fill(285, y + 5, 133, 307, y + 5, 147, B.RedPaint);
-  w.fill(288, y, 136, 296, y, 137, B.Plank); // counter
+  // The diner is a kit building (kitbuild.ts).
   // Canopy over the pumps.
   for (const x of [312, 324]) for (const z of [140, 154]) w.fill(x, y, z, x, y + 5, z, B.White);
   w.fill(310, y + 6, 138, 326, y + 6, 156, B.White);
@@ -574,11 +541,11 @@ function gasStation(c: Ctx) {
   w.fill(330, y, 140, 330, y + 14, 140, B.Metal);
   // Camel hitching post.
   w.fill(284, y, 152, 284, y + 1, 152, B.Wood);
-  spots.gasDoor = V(296, y, 148.5);
+  spots.gasDoor = V(296.5, y, 148.5);
   spots.gasSign = V(330.5, y + 15, 140.5);
   spots.acme = V(304.5, y, 151.5);
   spots.camelPost = V(284.5, y, 154);
-  spots.dinerSign = V(296, y + 6.5, 147.6);
+  spots.dinerSign = V(282, y, 150);
 }
 
 function trailer(c: Ctx) {
@@ -657,15 +624,8 @@ function testSite(c: Ctx) {
   const p = PADS.doomtown;
   const y = p.y!;
   // Two Doom Town houses with mannequins (posts) and a fridge in the kitchen.
-  const houseAt = (x0: number, z0: number, color: number) => {
-    walls(w, x0, y, z0, x0 + 10, z0 + 8, 4, color, B.Wood);
-    door(w, x0 + 5, y, z0 + 8, 'x', 2);
-    gable(w, x0, y + 4, z0, x0 + 10, z0 + 8, B.RoofBrown, color);
-  };
-  houseAt(562, 40, B.WallMint);
-  houseAt(586, 56, B.WallPeach);
-  // Fridge inside the first house.
-  w.fill(563, y, 41, 564, y + 2, 42, B.White);
+  // The houses are kit buildings (kitbuild.ts). The fridge was put out on the front lawn.
+  w.fill(564, y, 50, 565, y + 2, 50, B.White);
   // Picket fence, a car-shaped lump, a bomb tower in the middle of nowhere.
   for (let x = 560; x <= 576; x += 2) w.set(x, y, 52, B.White);
   const tx = 600, tz = 34;
@@ -681,8 +641,8 @@ function testSite(c: Ctx) {
     w.fill(x, y, 88, x, y + 1, 88, W.Hazard);
   }
   for (let z = 26; z <= 88; z += 3) w.fill(552, y, z, 552, y + 1, z, W.Hazard);
-  spots.fridge = V(564, y, 44);
-  spots.doomWall = V(567, y + 2, 40.4);
+  spots.fridge = V(565, y, 51.5);
+  spots.doomWall = V(562.8, y + 1.5, 49.05);
   spots.bombTower = V(602.5, y + 22, 36.5);
   spots.testSign = V(556, y + 3, 90);
   // Control bunker.
