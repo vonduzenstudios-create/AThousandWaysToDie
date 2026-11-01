@@ -637,6 +637,16 @@ export class Rides {
     const feet = pl.feet();
     const sp = pl.horizSpeed();
 
+    // Rode into water: the ride sinks, the rider swims.
+    if (pl.swimming) {
+      this.riding = null;
+      pl.setRide(null);
+      this.resetPose();
+      this.throwLoose(r, pl.vel.clone().multiplyScalar(0.5), 3);
+      this.host.toast('GLUG', r.kind === 'bicycle' ? 'Bikes do not float.' : 'Skateboards do not float. Apparently.', 1800);
+      return;
+    }
+
     if (pl.grounded) {
       // Ramp lips.
       for (const rp of this.ramps) {
