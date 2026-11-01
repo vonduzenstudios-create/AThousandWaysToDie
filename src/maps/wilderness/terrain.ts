@@ -1,4 +1,4 @@
-import { B, defineBlock, type VoxelWorld } from '../../voxel';
+import { B, blockDetail, defineBlock, Detail, type VoxelWorld } from '../../voxel';
 
 /**
  * Terrain for the wilderness: Lost Pines forest and river country in the west,
@@ -92,6 +92,12 @@ export function defineWildBlocks() {
     [W.Shadow, 0x1a1a1a, 0.02],
   ];
   for (const [id, c, n] of d) defineBlock(id, c, n);
+  // Painted surface detail (voxel.ts blockDetail): cheap texture on the blocky forest and ground.
+  blockDetail(Detail.Foliage, W.Pine, W.Acacia, W.Cypress, W.Moss, W.Thatch);
+  blockDetail(Detail.Grass, W.DryGrass, W.SwampGrass, W.ForestFloor);
+  blockDetail(Detail.Bark, W.Bark, W.Baobab, W.Rust, W.Cactus);
+  blockDetail(Detail.Stone, W.Rock, W.DarkRock);
+  blockDetail(Detail.Soil, W.RedEarth, W.SandA, W.SandB, W.SandC, W.Mud, W.Dune);
 }
 
 export const enum Biome {

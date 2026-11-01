@@ -31,7 +31,7 @@ export const DEATHS: DeathDef[] = [
   { id: 'antifreeze', name: 'Antifreeze Cocktail', category: 'Food & Drink', location: "Duke's Garage", payout: 1200, blurb: 'It looked like a sports drink. It was not.' },
   { id: 'shocking', name: 'Shocking Behavior', category: 'Electricity', location: 'Hoffman Farm', payout: 1500, blurb: 'Relieved himself on an electric fence.' },
   { id: 'pancake', name: 'Pancake Mode', category: 'Crushing', location: 'Hoffman Farm', payout: 1800, blurb: 'Flattened by a 900 lb hay bale. Now fits under doors.' },
-  { id: 'watertower', name: 'Water Tower Dive', category: 'Gravity', location: 'Smallville Water Tower', payout: 2500, blurb: 'A perfect long jump. Zero water in the landing zone.' },
+  { id: 'watertower', name: 'Water Tower Dive', category: 'Gravity', location: 'Smallville Water Tower', payout: 2500, blurb: 'A perfect running leap. Zero water in the landing zone.' },
   { id: 'fungus', name: 'Forest Fungus', category: 'Food & Drink', location: 'Whisper Woods', payout: 900, blurb: 'Ate the spotted mushroom. Saw colors. Then saw nothing.' },
   { id: 'train', name: 'Last Train Home', category: 'Vehicles', location: 'Smallville Rail Crossing', payout: 3000, blurb: 'The train had the right of way. It always does.' },
   { id: 'faceplant', name: 'Faceplant', category: 'Gravity', location: 'Anywhere', payout: 300, blurb: 'Fell from a height with absolutely no style.' },
@@ -39,6 +39,12 @@ export const DEATHS: DeathDef[] = [
   { id: 'beatdown', name: 'Resisting Arrest', category: 'Stupidity', location: 'Smallville Police Station', payout: 2200, blurb: 'Kept walking into the police station. The police had opinions.' },
   { id: 'taser', name: "Don't Tase Me, Bro", category: 'Electricity', location: 'Smallville Police Station', payout: 1600, blurb: 'A cop tested the department taser on himself. Thirty-one times.' },
   { id: 'baled', name: 'Baled', category: 'Machines', location: 'Hoffman Barn', payout: 2000, blurb: 'Climbed into the hay baler. Came out as a neat, tidy cube.' },
+  { id: 'bus', name: 'Bus Stop Bowling', category: 'Vehicles', location: 'Any Bus Stop', payout: 1700, blurb: 'Stood in the bus lane to "flag it down". It stopped. Eventually.' },
+  { id: 'express', name: 'Express Delivery', category: 'Vehicles', location: 'Any Train Platform', payout: 3200, blurb: 'Got stuck to the front of the express. Peeled off two towns over, right on schedule.' },
+  { id: 'runway', name: 'Cleared for Landing', category: 'Vehicles', location: 'Any Airport', payout: 4200, blurb: 'Waved at a landing plane from the middle of the runway. The pilot waved back.' },
+  { id: 'ferry', name: 'Wake Up Call', category: 'Water', location: 'Any Harbor', payout: 2800, blurb: 'Went for a swim in the ferry lane. The ferry did not swerve.' },
+  { id: 'exitrow', name: 'Exit Row', category: 'Gravity', location: 'Any Flight', payout: 5200, blurb: 'Opened the emergency door at 30,000 feet to "get some air". Got all of it.' },
+  { id: 'wheelwell', name: 'Wheel Well', category: 'Gravity', location: 'Any Airport', payout: 5000, blurb: 'Stowed away in the landing gear. Arrived frozen solid, then in several pieces.' },
   { id: 'brawl', name: 'Picked the Wrong Fight', category: 'Stupidity', location: 'Anywhere in Smallville', payout: 1300, blurb: 'Punched a stranger. The stranger punched back. A lot.' },
   { id: 'grandma', name: 'Beaten by a Senior', category: 'Stupidity', location: 'Anywhere in Smallville', payout: 2600, blurb: 'Started a fist fight with someone frail. Lost. Badly.' },
   { id: 'peanut', name: 'Peanut Panic', category: 'Allergies', location: 'Smallville Diner', payout: 1400, blurb: 'Ate a peanut butter cookie in a body with a deadly peanut allergy.' },
@@ -100,7 +106,32 @@ export const ADJUSTER_NOTES = [
 
 // ---------- People and their files (seen through scythe vision) ----------
 
-const FIRST = ['Linda', 'Gary', 'Doug', 'Brenda', 'Kevin', 'Tammy', 'Earl', 'Darlene', 'Chad', 'Bev', 'Randy', 'Peggy', 'Duane', 'Crystal', 'Walt', 'Rhonda', 'Skip', 'Marge', 'Travis', 'Deb', 'Lyle', 'Shonda', 'Hank', 'Trish'];
+export type Sex = 'm' | 'f';
+const FIRST_M = ['Gary', 'Doug', 'Kevin', 'Earl', 'Chad', 'Randy', 'Duane', 'Walt', 'Skip', 'Travis', 'Lyle', 'Hank', 'Herb', 'Chip', 'Dale', 'Vern', 'Rusty', 'Clint'];
+const FIRST_F = ['Linda', 'Brenda', 'Tammy', 'Darlene', 'Bev', 'Peggy', 'Crystal', 'Rhonda', 'Marge', 'Deb', 'Shonda', 'Trish', 'Joyce', 'Lorraine', 'Wanda', 'Connie'];
+// Extra names that only show up hand-written in places and saves.
+const MORE_M = ['Bob', 'Bill', 'Jim', 'Joe', 'Frank', 'Mike', 'Ray', 'Hal', 'Mel', 'Captain', 'Mr.', 'Sir'];
+const MORE_F = ['Sue', 'Mary', 'Barb', 'Pam', 'Carol', 'Tina', 'Gloria', 'Edna', 'Mrs.', 'Ms.', 'Miss'];
+
+/**
+ * Which body a name goes with, for files written by hand or saved before files carried `sex`.
+ * Looks at every word, so "Captain Chip Lander" and "Twitchy Doug" both work; unknown names
+ * fall back to a stable coin flip.
+ */
+export function sexOfName(name: string): Sex {
+  for (const w of name.split(/\s+/)) {
+    if (FIRST_M.includes(w) || MORE_M.includes(w)) return 'm';
+    if (FIRST_F.includes(w) || MORE_F.includes(w)) return 'f';
+  }
+  let h = 0;
+  for (const ch of name) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
+  return h & 1 ? 'f' : 'm';
+}
+
+/** A first name for a new person of this sex. */
+export function firstName(rng: Rng, sex: Sex) {
+  return pick(rng, sex === 'm' ? FIRST_M : FIRST_F);
+}
 const LAST = ['Pruitt', 'Hoffman', 'Kowalski', 'Butts', 'McGee', 'Dinkel', 'Ferguson', 'Snodgrass', 'Plunkett', 'Wiggins', 'Sauerkraut', 'Bumgarner', 'Weatherby', 'Puckett', 'Hornswoggle', 'Fudge'];
 
 export const JOBS = [
@@ -118,9 +149,9 @@ export type Physical = 'Feeble' | 'Normal' | 'Athlete';
 export type Mental = 'Depressed' | 'Normal' | 'Medicated';
 
 export const PHYSICAL_INFO: Record<Physical, string> = {
-  Feeble: 'half speed, basic jump only',
-  Normal: 'double jump, flips, dive',
-  Athlete: 'triple jump, long jump',
+  Feeble: 'slow, small jump, weak grip',
+  Normal: 'normal sprint and jump',
+  Athlete: 'fast sprint, big jump, long reach',
 };
 /** Jobs that only exist inside the prison and the asylum. Never rolled for random townsfolk. */
 export const INSTITUTION_JOBS = ['Inmate', 'Prison Guard', 'Warden', 'Visitor', 'Patient', 'Orderly', 'Nurse', 'Psychiatrist'] as const;
@@ -206,6 +237,8 @@ function randomWallet(rng: Rng, job: string, age: number, netWorth: number): Wal
 
 export interface PersonFile {
   name: string;
+  /** Matches the first name; the body is built from it. Older saves may lack it (see sexOfName). */
+  sex?: Sex;
   age: number;
   job: Job;
   daysLeft: number; // scheduled time of death from now
@@ -244,8 +277,10 @@ export function randomFile(rng: Rng, job?: Job): PersonFile {
   const netWorth = Math.floor(Math.pow(rng(), 3) * 2_000_000) - 20000;
   const roll = rng();
   const daysLeft = roll < 0.45 ? Math.floor(randRange(rng, 0, 30)) : roll < 0.7 ? Math.floor(randRange(rng, 30, 900)) : Math.floor(randRange(rng, 3000, 20000));
+  const sex: Sex = rng() < 0.5 ? 'm' : 'f';
   return {
-    name: `${pick(rng, FIRST)} ${pick(rng, LAST)}`,
+    name: `${firstName(rng, sex)} ${pick(rng, LAST)}`,
+    sex,
     age,
     job: chosenJob,
     daysLeft,
@@ -279,6 +314,8 @@ export interface Found {
   count: number;
   payout: number;
   first: number;
+  /** Map id where it was first found. Unique deaths per map unlock new routes. */
+  map?: string;
 }
 
 const SAVE_KEY = 'death-benefits-save-v1';

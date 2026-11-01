@@ -12,6 +12,7 @@ import type { Sound } from '../audio';
 import type { Particles } from '../particles';
 import type { Input } from '../input';
 import type { Npc } from '../npc';
+import type { MapPoi } from '../mapscreen/pois';
 
 /**
  * The multi-map interface. Every place in the game (Smallville, the city, the beach,
@@ -93,6 +94,15 @@ export interface GameApi {
   spend(amount: number, label: string): boolean;
   /** Hue-rotate the screen (degrees, 0 = off). */
   setHueShift(deg: number): void;
+  /**
+   * Send the player (in their current body) to another map's stop without a ticket, e.g. an arrest
+   * to 'prison:intake'. Fades out, shows a trip card with `line`, loads the map and arrives on that
+   * stop's vehicle (or just appears at the stop if it has no service). No-op unless alive in a body.
+   * Optional so dev harnesses (src/dev) can leave it out; the game always provides it.
+   */
+  travelTo?(stopKey: string, opts?: { line?: string; title?: string }): void;
+  /** Id of the loaded map (optional for the same reason). */
+  readonly mapId?: string;
 }
 
 /** Things a map can do at runtime once it is loaded. All optional except dispose. */
@@ -103,7 +113,7 @@ export interface MapRuntime {
   interact?(id: string): void;
   /** Per-frame update (animated props). */
   update?(dt: number, time: number): void;
-  /** Fixed 60 Hz step, before physics. */
+  /** Fixed 60 Hz step: after the player has moved (player.update) and before physics.step(). */
   step?(h: number): void;
   /** Fixed-step hazard checks while the player is alive in a body. */
   checkHazards?(h: number): void;
@@ -149,6 +159,8 @@ export interface MapBuild {
    * the right. Points shared by two roads (within 1.5 units) become intersections. Used by traffic.
    */
   roads?: { points: THREE.Vector3[]; width: number; loop?: boolean }[];
+  /** Traffic tuning for this map's roads (cars per 100 blocks of lane, max cars, cruise speed). */
+  traffic?: { density?: number; maxCars?: number; speed?: number; parked?: { pos: THREE.Vector3; facing: number }[] };
   /**
    * Rich NPC data (LifeMap from src/life/types.ts, owned by the NPC life thread): nav grid,
    * places, population. When present the game hands it to the LifeSystem; `npcs` is the fallback.
@@ -156,6 +168,16 @@ export interface MapBuild {
   life?: unknown;
   /** Who lives here. Defaults to a few random people in each area. */
   npcs?: NpcSpawn[];
+  /**
+   * Extra points of interest for the full-screen map. The map already shows every life place
+   * (shops, workplaces, landmarks...), every stop, ramp and death spot; add anything else here.
+   */
+  pois?: MapPoi[];
+  /**
+   * Where deaths happen whose `location` doesn't match a place name: location -> a position,
+   * or the id of the place it belongs to. E.g. { 'Thunder Gorge Bridge': new Vector3(310, 0, 88) }.
+   */
+  deathSpots?: Record<string, { x: number; z: number } | string>;
   /** Add props, interactables and per-map logic after the voxels are built. */
   setup?(ctx: MapContext): MapRuntime;
 }

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Character, randomAppearance, type Appearance } from '../../character';
 import { canvasTexture, mulberry32, type Rng } from '../../util';
-import type { Rig } from './models';
+import { walkCycle, type Rig } from '../../animals/rig';
 
 export type Mood = 0 | 1 | 2 | 3;
 export const MOOD_NAMES = ['calm', 'curious', 'annoyed', 'FURIOUS'] as const;
@@ -235,10 +235,8 @@ export class Animal {
     const moving = this.speedNow > 0.05;
     this.phase += dt * (3 + this.speedNow * 2.2);
     const amp = moving ? Math.min(0.9, 0.35 + this.speedNow * 0.08) : 0;
-    r.legs.forEach((l, i) => {
-      const s = i === 0 || i === 3 ? 1 : -1;
-      l.rotation.x += (Math.sin(this.phase) * amp * s - l.rotation.x) * Math.min(1, dt * 12);
-    });
+    walkCycle(r, this.phase, amp, Math.min(1, dt * 12));
+    if (r.ears) r.ears.forEach((e, i) => (e.rotation.x = Math.max(0, Math.sin(time * 1.7 + this.pos.x * 3 + i * 0.6) - 0.92) * 6));
     if (r.tail) r.tail.rotation.y = Math.sin(time * 3 + this.pos.x) * 0.4;
     if (r.wings) {
       const flap = Math.sin(time * (this.opts.fly ? 3 : 10)) * 0.5;

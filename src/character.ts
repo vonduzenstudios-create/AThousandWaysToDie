@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { buildVoxelBody, type VoxelBody } from './chars/build';
-import { specFromFile } from './chars/spec';
+import { specFromAppearance, specFromFile } from './chars/spec';
 import type { Expression } from './chars/spec';
-import { canvasTexture, hexToCss, noiseTexture, pick, randRange, shadeHex, type Rng } from './util';
+import { pick, randRange, type Rng } from './util';
 
 export type PartName = 'head' | 'torso' | 'armL' | 'armR' | 'legL' | 'legR';
 export const PART_NAMES: PartName[] = ['torso', 'head', 'armL', 'armR', 'legL', 'legR'];
@@ -44,58 +44,6 @@ export function randomAppearance(rng: Rng): Appearance {
   };
 }
 
-function faceTexture(app: Appearance) {
-  return canvasTexture(8, 8, (c) => {
-    c.fillStyle = hexToCss(app.skin);
-    c.fillRect(0, 0, 8, 8);
-    // brows
-    c.fillStyle = hexToCss(app.hair);
-    c.fillRect(1, 2, 2, 1);
-    c.fillRect(5, 2, 2, 1);
-    // eyes
-    c.fillStyle = '#ffffff';
-    c.fillRect(1, 3, 2, 1);
-    c.fillRect(5, 3, 2, 1);
-    c.fillStyle = '#1a1a2a';
-    c.fillRect(2, 3, 1, 1);
-    c.fillRect(5, 3, 1, 1);
-    // nose
-    c.fillStyle = hexToCss(shadeHex(app.skin, 0.82));
-    c.fillRect(3, 4, 2, 1);
-    // mouth
-    c.fillStyle = '#5a1e1e';
-    if (app.mouth === 0) c.fillRect(2, 6, 4, 1);
-    else if (app.mouth === 1) {
-      c.fillRect(2, 5, 1, 1);
-      c.fillRect(3, 6, 2, 1);
-      c.fillRect(5, 5, 1, 1);
-    } else if (app.mouth === 2) c.fillRect(3, 5, 2, 2);
-    else {
-      c.fillRect(2, 6, 4, 1);
-      c.fillStyle = '#ffffff';
-      c.fillRect(3, 6, 1, 1);
-    }
-    if (app.beard) {
-      c.fillStyle = hexToCss(app.hair);
-      c.fillRect(0, 5, 1, 3);
-      c.fillRect(7, 5, 1, 3);
-      c.fillRect(1, 7, 6, 1);
-      c.fillRect(1, 6, 1, 1);
-      c.fillRect(6, 6, 1, 1);
-    }
-    if (app.glasses) {
-      c.fillStyle = '#111111';
-      c.fillRect(0, 3, 1, 1);
-      c.fillRect(3, 3, 2, 1);
-      c.fillRect(7, 3, 1, 1);
-      c.strokeStyle = '#111111';
-      c.lineWidth = 1;
-      c.strokeRect(0.5, 2.5, 3, 2);
-      c.strokeRect(4.5, 2.5, 3, 2);
-    }
-  });
-}
-
 interface Part {
   pivot: THREE.Group;
   mesh: THREE.Mesh;
@@ -110,6 +58,8 @@ export interface AnimState {
   airTime: number;
   /** Knocked out flat on their back. */
   ko?: boolean;
+  /** Scripted poses: seated on a bench, belly-to-earth free fall, hanging under a canopy. */
+  pose?: 'sit' | 'freefall' | 'canopy' | null;
 }
 
 /** A voxel-style person built entirely from boxes and generated textures. */
@@ -127,7 +77,7 @@ export class Character {
   private punchT = 0;
   private punchLeft = false;
   tintColor = new THREE.Color(1, 1, 1);
-  /** Hip height: the spinner pivots here for flips and dives. */
+  /** Hip height: the spinner pivots here for poses (crawling, knocked out). */
   readonly hip: number = 0.9;
   /** Uniform scale of root at rest (pancake/cube deaths scale relative to it). */
   readonly baseScale: number = 1;
@@ -135,115 +85,48 @@ export class Character {
   readonly voxel: VoxelBody | null = null;
 
   /** Build a person whose look matches their scythe-vision file (job, age, health). */
-  static fromFile(file: { job: string; age: number; physical?: string; mental?: string; name?: string }, seed?: number) {
+  static fromFile(file: { job: string; age: number; physical?: string; mental?: string; name?: string; sex?: 'm' | 'f' }, seed?: number) {
     const vb = buildVoxelBody(specFromFile(file, seed));
     return new Character(null, vb);
   }
 
   readonly app: Appearance;
 
+  /**
+   * Every person is a detailed voxel body. Pass a VoxelBody built from a PersonSpec, or an older
+   * Appearance (colors, hair, hat...), which is translated into a spec so scripted actors, drivers
+   * and statues get the same look as everyone else.
+   */
   constructor(app: Appearance | null, vb?: VoxelBody) {
     if (vb) {
       // Stand-in appearance so older code that reads app.height (head position etc.) still works.
-      this.app = { ...randomAppearance(Math.random), height: vb.headTop / 1.96 };
-      this.voxel = vb;
-      this.parts = vb.parts as Record<PartName, Part>;
-      this.mats.push(vb.material);
-      this.body.add(vb.body);
-      this.hip = vb.headTop * 0.46;
-      this.body.position.y = -this.hip;
-      this.spinner.position.y = this.hip;
-      this.spinner.add(this.body);
-      this.root.add(this.spinner);
-      return;
+      this.app = { ...randomAppearance(Math.random), height: 1 };
+    } else {
+      app ??= randomAppearance(Math.random);
+      this.app = app;
+      vb = buildVoxelBody(specFromAppearance(app));
+      this.baseScale = app.height;
     }
-    app ??= randomAppearance(Math.random);
-    this.app = app;
-    this.baseScale = app.height;
-    const noise = noiseTexture();
-    const mat = (c: number) => {
-      const m = new THREE.MeshLambertMaterial({ color: c, map: noise });
-      this.mats.push(m);
-      return m;
-    };
-    const w = app.width;
-    const skin = mat(app.skin);
-    const shirt = mat(app.shirt);
-    const pants = mat(app.pants);
-    const hairM = mat(app.hair);
-    const face = new THREE.MeshLambertMaterial({ map: faceTexture(app) });
-    this.mats.push(face);
-
-    const add = (name: PartName, size: [number, number, number], pivotAt: [number, number, number], offset: [number, number, number], material: THREE.Material | THREE.Material[]) => {
-      const pivot = new THREE.Group();
-      pivot.position.set(...pivotAt);
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
-      mesh.position.set(...offset);
-      mesh.castShadow = true;
-      pivot.add(mesh);
-      this.body.add(pivot);
-      this.parts[name] = { pivot, mesh, size: new THREE.Vector3(...size) };
-      return mesh;
-    };
-
-    const legW = 0.26 * Math.min(w, 1.2);
-    add('legL', [legW, 0.8, 0.3], [0.16 * w, 0.8, 0], [0, -0.4, 0], pants);
-    add('legR', [legW, 0.8, 0.3], [-0.16 * w, 0.8, 0], [0, -0.4, 0], pants);
-    const torso = add('torso', [0.6 * w, 0.64, 0.34 * Math.max(1, w * 0.85)], [0, 0.8, 0], [0, 0.32, 0], shirt);
-    const head = add('head', [0.52, 0.52, 0.52], [0, 1.44, 0], [0, 0.26, 0], [skin, skin, hairM, skin, face, skin]);
-    add('armL', [0.2, 0.62, 0.22], [0.3 * w + 0.11, 1.38, 0], [0, -0.28, 0], shirt);
-    add('armR', [0.2, 0.62, 0.22], [-(0.3 * w + 0.11), 1.38, 0], [0, -0.28, 0], shirt);
-
-    // Hands and shoes.
-    for (const n of ['armL', 'armR'] as PartName[]) {
-      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.22), skin);
-      hand.position.y = -0.36;
-      this.parts[n].mesh.add(hand);
-    }
-    const shoeM = mat(app.shoes);
-    for (const n of ['legL', 'legR'] as PartName[]) {
-      const shoe = new THREE.Mesh(new THREE.BoxGeometry(legW + 0.04, 0.14, 0.38), shoeM);
-      shoe.position.set(0, -0.35, 0.04);
-      this.parts[n].mesh.add(shoe);
-    }
-    // Belt line.
-    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.6 * w + 0.02, 0.06, 0.36 * Math.max(1, w * 0.85)), mat(0x2a1a10));
-    belt.position.y = -0.3;
-    torso.add(belt);
-
-    // Hair styles.
-    const hs = app.hairStyle;
-    if (hs === 1 || hs === 4) {
-      const top = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.12, 0.56), hairM);
-      top.position.y = 0.3;
-      head.add(top);
-      const back = new THREE.Mesh(new THREE.BoxGeometry(0.56, hs === 4 ? 0.62 : 0.3, 0.1), hairM);
-      back.position.set(0, hs === 4 ? -0.04 : 0.12, -0.28);
-      head.add(back);
-    } else if (hs === 2) {
-      const top = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.34, 0.5), hairM);
-      top.position.y = 0.42;
-      head.add(top);
-    } else if (hs === 3) {
-      const mo = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.26, 0.56), hairM);
-      mo.position.y = 0.38;
-      head.add(mo);
-    }
-    if (app.hat !== null) {
-      const hm = mat(app.hat);
-      const crown = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.2, 0.58), hm);
-      crown.position.y = 0.36;
-      head.add(crown);
-      const brim = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.05, 0.3), hm);
-      brim.position.set(0, 0.28, 0.4);
-      head.add(brim);
-    }
-
-    this.body.position.y = -0.9;
-    this.spinner.position.y = 0.9;
+    this.voxel = vb;
+    this.parts = vb.parts as Record<PartName, Part>;
+    this.mats.push(vb.material);
+    this.body.add(vb.body);
+    this.hip = vb.hip;
+    this.body.position.y = -this.hip;
+    this.spinner.position.y = this.hip;
     this.spinner.add(this.body);
     this.root.add(this.spinner);
-    this.root.scale.setScalar(app.height);
+    this.root.scale.setScalar(this.baseScale);
+  }
+
+  /** Set knee and elbow bends directly (seated drivers, scripted poses). */
+  bend(kneeL: number, kneeR = kneeL, elbowL = -0.25, elbowR = elbowL) {
+    const j = this.voxel?.joints;
+    if (!j) return;
+    j.kneeL.rotation.x = kneeL;
+    j.kneeR.rotation.x = kneeR;
+    j.elbowL.rotation.x = elbowL;
+    j.elbowR.rotation.x = elbowR;
   }
 
   /** Change the face (only on the detailed models). */
@@ -282,7 +165,9 @@ export class Character {
     this.phase += dt * (4 + s.speed * 1.1);
     const swing = Math.sin(this.phase) * 1.0 * runAmt;
 
-    let legL = 0, legR = 0, armL = 0, armR = 0, armSpread = 0;
+    let legL = 0, legR = 0, armL = 0, armR = 0, armSpread = 0.09;
+    // Knees fold the shin back, elbows bring the forearm forward (negative).
+    let kneeL = 0.04, kneeR = 0.04, elbowL = -0.22, elbowR = -0.22;
     let pitch = 0, roll = 0, spinnerY = 0.9, crouch = 1;
     const hipK = this.hip / 0.9;
 
@@ -291,6 +176,11 @@ export class Character {
       legR = -swing;
       armL = -swing * 0.8;
       armR = swing * 0.8;
+      // The leg swinging forward lifts its foot; running pumps bent arms.
+      const c = Math.cos(this.phase);
+      kneeL += Math.max(0, -c) * 1.25 * runAmt + 0.12 * runAmt;
+      kneeR += Math.max(0, c) * 1.25 * runAmt + 0.12 * runAmt;
+      elbowL = elbowR = -0.22 - 1.0 * runAmt * runAmt;
     } else if (st === 'swim') {
       // Front crawl with a flutter kick.
       pitch = s.speed > 0.8 ? 1.15 : 0.25;
@@ -300,6 +190,10 @@ export class Character {
       armSpread = s.speed > 0.8 ? 0 : 0.7;
       legL = Math.sin(this.phase * 1.4) * 0.35;
       legR = -legL;
+      kneeL = Math.max(0, legL) * 0.8;
+      kneeR = Math.max(0, legR) * 0.8;
+      elbowL = -0.4 - Math.max(0, Math.sin(c)) * 0.8;
+      elbowR = -0.4 - Math.max(0, -Math.sin(c)) * 0.8;
     } else if (st === 'tube') {
       // Sitting in an inner tube, paddling with both hands.
       pitch = -0.35;
@@ -309,6 +203,8 @@ export class Character {
       armR = -0.6 - c;
       armSpread = 0.6;
       spinnerY = 0.75;
+      kneeL = kneeR = 1.3;
+      elbowL = elbowR = -0.7;
     } else if (st === 'crawl') {
       pitch = 1.45;
       spinnerY = 0.3;
@@ -317,36 +213,69 @@ export class Character {
       armR = -2.6 - c;
       legL = -c * 0.5;
       legR = c * 0.5;
+      kneeL = kneeR = 1.2;
+      elbowL = elbowR = -0.3;
     } else if (st === 'crouch') {
-      crouch = 0.72;
-      legL = swing * 0.5;
-      legR = -swing * 0.5;
-    } else if (st === 'slide' || st === 'bellyslide') {
-      pitch = st === 'slide' ? -1.2 : 1.45;
-      spinnerY = 0.35;
-      armL = armR = -2.8;
-    } else if (st === 'dive') {
-      pitch = 1.3;
-      armL = armR = -2.9;
-      legL = legR = 0.2;
-    } else if (st === 'longjump') {
-      pitch = 0.5;
-      armL = armR = -2.6;
-      legL = 0.6;
-      legR = -0.6;
-    } else if (st === 'gpFreeze' || st === 'groundpound') {
-      legL = legR = -1.4;
-      armL = armR = -1.2;
-      crouch = 0.8;
-    } else if (st === 'wallkick') {
-      armL = armR = -2.5;
-      armSpread = 0.5;
+      legL = swing * 0.5 - 0.5;
+      legR = -swing * 0.5 - 0.5;
+      kneeL = kneeR = 1.0;
+      crouch = 0.85;
+      elbowL = elbowR = -0.6;
+    } else if (st === 'hang') {
+      // Both hands up on the ledge, legs dangling.
+      armL = armR = -3.0;
+      armSpread = 0.15;
+      elbowL = elbowR = -0.15;
+      legL = 0.1;
+      legR = -0.1;
+      kneeL = kneeR = 0.25;
+    } else if (st === 'climb') {
+      // Hauling up: arms push down, one knee comes up over the lip.
+      const t = Math.min(1, s.stateTime / 0.5);
+      armL = armR = -3.0 + t * 2.2;
+      elbowL = elbowR = -1.2 * Math.sin(t * Math.PI);
+      legL = -1.3 * Math.sin(t * Math.PI);
+      kneeL = 1.6 * Math.sin(t * Math.PI);
+      legR = 0.3;
+      kneeR = 0.4;
     } else {
       // generic air: arms up, legs tucked
       armL = armR = -2.7;
       armSpread = 0.3;
       legL = 0.5;
       legR = -0.3;
+      kneeL = 0.9;
+      kneeR = 0.5;
+      elbowL = elbowR = -0.35;
+    }
+
+    if (s.pose === 'sit') {
+      legL = legR = -1.5;
+      kneeL = kneeR = 1.5;
+      armL = armR = -0.35;
+      armSpread = 0.12;
+      elbowL = elbowR = -0.9;
+      spinnerY = 0.52;
+    } else if (s.pose === 'freefall') {
+      // Belly to earth: arched, arms out and bent up, knees bent.
+      pitch = 1.5;
+      const wob = Math.sin(this.phase * 0.9) * 0.08;
+      armL = -1.5 + wob;
+      armR = -1.5 - wob;
+      armSpread = 1.25;
+      elbowL = elbowR = -0.9;
+      legL = 0.35 - wob;
+      legR = 0.35 + wob;
+      kneeL = kneeR = 1.1;
+    } else if (s.pose === 'canopy') {
+      // Hands up on the toggles, legs dangling.
+      armL = armR = -2.75;
+      armSpread = 0.4;
+      elbowL = elbowR = -0.3;
+      const sw = Math.sin(this.phase * 0.5) * 0.12;
+      legL = 0.1 + sw;
+      legR = -0.05 - sw;
+      kneeL = kneeR = 0.25;
     }
 
     if (s.ko) {
@@ -355,23 +284,26 @@ export class Character {
       armL = armR = -2.9;
       armSpread = 0.6;
       legL = legR = 0;
+      kneeL = 0.3;
+      kneeR = 0.05;
+      elbowL = elbowR = -0.4;
     }
 
     let punchArm: 'armL' | 'armR' | null = null;
     if (this.punchT > 0) {
       this.punchT -= dt;
       punchArm = this.punchLeft ? 'armL' : 'armR';
-      if (this.punchLeft) armL = -1.6;
-      else armR = -1.6;
+      if (this.punchLeft) {
+        armL = -1.6;
+        elbowL = -0.05;
+      } else {
+        armR = -1.6;
+        elbowR = -0.05;
+      }
       roll = 0;
     }
 
-    // Flip spins replace the pose pitch.
-    const flipDur = 0.75;
-    if (st === 'backflip') this.spin = -Math.min(s.airTime / flipDur, 1) * Math.PI * 2;
-    else if (st === 'triple') this.spin = Math.min(s.airTime / flipDur, 1) * Math.PI * 2;
-    else if (st === 'gpFreeze') this.spin = Math.min(s.stateTime / 0.28, 1) * Math.PI * 2;
-    else this.spin = 0;
+    this.spin = 0;
 
     const k = Math.min(1, dt * 14);
     p.legL.pivot.rotation.x += (legL - p.legL.pivot.rotation.x) * k;
@@ -381,11 +313,15 @@ export class Character {
     p.armL.pivot.rotation.z += (armSpread - p.armL.pivot.rotation.z) * k;
     p.armR.pivot.rotation.z += (-armSpread - p.armR.pivot.rotation.z) * k;
     if (punchArm) p[punchArm].pivot.rotation.x = punchArm === 'armL' ? armL : armR;
+    const j = this.voxel?.joints;
+    if (j) {
+      j.kneeL.rotation.x += (kneeL - j.kneeL.rotation.x) * k;
+      j.kneeR.rotation.x += (kneeR - j.kneeR.rotation.x) * k;
+      j.elbowL.rotation.x += (elbowL - j.elbowL.rotation.x) * k;
+      j.elbowR.rotation.x += (elbowR - j.elbowR.rotation.x) * k;
+    }
 
-    if (st === 'sideflip') {
-      roll = Math.min(s.airTime / flipDur, 1) * Math.PI * 2;
-      this.spinner.rotation.z = roll;
-    } else this.spinner.rotation.z += (0 - this.spinner.rotation.z) * k;
+    this.spinner.rotation.z += (0 - this.spinner.rotation.z) * k;
 
     if (this.spin !== 0) this.spinner.rotation.x = this.spin;
     else this.spinner.rotation.x += (pitch - this.spinner.rotation.x) * k;
@@ -399,16 +335,6 @@ export class Character {
   }
 
   dispose() {
-    if (this.voxel) {
-      this.voxel.dispose();
-      return;
-    }
-    this.root.traverse((o) => {
-      if (o instanceof THREE.Mesh) o.geometry.dispose();
-    });
-    for (const m of this.mats) {
-      if (m.map && m.map !== noiseTexture()) m.map.dispose();
-      m.dispose();
-    }
+    this.voxel?.dispose();
   }
 }

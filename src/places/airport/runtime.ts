@@ -38,13 +38,13 @@ import {
   boxMesh,
   deicerMesh,
   lambert,
-  propPlaneMesh,
   signMesh,
   suitcaseMesh,
-  teddyMesh,
   tugMesh,
   type Waypoint,
 } from './props';
+import { setupSkydive } from './skydive';
+import { rigModel, type RigKind } from './skymodels';
 
 export const AIRPORT_JOBS = ['Pilot', 'Flight Attendant', 'TSA Agent', 'Baggage Handler', 'Ground Crew', 'Air Traffic Controller'] as const;
 const STAFF: readonly string[] = AIRPORT_JOBS;
@@ -57,7 +57,8 @@ const RIGHT = Math.PI / 2; // design heading +x
 interface BodyState {
   pass: boolean;
   lounge: boolean;
-  backpack: boolean;
+  /** The parachute rig on this body's back (lost and found teddy, Frank's bargain, or a rental). */
+  rig: RigKind | null;
   tsaTries: number;
   scans: number;
   perfume: number;
@@ -66,7 +67,7 @@ interface BodyState {
   beltYanks: number;
 }
 
-const freshBody = (): BodyState => ({ pass: false, lounge: false, backpack: false, tsaTries: 0, scans: 0, perfume: 0, drinks: 0, gulps: 0, beltYanks: 0 });
+const freshBody = (): BodyState => ({ pass: false, lounge: false, rig: null, tsaTries: 0, scans: 0, perfume: 0, drinks: 0, gulps: 0, beltYanks: 0 });
 
 export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime {
   const { scene, physics, game } = ctx;
@@ -116,7 +117,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
   door('apronE', STAFF_DOORS.apronE.x + 1, 0, TERM.z1 + 0.5, true, 2, 3, 0xe0b030, () => isJob(RAMP), 'Ramp access. Ground crew, baggage and pilots only.', 'RAMP');
   door('tsaoffice', TSA_OFFICE.doorX + 1, 0, TSA_OFFICE.z0 - 0.5, true, 2, 3, 0x3a6fd8, () => isJob(['TSA Agent']), 'TSA personnel only. There is a sticker that says "WE SEE YOU".', 'TSA');
   door('tower', TOWER.x0 + 4, 0, TOWER.z0 + 0.5, true, 2, 3, 0x9aa3ad, () => isJob(['Air Traffic Controller']), 'Air traffic control only. The keypad wants a code you do not have.', 'ATC');
-  door('lounge', LOUNGE.x0 - 0.5, UP, LOUNGE.doorZ + 1, false, 2, 3, 0x6b4330, () => bs.lounge || isJob(['Pilot', 'Flight Attendant']), 'Sky Lounge members only. Day passes at the desk.', 'SKY LOUNGE');
+  door('lounge', LOUNGE.x0 - 0.5, UP, LOUNGE.doorZ + 1, false, 2, 3, 0x6b4330, () => bs.lounge || isJob(['Pilot', 'Flight Attendant', 'Influencer']), 'Sky Lounge members only. Day passes at the desk.', 'SKY LOUNGE');
   for (const g of GATES)
     door(`gate${g.id}`, g.x + 2, UP, TERM.z1 + 0.5, true, 4, 3, 0x3b5fa8, () => bs.pass || isJob(CREW), 'You need a boarding pass to board. Kiosks are downstairs in the main hall.', `GATE ${g.id}`);
   // TSA lanes: invisible gates that open for ticketed passengers and staff.
@@ -133,8 +134,9 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
     [['BAGGAGE CLAIM'], 228, 7.2, SEC_Z - 0.3, 22, 2.2, 0, '#2a2a2e', '#ffd23a'],
     [['DUTY FREE'], 60, UP + 4.5, DUTY_FREE.z0 + 0.6, 14, 2, 0, '#e06aa0', '#ffffff'],
     [['SKY LOUNGE', 'Members and day passes'], LOUNGE.x0 - 1.6, UP + 4.5, LOUNGE.doorZ + 1, 8, 2, RIGHT, '#6b4330', '#ffd23a'],
-    [["FREEFALL FRANK'S", 'Skydiving · Self-serve today'], 12, 4, HANGAR.z0 + 7.5, 10, 2.2, 0, '#6b8e23', '#ffffff'],
-    [['LOST & FOUND'], HANGAR.x1 - 5, 4.6, HANGAR.z0 + 2.6, 6, 1, 0, '#2a2a2e', '#ffffff'],
+    // The hangar signs face the hangar door, where customers come from.
+    [["FREEFALL FRANK'S", 'Skydiving · Self-serve today'], 12, 4, HANGAR.z0 + 7.5, 10, 2.2, Math.PI, '#6b8e23', '#ffffff'],
+    [['LOST & FOUND'], HANGAR.x1 - 5, 4.6, HANGAR.z0 + 2.6, 6, 1, Math.PI, '#2a2a2e', '#ffffff'],
     [['RAMP · AUTHORIZED PERSONNEL ONLY'], 20, 3, FENCE_Z - 0.6, 14, 1.2, 0, '#e0302a', '#ffffff'],
   ];
   for (const [lines, x, y, z, w, h, rot, bg, fg] of signs) {
@@ -230,10 +232,18 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
   deicer.rotation.y = f.heading(RIGHT) - Math.PI / 2;
   const nozzle = deicer.getObjectByName('nozzle')!;
 
-  const jumpPlane = add(propPlaneMesh());
-  jumpPlane.position.copy(W(30, 0, 104));
-  jumpPlane.rotation.y = f.heading(0) - Math.PI / 2;
-  const prop = jumpPlane.getObjectByName('prop')!;
+  // Freefall Frank's: the jump plane, the whole skydive, and rigs on display at the desk.
+  const sky = setupSkydive(ctx, f, {
+    kill: (id, style) => kill(id, style),
+    rig: () => (syncBody(), bs.rig),
+    clearRig: () => (bs.rig = null),
+  });
+  for (const [kind, x] of [['rental', HANGAR.x0 + 4.5], ['bargain', HANGAR.x0 + 9]] as const) {
+    const r = add(rigModel(kind));
+    // Standing on the desk, container side toward the customers.
+    r.scale.setScalar(2.4);
+    r.position.copy(W(x, 2.25, HANGAR.z0 + 5.4));
+  }
 
   const tug = add(tugMesh());
   const tugPath = [
@@ -300,8 +310,10 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
   it('console', TOWER.x0 + 3.5, TOWER.cabY + 1, TOWER.z0 + 3.4, 2.4, 'Radio Flight 22');
   it('confiscated', TSA_OFFICE.x0 + 3, 0, TSA_OFFICE.z1 - 3.5, 2.6, 'Drink from the confiscated liquids bin');
   it('lostfound', HANGAR.x1 - 5, 0, HANGAR.z0 + 3.8, 2.6, 'Take a backpack from Lost & Found');
-  it('jumpplane', 30, 0, 100, 5, 'Board the jump plane');
-  it('frank', HANGAR.x0 + 6, 0, HANGAR.z0 + 7.5, 2.6, 'Talk to Frank');
+  const jumpIt = it('jumpplane', 27, 0, 101, 3.4, 'Board the jump plane');
+  it('frank', HANGAR.x0 + 6.5, 0, HANGAR.z0 + 7.5, 1.8, 'Talk to Frank');
+  it('rentrig', HANGAR.x0 + 3.5, 0, HANGAR.z0 + 7.5, 1.8, 'Rent a skydiving rig ($150)');
+  it('bargainrig', HANGAR.x0 + 9.5, 0, HANGAR.z0 + 7.5, 1.8, "Buy Frank's pre-loved rig ($20)");
   const doorIts = doors
     .filter((d) => d.lockedLine)
     .map((d) => ({ d, it: it(d.id.replace('airport:', ''), d.at.x - (d.id.includes('lounge') ? 1.2 : 0), d.at.y, d.at.z + (d.id.includes('lounge') ? 0 : -1.2), 2.2, 'Try the door') }));
@@ -341,9 +353,6 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
     { x: 360, y: 60, z: RUNWAY.cz, speed: 42, tag: 'climb' },
     { x: 560, y: 90, z: RUNWAY.cz - 60, speed: 50, tag: 'climb' },
   ];
-
-  // Skydiving.
-  let freefall: { bear: THREE.Group | null; t: number } | null = null;
 
   // Hazard timers.
   let deiceT = 0;
@@ -436,7 +445,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
         return;
       }
       case 'loungedesk':
-        if (bs.lounge || isJob(['Pilot', 'Flight Attendant'])) return game.toast('Welcome in', 'Your access is already on file.', 1600);
+        if (bs.lounge || isJob(['Pilot', 'Flight Attendant', 'Influencer'])) return game.toast('Welcome in', 'Your access is already on file.', 1600);
         if (game.spend(200, 'Sky Lounge day pass')) {
           bs.lounge = true;
           s.cash();
@@ -526,16 +535,37 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
         return;
       }
       case 'lostfound':
-        if (bs.backpack) return game.toast('Lost & Found', 'You already took a backpack. Greedy.', 1600);
-        bs.backpack = true;
+        if (bs.rig) return game.toast('Lost & Found', 'You already have something on your back. Greedy.', 1600);
+        bs.rig = 'teddy';
         s.pull();
-        game.toast('BACKPACK', 'A heavy-ish backpack with straps and a pull cord. Definitely a parachute.', 2600);
+        game.toast('BACKPACK', 'A pink backpack with straps and a pull cord. Definitely a parachute.', 2600);
+        return;
+      case 'rentrig':
+        if (bs.rig === 'rental') return game.toast('Already rigged', 'You have a rental rig on. Plane is right there.', 1800);
+        if (!game.spend(150, 'A rental rig')) return;
+        bs.rig = 'rental';
+        s.pull();
+        game.toast('RENTAL RIG', 'Main, reserve, the works. Red pillow is the cutaway, silver is the reserve. Pull at 4,000 ft.', 4200);
+        return;
+      case 'bargainrig':
+        if (bs.rig === 'bargain') return game.toast('Already rigged', "You're wearing Frank's pre-loved rig. It smells like a hamper.", 1800);
+        if (!game.spend(20, "Frank's pre-loved rig")) return;
+        bs.rig = 'bargain';
+        s.pull();
+        game.say('Frank (on lunch)', "Packed it myself. Mostly. Reserve's extra, and I'm out of reserves.", 3600);
         return;
       case 'frank':
-        return game.say('Frank (on lunch)', "Jumps are self-serve today. Plane's right there. Bring your own chute, I'm not your mom.", 3600);
+        return game.say(
+          'Frank (on lunch)',
+          bs.rig === 'teddy' ? "That's not one of mine. Where'd you get a pink... you know what, not my problem."
+          : bs.rig ? 'Out the door, arch, pull at four grand. Flare when the ground gets big.'
+          : "Jumps are self-serve today. Rent a rig or take my old one. I'm not your mom.",
+          3600,
+        );
       case 'jumpplane':
-        if (!bs.backpack) return game.say('Pilot', 'No chute, no jump. Even I have rules.', 2400);
-        startSkydive();
+        if (!bs.rig) return game.say('Pilot', 'No chute, no jump. Even I have rules.', 2400);
+        if (!sky.ready) return game.say('Ground crew', "Plane's still up. Give it a minute.", 2000);
+        sky.board();
         return;
     }
   };
@@ -559,14 +589,6 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
     cockpitIt.enabled = true;
   };
 
-  const startSkydive = () => {
-    game.flash('#ffffff', 900);
-    game.sound.whoosh();
-    game.player.teleport(W(150, 190, 110), f.heading(RIGHT));
-    freefall = { bear: null, t: 0 };
-    game.toast('12,500 FEET', 'Jump! Press E to pull the ripcord.', 3000);
-  };
-
   // ---------------------------------------------------------------- per-frame
   const update = (dt: number, time: number) => {
     syncBody();
@@ -575,7 +597,8 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
     for (const b of belts) b.tex.offset.y -= (b.speed * dt) / 1.5;
     for (const c of carousels) c.g.rotation.y += OMEGA * dt;
     for (const a of actors) a.update(dt, a === perfumeLady ? 0.2 : 0);
-    prop.rotation.x += dt * (freefall ? 30 : 2);
+    sky.update(dt, time);
+    jumpIt.enabled = sky.ready;
     sock.rotation.y = Math.sin(time * 0.3) * 0.6;
     radar.rotation.y += dt * 1.5;
     // De-icing spray.
@@ -605,27 +628,13 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
     tugAt(tugT);
     tug.position.copy(W(tugPos.x, 0, tugPos.z));
     tug.rotation.y = f.heading(tugHeading) - Math.PI / 2;
-    // Freefall prompt.
-    if (freefall && !freefall.bear && game.body) {
-      game.prompt('<span class="key">E</span>Pull the ripcord');
-      if (game.input.pressed('interact')) {
-        const bear = add(teddyMesh());
-        bear.scale.setScalar(1.3);
-        freefall.bear = bear;
-        game.sound.boing();
-        game.say('Death', "That's a teddy bear. You jumped with a teddy bear.", 3500);
-      }
-    }
-    if (freefall?.bear) {
-      freefall.bear.position.copy(game.player.position()).add(new THREE.Vector3(0, 3 + Math.sin(time * 6) * 0.3, 0));
-      freefall.bear.rotation.y += dt * 4;
-    }
   };
   const tmp = new THREE.Vector3();
 
   // ---------------------------------------------------------------- fixed step
   const step = (h: number) => {
     syncBody();
+    sky.step(h);
     for (const p of parked) p.step(h);
     // Flight 404 cycle.
     if (f404.done) {
@@ -705,13 +714,13 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
         body.setNextKinematicTranslation({ x: nt.x + w.x, y: nt.y, z: nt.z + w.z });
       }
     }
-    if (freefall && game.player.vel.y < (freefall.bear ? -20 : -30)) game.player.vel.y = freefall.bear ? -20 : -30;
   };
 
   // ---------------------------------------------------------------- hazards
   const checkHazards = (h: number) => {
     syncBody();
     if (!game.body || !game.character) return;
+    if (sky.busy) return;
     if (game.player.state === 'locked') return;
     deathLock = false;
     const d = feetD();
@@ -722,7 +731,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
 
     // Bag belt: lie flat (crouch) or the check-in agent yanks you off.
     if (inD(d, dbox(BELT.x0, 0.7, BELT.z0, BELT.x1 + 1, 2, BELT.z1 + 1))) {
-      const flat = p.state === 'crouch' || p.state === 'slide' || p.state === 'bellyslide' || job() === 'Baggage Handler';
+      const flat = p.state === 'crouch' || p.state === 'crawl' || job() === 'Baggage Handler';
       beltStandT = flat ? 0 : beltStandT + h;
       if (!flat && d.z < SEC_Z - 0.5 && beltStandT > 0.9) {
         beltStandT = 0;
@@ -977,22 +986,10 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
     ]);
   };
 
-  // Landing from the jet bridge end, or from the sky with a teddy bear.
+  // Landing from the jet bridge end, or from the sky (see skydive.ts).
   const onLand: MapRuntime['onLand'] = (e) => {
     if (!game.body) return false;
-    if (freefall) {
-      const bear = freefall.bear;
-      freefall = null;
-      game.prompt(null);
-      game.sound.splat();
-      game.shake(1.4);
-      kill('air-teddychute', { kind: 'pancake' });
-      if (bear) {
-        game.runSeq([{ at: 0.4, fn: () => bear.position.copy(game.player.feet().add(new THREE.Vector3(0.8, 0.2, 0))) }]);
-        setTimeout(() => scene.remove(bear), 20000);
-      } else game.runSeq([{ at: 2, fn: () => game.say('Death', 'You didn\'t even pull it. The bear would have been funnier.', 3000) }]);
-      return true;
-    }
+    if (sky.onLand()) return true;
     const lp = f.toDesign(e.launchPos);
     const fromBridge = lp.y > 6.5 && lp.z > TERM.z1 && lp.z < BRIDGE_END + 3 && GATES.some((g) => lp.x > g.x - 1.5 && lp.x < g.x + 5);
     if (fromBridge && e.drop > 3) {
@@ -1006,7 +1003,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
 
   const runtime: MapRuntime & { debug: unknown } = {
     // Handles for tests and the dev preview.
-    debug: { f404, f22, a3, doors, get bs() { return bs; }, frame: f, skin: skin.stats },
+    debug: { f404, f22, a3, doors, sky, get bs() { return bs; }, frame: f, skin: skin.stats },
     interactables: its,
     interact,
     update,
@@ -1016,6 +1013,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
     dispose() {
       for (const o of added) scene.remove(o);
       skin.dispose();
+      sky.dispose();
       for (const d of doors) d.dispose(scene, physics);
       for (const p of parked) p.dispose(physics);
       for (const a of actors) a.ch.dispose();

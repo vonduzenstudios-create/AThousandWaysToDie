@@ -1,4 +1,5 @@
 import type { Options } from './options';
+import { toggleFullscreen } from './input';
 
 export interface DevMap {
   id: string;
@@ -89,6 +90,15 @@ export class TitleMenu {
         { label: 'Sound effects', value: () => pct(o.sfx), adjust: (d) => ((o.sfx = clamp(Math.round((o.sfx + d * 0.1) * 10) / 10, 0, 1)), changed()) },
         { label: 'Mouse sensitivity', value: () => `${o.sens.toFixed(2)}x`, adjust: (d) => ((o.sens = clamp(Math.round((o.sens + d * 0.25) * 4) / 4, 0.25, 3)), changed()) },
         { label: 'Invert camera Y', value: () => (o.invertY ? 'On' : 'Off'), adjust: () => ((o.invertY = !o.invertY), changed()) },
+        {
+          label: 'Fullscreen',
+          hint: 'Also stops browser shortcuts like Ctrl+W from closing the game (Chrome / Edge).',
+          value: () => (document.fullscreenElement ? 'On' : 'Off'),
+          act: () => {
+            toggleFullscreen();
+            setTimeout(() => this.render(), 300);
+          },
+        },
         { label: 'Erase save data', hint: 'Deletes the ledger, money and story progress.', act: () => this.show('confirmErase') },
         { label: 'Back', act: () => this.show('main') },
       ];

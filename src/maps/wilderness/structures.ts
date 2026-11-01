@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { B, type VoxelWorld } from '../../voxel';
+import { B, blockColor, type VoxelWorld } from '../../voxel';
+import { cactusArms } from '../../kit/nature';
 import { mulberry32, type Rng } from '../../util';
 import { Biome, PADS, PRIDE_ROCK, SX, SZ, W, fbm, type Terrain } from './terrain';
 
@@ -86,16 +87,20 @@ function pine(c: Ctx, x: number, z: number, scale = 1) {
   w.set(x, g + h + 1, z, W.Pine);
 }
 
+// Trees, cacti and tents below are kit props (src/kit, docs/prop-kit.md): the voxel world gets
+// invisible Ghost blocks in the old shape (collision, nav, deaths), the prop is what you see.
+
 function leafyTree(c: Ctx, x: number, z: number, leaf: number = B.Leaves) {
   const { w, t, rng } = c;
   const g = t.ground(x, z);
   const h = 4 + Math.floor(rng() * 4);
-  w.fill(x, g, z, x, g + h - 1, z, B.Wood);
+  w.fill(x, g, z, x, g + h - 1, z, B.GhostWood);
   const r = 2 + Math.floor(rng() * 2);
   for (let dx = -r; dx <= r; dx++)
     for (let dy = -r; dy <= r; dy++)
       for (let dz = -r; dz <= r; dz++)
-        if (dx * dx + dy * dy * 1.6 + dz * dz <= r * r + 0.5 && !w.get(x + dx, g + h + dy, z + dz) && rng() > 0.06) w.set(x + dx, g + h + dy, z + dz, leaf);
+        if (dx * dx + dy * dy * 1.6 + dz * dz <= r * r + 0.5 && !w.get(x + dx, g + h + dy, z + dz) && rng() > 0.06) w.set(x + dx, g + h + dy, z + dz, B.GhostLeaf);
+  w.prop(`tree:${h}:${r}:${leaf === B.LeavesDark ? 1 : 0}`, x + 0.5, g, z + 0.5);
 }
 
 /** Flat-topped acacia, the savanna's silhouette. */
@@ -110,17 +115,18 @@ function acacia(c: Ctx, x: number, z: number) {
       px += Math.round(Math.cos(lean));
       pz += Math.round(Math.sin(lean));
     }
-    w.set(px, g + i, pz, B.Wood);
+    w.set(px, g + i, pz, B.GhostWood);
   }
   const r = 4 + Math.floor(rng() * 3);
   for (let dx = -r - 1; dx <= r + 1; dx++)
     for (let dz = -r - 1; dz <= r + 1; dz++) {
       const d = Math.hypot(dx, dz * 1.15) + fbm((px + dx) / 3, (pz + dz) / 3, 88) * 1.2;
-      if (d < r) w.set(px + dx, g + h, pz + dz, W.Acacia);
-      if (d < r - 2) w.set(px + dx, g + h + 1, pz + dz, W.Acacia);
+      if (d < r) w.set(px + dx, g + h, pz + dz, B.GhostLeaf);
+      if (d < r - 2) w.set(px + dx, g + h + 1, pz + dz, B.GhostLeaf);
     }
   // A couple of branches.
-  for (const s of [-1, 1]) for (let i = 1; i < 3; i++) w.set(px + s * i, g + h - 1, pz, B.Wood);
+  for (const s of [-1, 1]) for (let i = 1; i < 3; i++) w.set(px + s * i, g + h - 1, pz, B.GhostWood);
+  w.prop(`acacia:${h}:${r}:${Math.round(Math.cos(lean))}:${Math.round(Math.sin(lean))}`, x + 0.5, g, z + 0.5);
 }
 
 function baobab(c: Ctx, x: number, z: number): THREE.Vector3 {
@@ -148,15 +154,19 @@ function cactus(c: Ctx, x: number, z: number) {
   const { w, t, rng } = c;
   const g = t.ground(x, z);
   const h = 4 + Math.floor(rng() * 5);
-  w.fill(x, g, z, x, g + h - 1, z, W.Cactus);
-  for (const s of [-1, 1]) {
+  w.fill(x, g, z, x, g + h - 1, z, B.GhostLeaf);
+  const arms: Parameters<typeof cactusArms>[0] = [];
+  for (const s of [-1, 1] as const) {
     if (rng() < 0.35) continue;
     const ay = g + 1 + Math.floor(rng() * (h - 3));
     const ax = rng() < 0.5;
     const ox = ax ? s : 0, oz = ax ? 0 : s;
-    w.set(x + ox, ay, z + oz, W.Cactus);
-    w.fill(x + ox * 2, ay, z + oz * 2, x + ox * 2, ay + 2 + Math.floor(rng() * 2), z + oz * 2, W.Cactus);
+    w.set(x + ox, ay, z + oz, B.GhostLeaf);
+    const len = 2 + Math.floor(rng() * 2);
+    w.fill(x + ox * 2, ay, z + oz * 2, x + ox * 2, ay + len, z + oz * 2, B.GhostLeaf);
+    arms.push({ axis: ax ? 'x' : 'z', sign: s, y: ay - g, len });
   }
+  w.prop(`cactus:${h}:${cactusArms(arms)}`, x + 0.5, g, z + 0.5);
 }
 
 function deadTree(c: Ctx, x: number, z: number, h = 10): THREE.Vector3 {
@@ -212,15 +222,18 @@ function logPile(w: VoxelWorld, x: number, y: number, z: number, len: number) {
     }
 }
 
+/** Ridge tent, 7 x 6 blocks, door on the -z end. Collision keeps the old blocky A-frame. */
 function tent(w: VoxelWorld, x: number, y: number, z: number, color: number) {
+  const ghost = B.GhostProp;
   for (let i = 0; i < 4; i++) {
-    w.fill(x + i, y + i, z, x + i, y + i, z + 5, color);
-    w.fill(x + 6 - i, y + i, z, x + 6 - i, y + i, z + 5, color);
+    w.fill(x + i, y + i, z, x + i, y + i, z + 5, ghost);
+    w.fill(x + 6 - i, y + i, z, x + 6 - i, y + i, z + 5, ghost);
   }
-  w.fill(x + 3, y + 3, z, x + 3, y + 3, z + 5, color);
-  for (let i = 1; i < 3; i++) w.fill(x + 3 - i + 1, y, z, x + 3 + i - 1, y + 2 - i + 1, z, color);
+  w.fill(x + 3, y + 3, z, x + 3, y + 3, z + 5, ghost);
+  for (let i = 1; i < 3; i++) w.fill(x + 3 - i + 1, y, z, x + 3 + i - 1, y + 2 - i + 1, z, ghost);
   w.set(x + 3, y, z, 0);
   w.set(x + 3, y + 1, z, 0);
+  w.prop(`tentA:${blockColor(color).toString(16).padStart(6, '0')}`, x + 3.5, y, z + 3);
 }
 
 // ---------------------------------------------------------------- the places
@@ -298,12 +311,14 @@ function campground(c: Ctx) {
   tent(w, 204, y, 440, W.TentOrange);
   tent(w, 180, y, 440, B.RoofBlue);
   // Fire ring.
-  for (let a = 0; a < 10; a++) w.set(Math.round(194 + Math.cos(a * 0.63) * 2.2), y, Math.round(432 + Math.sin(a * 0.63) * 2.2), B.Stone);
+  for (let a = 0; a < 10; a++) w.set(Math.round(194 + Math.cos(a * 0.63) * 2.2), y, Math.round(432 + Math.sin(a * 0.63) * 2.2), B.GhostProp);
+  w.prop('campfire', 194.5, y, 432.5);
   // Picnic tables.
   for (const [x, z] of [[186, 430], [206, 428]]) {
-    w.fill(x, y + 1, z, x + 4, y + 1, z + 1, B.Plank);
-    w.fill(x, y, z - 1, x + 4, y, z - 1, B.Plank);
-    w.fill(x, y, z + 2, x + 4, y, z + 2, B.Plank);
+    w.fill(x, y + 1, z, x + 4, y + 1, z + 1, B.GhostProp);
+    w.fill(x, y, z - 1, x + 4, y, z - 1, B.GhostProp);
+    w.fill(x, y, z + 2, x + 4, y, z + 2, B.GhostProp);
+    w.prop('picnicTable', x + 2.5, y, z + 1);
   }
   // Outhouse.
   walls(w, 212, y, 446, 214, 448, 4, B.Wood, B.Wood, 0);

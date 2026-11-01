@@ -412,10 +412,10 @@ export class Car {
 /** Seated pose: hips on the seat, legs out front, hands on the wheel. */
 export function sit(ch: Character, seat: THREE.Vector3, straddle = false) {
   const h = ch.app.height;
-  ch.root.position.copy(seat).add(new THREE.Vector3(0, -0.8 * h, 0));
+  ch.root.position.copy(seat).add(new THREE.Vector3(0, -(ch.hip - 0.1) * h, 0));
   ch.root.rotation.set(0, 0, 0);
   ch.spinner.rotation.set(0, 0, 0);
-  ch.spinner.position.y = 0.9;
+  ch.spinner.position.y = ch.hip;
   ch.body.scale.set(1, 1, 1);
   const p = ch.parts;
   if (straddle) {
@@ -424,11 +424,13 @@ export function sit(ch: Character, seat: THREE.Vector3, straddle = false) {
     p.legR.pivot.rotation.set(-0.75, 0, -0.32);
     p.armL.pivot.rotation.set(-1.15, 0, 0.3);
     p.armR.pivot.rotation.set(-1.15, 0, -0.3);
+    ch.bend(0.9, 0.9, -0.3);
   } else {
     p.legL.pivot.rotation.set(-1.5, 0, 0);
     p.legR.pivot.rotation.set(-1.5, 0, 0);
     p.armL.pivot.rotation.set(-1.25, 0, 0.1);
     p.armR.pivot.rotation.set(-1.25, 0, -0.1);
+    ch.bend(1.45, 1.45, -0.35);
   }
   ch.root.visible = true;
 }

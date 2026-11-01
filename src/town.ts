@@ -3,7 +3,6 @@ import { B, VoxelWorld } from './voxel';
 import { mulberry32, pick, type Rng } from './util';
 import { GROCERY } from './places/grocery';
 import type { PlaceBuild } from './places/types';
-import { buildHospital, type HospitalInfo } from './places/hospital';
 import type { BuildingSpec, Placement } from './kit';
 import {
   GROUND,
@@ -134,8 +133,6 @@ export interface TownInfo {
   zones: Record<string, Box>;
   /** The grocery store stamp (its own deaths, staff and runtime). */
   grocery: PlaceBuild;
-  /** City General Hospital, stamped into the E3 lot; game.ts runs setupHospital on it. */
-  hospital: HospitalInfo;
   /** Exterior-only buildings drawn by the building kit (src/kit); game.ts places them. Their footprints are B.Footprint in the voxel world. */
   kitBuildings: (BuildingSpec & Placement)[];
 }
@@ -256,7 +253,6 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
   const zones: Record<string, Box> = {};
   const roads: RoadLine[] = [];
   let grocery!: PlaceBuild;
-  let hospital!: HospitalInfo;
   const kitBuildings: (BuildingSpec & Placement)[] = [];
   /**
    * A detailed kit house (preset 'house') on a world footprint ex (x) by ez (z), front facing `door`.
@@ -766,18 +762,25 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
     for (let x = 398; x < 428; x += 4) if (rng() < 0.4) car(w, rng, x, 159, false);
   }
 
-  // ================================================================ E2: Honest Al's used cars + billboard (x 446..505, z 156..234)
+  // ================================================================ E2: Hoffman Feed & Seed + billboard (x 446..505, z 156..234)
   {
-    parkingLot(w, 446, 176, 506, 234, false);
-    const colors = [B.RedPaint, B.WallBlue, B.Yellow, B.White, B.Black, B.RoofGreen, B.Orange, B.Purple, B.Pink];
-    for (let z = 182; z < 230; z += 6)
-      for (const x of [452, 470, 490]) car(w, rng, x, z, true, pick(rng, colors));
-    building(w, { x0: 486, z0: 158, x1: 504, z1: 172, wall: B.White, trim: B.RedPaint, floor: B.Linoleum, roof: 'flat', roofMat: B.Metal, winEvery: 2, doors: [{ side: 'w', at: 164 }] });
-    w.fill(490, G, 166, 496, G, 167, B.Wood);
-    for (let x = 448; x < 504; x += 4) w.fill(x, G, 175, x, G + 3, 175, B.Metal); // bunting poles
-    spots.tubeMan = v(466.5, G, 232.5);
-    sign(["HONEST AL'S", 'USED CARS · NO REFUNDS'], 476, G + 5, 175.4, 0, '#f5c400', '#c01818', 10, 2);
-    place({ id: 'car-lot', name: "Honest Al's Used Cars", kind: 'shop', door: v(484, G, 165), inside: box(447, G, 177, 505, G, 233), staffSpots: [v(470, G, 205)], jobs: ['Car Salesman'], hours: [9, 19], sells: [{ item: 'used car', price: 500 }, { item: 'convertible', price: 4000 }, { item: 'minivan', price: 1500 }] });
+    // Farm supply barn store facing Main St, with a loading dock, pallets of feed and a gravel yard.
+    const fx0 = 452, fz0 = 186, fx1 = 492, fz1 = 218;
+    building(w, { x0: fx0, z0: fz0, x1: fx1, z1: fz1, wall: B.BarnRed, trim: B.White, floor: B.Plank, floorH: 7, roof: 'gable', roofMat: B.Metal, winEvery: 5, doors: [{ side: 's', at: 466, width: 3, height: 4 }, { side: 'e', at: 196, width: 5, height: 5 }] });
+    w.fill(456, G, 190, 464, G, 191, B.Wood); // counter
+    for (let x = 470; x <= 488; x += 6) w.fill(x, G, 194, x + 3, G + 2, 196, B.Shelf); // aisles
+    for (let x = 470; x <= 488; x += 6) w.fill(x, G, 204, x + 3, G + 2, 206, B.Shelf);
+    w.fill(484, G, 210, 490, G + 1, 216, B.Hay); // feed sacks
+    // Loading dock and gravel yard on the east side.
+    w.fill(493, G, 192, 497, G, 202, B.Concrete);
+    w.fill(498, G - 1, 180, 505, G - 1, 230, B.Gravel);
+    for (const [x, z] of [[500, 184], [500, 206], [502, 222]]) w.fill(x, G, z, x + 2, G + 1, z + 2, B.Hay);
+    // Front lot.
+    parkingLot(w, 446, 222, 496, 234, false);
+    for (let x = 450; x < 494; x += 6) if (rng() < 0.4) car(w, rng, x, 226, false);
+    sign(['HOFFMAN FEED & SEED', 'FEED · SEED · ROPE · FERTILIZER'], 472, G + 9, fz1 + 0.6, 0, '#7a1e14', '#f5e6c8', 10, 2);
+    place({ id: 'feed-store', name: 'Hoffman Feed & Seed', kind: 'shop', door: v(466, G, fz1 + 2.5), inside: inner(fx0, fz0, fx1, fz1), staffSpots: [v(460, G, 189)], jobs: ['Cashier'], hours: [6, 18], sells: [{ item: 'chicken feed', price: 12 }, { item: 'seed corn', price: 20 }, { item: 'rope', price: 8 }, { item: 'fertilizer', price: 25 }] });
+    // Billboard posts.
     w.fill(462, G, 160, 462, G + 7, 160, B.Wood);
     w.fill(474, G, 160, 474, G + 7, 160, B.Wood);
   }
@@ -862,7 +865,13 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
     w.fill(326, G + 3, 258, 334, G + 3, 270, B.Steel);
     car(w, rng, 328, 262, false, B.Orange);
     sign(["DUKE'S GARAGE"], 320.5, G + 6, 247.4, Math.PI, '#20304a', '#ffcc33', 8, 1.5);
-    place({ id: 'garage', name: "Duke's Garage", kind: 'work', door: v(320, G, 245.5), inside: inner(306, 248, 340, 278), staffSpots: [v(312, G, 270)], jobs: ['Mechanic'] });
+    // Two beat-up trade-ins for sale out back (the town's only cars for sale; the convertible is in the city).
+    w.fill(322, G - 1, 281, 344, G - 1, 292, B.Gravel);
+    car(w, rng, 326, 284, false, B.RoofBrown);
+    car(w, rng, 336, 284, false, B.WallMint);
+    sign(['FOR SALE', 'PICKUP $500'], 327.5, G + 4, 290.4, 0, '#ffffff', '#c01818', 2.6, 1);
+    sign(['FOR SALE', 'MINIVAN $1,500'], 337.5, G + 4, 290.4, 0, '#ffffff', '#c01818', 2.6, 1);
+    place({ id: 'garage', name: "Duke's Garage", kind: 'shop', door: v(320, G, 245.5), inside: inner(306, 248, 340, 278), staffSpots: [v(312, G, 270)], jobs: ['Mechanic'], hours: [7, 19], sells: [{ item: 'beat-up pickup', price: 500 }, { item: 'used minivan', price: 1500 }, { item: 'oil change', price: 30 }] });
     // Uncle Boomer's Fireworks shack.
     building(w, { x0: 300, z0: 304, x1: 320, z1: 316, wall: B.RedPaint, trim: B.Yellow, floor: B.Plank, floorH: 4, roof: 'flat', roofMat: B.Yellow, winEvery: 2, doors: [{ side: 's', at: 309, width: 2 }] });
     w.fill(302, G, 306, 318, G, 306, B.Shelf);
@@ -932,18 +941,39 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
     place({ id: 'bbq', name: 'Church BBQ', kind: 'food', door: v(410, G, 276), inside: box(398, G, 276, 432, G, 322), staffSpots: [v(425, G, 286)], sells: [{ item: 'hot dog', price: 1 }], hours: [11, 18] });
   }
 
-  // ================================================================ E3: Smallville General Hospital (x 446..505, z 246..324)
+  // ================================================================ E3: Sleepy Pines Motel (x 446..509, z 250..324)
   {
-    // City General Hospital stamp (src/places/hospital): 64 x 48, entrance on the north side facing Main St.
-    const hx0 = 446, hz0 = 250, hx1 = 509, hz1 = 297;
-    hospital = buildHospital(w, { x: hx0, y: G, z: hz0 }, rng);
-    zones.hospitalLot = box(446, G, 247, 511.99, G + 42, 301.99);
-    // Ambulance bay and parking.
+    // Smallville has no hospital (that's in the city). A one-storey roadside motel instead:
+    // an office facing Main St, a long wing of rooms, a fenced pool and the back lot.
+    const ox0 = 448, oz0 = 252, ox1 = 466, oz1 = 266;
+    building(w, { x0: ox0, z0: oz0, x1: ox1, z1: oz1, wall: B.WallPeach, trim: B.White, floor: B.Carpet, floorH: 5, roof: 'gable', roofMat: B.RoofGreen, winEvery: 3, doors: [{ side: 'n', at: 457, width: 2, height: 3 }] });
+    w.fill(452, G, 258, 462, G, 258, B.Wood); // front desk
+    // Wing of eight rooms along the east side, doors facing west onto a walkway.
+    const rx0 = 488, rz0 = 252, rx1 = 506, rz1 = 300;
+    building(w, { x0: rx0, z0: rz0, x1: rx1, z1: rz1, wall: B.WallPeach, trim: B.White, floor: B.Carpet, floorH: 5, roof: 'flat', roofMat: B.RoofGreen, winEvery: 6, doors: [255, 261, 267, 273, 279, 285, 291, 297].map((at) => ({ side: 'w' as const, at, width: 1, height: 3 })) });
+    for (let z = rz0 + 6; z < rz1; z += 6) w.fill(rx0 + 1, G, z, rx1 - 1, G + 4, z, B.WallPeach); // walls between rooms
+    w.fill(rx0 - 3, G - 1, rz0, rx0 - 1, G - 1, rz1, B.Concrete); // walkway
+    for (let z = rz0; z <= rz1; z += 8) w.fill(rx0 - 3, G, z, rx0 - 3, G + 4, z, B.White); // walkway posts
+    w.fill(rx0 - 3, G + 5, rz0, rx0 - 1, G + 5, rz1, B.RoofGreen); // walkway roof
+    // Pool behind a white fence (deep end three blocks).
+    fenceLine(w, 466, 274, 482, 274, B.White, 1);
+    fenceLine(w, 466, 274, 466, 296, B.White, 1);
+    fenceLine(w, 482, 274, 482, 296, B.White, 1);
+    fenceLine(w, 466, 296, 482, 296, B.White, 1);
+    for (let x = 469; x <= 479; x++)
+      for (let z = 278; z <= 292; z++) {
+        const deep = z > 286 ? 3 : 1;
+        for (let y = G - deep; y < G; y++) w.set(x, y, z, B.Water);
+        w.set(x, G - deep - 1, z, B.Tile);
+      }
+    w.fill(468, G - 1, 276, 480, G - 1, 277, B.Tile);
+    // Tall roadside sign.
+    w.fill(448, G, 246, 448, G + 9, 246, B.Metal);
+    sign(['SLEEPY PINES', 'MOTEL · VACANCY'], 448.5, G + 10, 246.6, Math.PI, '#1f4d2b', '#ffd966', 6, 2);
     parkingLot(w, 446, 302, 506, 324);
-    w.fill(452, G, 304, 456, G + 2, 311, B.White);
-    w.fill(452, G + 2, 304, 456, G + 2, 304, B.RedPaint);
-    spots.ambulance = v(458, G, 307);
-    place({ id: 'hospital', name: 'Smallville General Hospital', kind: 'civic', door: hospital.entrance.clone(), inside: inner(hx0, hz0, hx1, hz1), staffSpots: [v(472, G, 258), v(478, G, 258), v(492, G, 278)], jobs: ['Nurse', 'Doctor', 'EMT'], tags: ['hospital'] });
+    for (let x = 448; x < 504; x += 4) if (rng() < 0.4) car(w, rng, x, 304, false);
+    place({ id: 'motel', name: 'Sleepy Pines Motel', kind: 'work', door: v(457, G, oz0 - 1.5), inside: inner(ox0, oz0, ox1, oz1), staffSpots: [v(457, G, 260)], jobs: ['Clerk'], hours: [0, 24] });
+    place({ id: 'motel-pool', name: 'Sleepy Pines pool', kind: 'park', door: v(474, G, 273), inside: box(468, G, 276, 480, G, 277) });
   }
 
   // ================================================================ B4: school (x 156..244, z 336..414)
@@ -1169,7 +1199,7 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
       suburbs: box(352, G, 371, 505, G, 379),
       school: box(162, G, 382, 240, G, 412),
       church: box(398, G, 276, 412, G, 302),
-      hospital: box(446, G, 244, 505, G, 247),
+      motel: box(446, G, 244, 505, G, 247),
       trainStation: box(214, G + 1, 24, 286, G + 1, 27),
       mainStreet: box(150, G, 233, 440, G, 236),
       trailerPark: box(256, G, 372, 344, G, 376),
@@ -1183,7 +1213,6 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
     spots,
     zones,
     grocery,
-    hospital,
     kitBuildings,
   };
 }

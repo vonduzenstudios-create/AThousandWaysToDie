@@ -1,22 +1,16 @@
 import * as THREE from 'three';
-import { RAPIER, G_PLAYER, G_PROP, G_WORLD, groups } from './physics';
+import { RAPIER, G_PLAYER, G_PROP, G_WORLD, QUERY_WORLD, groups } from './physics';
 import { approach2, turnToward } from './util';
 
 export type MoveState =
   | 'ground'
   | 'crouch'
-  | 'slide'
   | 'jump'
-  | 'triple'
-  | 'longjump'
-  | 'backflip'
-  | 'sideflip'
-  | 'wallkick'
-  | 'dive'
-  | 'bellyslide'
-  | 'gpFreeze'
-  | 'groundpound'
   | 'fall'
+  /** Hanging from a ledge by the hands. */
+  | 'hang'
+  /** Pulling up over a ledge. */
+  | 'climb'
   | 'crawl'
   | 'ride'
   | 'swim'
@@ -34,7 +28,7 @@ export interface PlayerInput {
   crouchHeld: boolean;
   crouchPressed: boolean;
   divePressed: boolean;
-  /** Sprinting (double-tap W, or left stick click). */
+  /** Sprinting (Shift, double-tap W, or left stick click). */
   sprint?: boolean;
   /** When set (right mouse held / first person), the character faces this way while standing still. */
   faceYaw?: number | null;
@@ -46,14 +40,15 @@ export interface LandEvent {
   landState: MoveState;
   launchPos: THREE.Vector3;
   speed: number;
+  /** Horizontal speed at take-off (a running leap vs. stepping off). */
+  launchSpeed: number;
 }
 
 export interface PlayerHooks {
   onJump?: (kind: MoveState, chain: number) => void;
   onLand?: (e: LandEvent) => void;
-  onWallKick?: () => void;
-  onGroundPound?: () => void;
-  onDive?: () => void;
+  /** Grabbed a ledge / finished pulling up over it. */
+  onLedge?: (kind: 'grab' | 'climb') => void;
   /** A move this body is too weak for was attempted. */
   onDenied?: (move: string) => void;
   /** Riding: hit a wall. `impact` is the speed straight into the wall, `normal` points out of it. */
@@ -87,19 +82,27 @@ const BREATH: Record<Tier, number> = { Feeble: 7, Normal: 13, Athlete: 22 };
 
 const GRAVITY = 42;
 const RUN_SPEED = 10;
+/** Everyone can run, sprint and jump; how fast and how high is down to physical health. */
+const RUN: Record<Tier, number> = { Feeble: 6, Normal: 10, Athlete: 11 };
+const SPRINT: Record<Tier, number> = { Feeble: 1.25, Normal: 1.5, Athlete: 1.75 };
+/** Jump launch speed: peaks of roughly 1.3, 2.3 and 3.4 above the feet. */
+const JUMP: Record<Tier, number> = { Feeble: 10.5, Normal: 14, Athlete: 17 };
+/** How far above the feet the hands can reach to grab a ledge. */
+const REACH: Record<Tier, number> = { Feeble: 2.1, Normal: 2.4, Athlete: 2.7 };
+/** Seconds to pull up over a ledge. */
+const PULLUP: Record<Tier, number> = { Feeble: 1.1, Normal: 0.6, Athlete: 0.4 };
 const HALF_HEIGHT = 0.5;
 const RADIUS = 0.4;
 export const PLAYER_CENTER = HALF_HEIGHT + RADIUS; // center height above feet
 
 /**
- * Kinematic platformer controller with a classic 3D-platformer moveset:
- * run, jump chain up to a triple jump, long jump, backflip, side flip, wall kick,
- * crouch, slide, dive, belly slide and ground pound.
+ * Kinematic character controller: walk, sprint, one jump, crouch, crawl (broken legs),
+ * and grabbing ledges to pull up. Speeds and jump height scale with physical health.
  */
 export class Player {
-  readonly body: RAPIER.RigidBody;
-  readonly collider: RAPIER.Collider;
-  private kcc: RAPIER.KinematicCharacterController;
+  body!: RAPIER.RigidBody;
+  collider!: RAPIER.Collider;
+  private kcc!: RAPIER.KinematicCharacterController;
   readonly vel = new THREE.Vector3();
   facing = 0;
   /** True while running at sprint speed. */
@@ -120,14 +123,18 @@ export class Player {
   private landTimer = 1;
   private jumpBuf = 0;
   private diveBuf = 0;
-  private crouchBuf = 0;
-  private skidTimer = 0;
   private wallTimer = 0;
+  /** Ledge being held: where the hands are, the wall's outward normal, and pull-up progress. */
+  private ledge: { top: THREE.Vector3; n: THREE.Vector3; from: THREE.Vector3; t: number } | null = null;
+  private ledgeCd = 0;
   private wallNormal = new THREE.Vector3();
   private maxY = 0;
   private launchState: MoveState = 'jump';
   private launchPos = new THREE.Vector3();
+  private launchSpeed = 0;
   private jumpedThisStep = false;
+  /** Set by teleport: the collider only catches up with the body after a physics step, so the next ground test is stale. */
+  private teleported = false;
   private readonly filter = groups(G_PLAYER, G_WORLD | G_PROP);
   hooks: PlayerHooks = {};
   tier: Tier = 'Normal';
@@ -157,21 +164,23 @@ export class Player {
    * parasails, being carried off by seagulls). Collisions and input are ignored.
    */
   carry: (() => THREE.Vector3) | null = null;
-
-  private get canAdvanced() {
-    return this.tier !== 'Feeble';
-  }
-  private get canAthletic() {
-    return this.tier === 'Athlete';
-  }
+  /**
+   * While set and airborne, this drives the velocity instead of gravity and air control
+   * (skydiving: terminal velocity, tracking, canopy flight). Collisions and landing still apply.
+   */
+  sky: ((dt: number, inp: PlayerInput, vel: THREE.Vector3) => void) | null = null;
+  /** A body pose the map asks for (seated, free-fall arch, hanging under a canopy). Read by the game's animator. */
+  pose: 'sit' | 'freefall' | 'canopy' | null = null;
 
   /** Launch the player from outside (thrown out of buildings, explosions). */
   knock(v: THREE.Vector3) {
+    this.ledge = null;
     this.vel.copy(v);
     this.launch('fall');
   }
 
   breakLegs() {
+    this.ledge = null;
     this.legsBroken = true;
     this.setState('crawl');
   }
@@ -182,6 +191,16 @@ export class Player {
   }
 
   constructor(private physics: RAPIER.World, spawn: THREE.Vector3) {
+    this.attach(physics, spawn);
+  }
+
+  /** Move the player into another physics world (each map has its own). */
+  rebind(physics: RAPIER.World, feet: THREE.Vector3) {
+    this.physics = physics;
+    this.attach(physics, feet);
+  }
+
+  private attach(physics: RAPIER.World, spawn: THREE.Vector3) {
     this.body = physics.createRigidBody(
       RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(spawn.x, spawn.y + PLAYER_CENTER, spawn.z),
     );
@@ -217,10 +236,12 @@ export class Player {
     this.body.setNextKinematicTranslation(p);
     this.vel.set(0, 0, 0);
     this.facing = facing;
+    this.ledge = null;
     this.setState('fall');
     this.grounded = false;
     this.maxY = p.y;
     this.launchPos.set(p.x, p.y, p.z);
+    this.teleported = true;
   }
 
   setEnabled(on: boolean) {
@@ -245,7 +266,102 @@ export class Player {
     this.maxY = p.y;
     this.launchState = s;
     this.launchPos.copy(p);
+    this.launchSpeed = this.horizSpeed();
   }
+
+  /**
+   * Look for a ledge top just in front of the wall we're pushing into, within arm's reach,
+   * with room to stand on it. Starts hanging if there is one.
+   */
+  private tryGrab(): boolean {
+    const n = this.wallNormal;
+    const c = this.body.translation();
+    const feetY = c.y - PLAYER_CENTER;
+    const reach = REACH[this.tier];
+    // Probe down from above reach, a little way past the wall face.
+    const px = c.x - n.x * (RADIUS + 0.35), pz = c.z - n.z * (RADIUS + 0.35);
+    const top = feetY + reach + 0.2;
+    const down = new RAPIER.Ray({ x: px, y: top, z: pz }, { x: 0, y: -1, z: 0 });
+    const hit = this.physics.castRayAndGetNormal(down, reach, true, undefined, QUERY_WORLD);
+    if (!hit || hit.normal.y < 0.7 || hit.timeOfImpact < 0.01) return false;
+    const ledgeY = top - hit.timeOfImpact;
+    // Must be above the waist (lower edges are stepped or jumped onto) and within reach.
+    if (ledgeY < feetY + 1.0 || ledgeY > feetY + reach) return false;
+    // Room to stand up there: nothing solid in the space above the ledge.
+    const up = new RAPIER.Ray({ x: px, y: ledgeY + 0.05, z: pz }, { x: 0, y: 1, z: 0 });
+    if (this.physics.castRay(up, 1.8, true, undefined, QUERY_WORLD)) return false;
+    // Nothing overhead on our side either.
+    const head = new RAPIER.Ray({ x: c.x, y: c.y, z: c.z }, { x: 0, y: 1, z: 0 });
+    if (ledgeY > c.y && this.physics.castRay(head, ledgeY - c.y + 0.3, true, undefined, QUERY_WORLD)) return false;
+    this.ledge = { top: new THREE.Vector3(px, ledgeY, pz), n: n.clone(), from: new THREE.Vector3(), t: 0 };
+    this.vel.set(0, 0, 0);
+    this.facing = Math.atan2(-n.x, -n.z);
+    this.setState('hang');
+    this.maxY = c.y; // a grab ends the fall
+    this.hooks.onLedge?.('grab');
+    return true;
+  }
+
+  /** Hanging: jump or push forward to pull up, crouch or pull back to drop. */
+  private updateLedge(dt: number, inp: PlayerInput, wx: number, wz: number, wishLen: number) {
+    const L = this.ledge;
+    if (!L) {
+      this.setState('fall');
+      return;
+    }
+    this.vel.set(0, 0, 0);
+    const n = L.n;
+    // Hands on the edge, body against the wall.
+    const hangPos = new THREE.Vector3(L.top.x + n.x * (RADIUS + 0.4), L.top.y - 1.75 + PLAYER_CENTER, L.top.z + n.z * (RADIUS + 0.4));
+    if (this.state === 'hang') {
+      this.body.setNextKinematicTranslation(hangPos);
+      this.grounded = false;
+      this.facing = Math.atan2(-n.x, -n.z);
+      const push = wishLen > 0.1 ? -(wx * n.x + wz * n.z) : 0;
+      if (this.jumpBuf > 0 || (push > 0.5 && this.stateTime > 0.15)) {
+        this.jumpBuf = 0;
+        L.from.copy(hangPos);
+        L.t = 0;
+        this.setState('climb');
+      } else if (inp.crouchPressed || push < -0.5) {
+        this.dropLedge();
+      }
+      return;
+    }
+    // Climbing: up first, then over the lip.
+    L.t = Math.min(1, L.t + dt / PULLUP[this.tier]);
+    const stand = new THREE.Vector3(L.top.x - n.x * 0.35, L.top.y + PLAYER_CENTER + 0.05, L.top.z - n.z * 0.35);
+    const upK = Math.min(1, L.t / 0.65);
+    const overK = Math.max(0, (L.t - 0.45) / 0.55);
+    const p = new THREE.Vector3(
+      L.from.x + (stand.x - L.from.x) * overK,
+      L.from.y + (stand.y - L.from.y) * (1 - (1 - upK) * (1 - upK)),
+      L.from.z + (stand.z - L.from.z) * overK,
+    );
+    this.body.setNextKinematicTranslation(p);
+    this.grounded = false;
+    if (L.t >= 1) {
+      this.ledge = null;
+      this.ledgeCd = 0.3;
+      this.grounded = true;
+      this.maxY = p.y;
+      this.launchPos.copy(p);
+      this.setState('ground');
+      this.hooks.onLedge?.('climb');
+    }
+  }
+
+  private dropLedge() {
+    this.ledge = null;
+    this.ledgeCd = 0.45;
+    const p = this.position();
+    this.maxY = p.y;
+    this.launchPos.copy(p);
+    this.launchState = 'fall';
+    this.airTime = 0.2;
+    this.setState('fall');
+  }
+
 
   update(dt: number, inp: PlayerInput) {
     this.jumpedThisStep = false;
@@ -266,9 +382,7 @@ export class Player {
     else this.jumpBuf -= dt;
     if (inp.divePressed) this.diveBuf = 0.13;
     else this.diveBuf -= dt;
-    if (inp.crouchPressed) this.crouchBuf = 0.13;
-    else this.crouchBuf -= dt;
-    this.skidTimer -= dt;
+    this.ledgeCd -= dt;
     this.sprinting = false;
     this.boostT -= dt;
     this.floatT -= dt;
@@ -297,6 +411,9 @@ export class Player {
       v.y = this.grounded ? -2 : Math.max(v.y - GRAVITY * dt, -55);
     } else if (this.grounded && this.ride) {
       this.rideGround(dt, inp, wx, wz, wishLen, wishYaw);
+    } else if (st === 'hang' || st === 'climb') {
+      this.updateLedge(dt, inp, wx, wz, wishLen);
+      return;
     } else if (this.grounded) {
       this.landTimer += dt;
       if (this.legsBroken) {
@@ -307,91 +424,34 @@ export class Player {
           approach2(v, fd.x * 1.6 * wishLen, fd.z * 1.6 * wishLen, 20 * dt);
         } else approach2(v, 0, 0, 20 * dt);
         this.jumpBuf = 0;
-        this.diveBuf = 0;
-      } else if (st === 'bellyslide' || st === 'slide') {
-        approach2(v, 0, 0, (st === 'slide' ? 9 : 12) * dt);
-        if (wishLen > 0.1) this.facing = turnToward(this.facing, wishYaw, 2 * dt);
-        if (Math.hypot(v.x, v.z) < 1.5 || (st === 'slide' && !inp.crouchHeld)) this.setState(inp.crouchHeld ? 'crouch' : 'ground');
       } else {
-        if (inp.crouchHeld && this.canAdvanced) {
-          if (hs > 6 && st === 'ground') this.setState('slide');
-          else this.setState('crouch');
-        } else this.setState('ground');
-        if (this.state === 'ground' || this.state === 'crouch') {
-          const feeble = this.tier === 'Feeble';
-          const sprintMul = inp.sprint && this.state === 'ground' ? (feeble ? 1.2 : 1.5) : 1;
-          this.sprinting = sprintMul > 1 && wishLen > 0.5;
-          const target = wishLen * (this.state === 'crouch' ? 2.5 : RUN_SPEED * (feeble ? 0.5 : 1) * sprintMul * boost);
-          if (wishLen > 0.1) {
-            const dot = hs > 0.01 ? (v.x * wx + v.z * wz) / hs : 1;
-            if (hs > 5 && dot < -0.4) this.skidTimer = 0.22;
-            // Turning is instant: facing snaps to the stick/keys, and momentum swings with it
-            // (except a hard reversal, which skids so the side flip still works).
-            this.facing = wishYaw;
-            const fd = this.facingDir();
-            if (this.skidTimer <= 0 && hs > 0.01) {
-              v.x = fd.x * hs;
-              v.z = fd.z * hs;
-            }
-            approach2(v, fd.x * target, fd.z * target, (this.skidTimer > 0 ? 70 : 55) * dt);
-          } else {
-            approach2(v, 0, 0, 45 * dt);
-            if (inp.faceYaw != null) this.facing = inp.faceYaw;
+        this.setState(inp.crouchHeld ? 'crouch' : 'ground');
+        const crouching = this.state === 'crouch';
+        const sprintMul = inp.sprint && !crouching ? SPRINT[this.tier] : 1;
+        this.sprinting = sprintMul > 1 && wishLen > 0.5;
+        const target = wishLen * (crouching ? 2.5 : RUN[this.tier] * sprintMul * boost);
+        if (wishLen > 0.1) {
+          // Turning is instant: facing snaps to the stick/keys, and momentum swings with it.
+          this.facing = wishYaw;
+          const fd = this.facingDir();
+          if (hs > 0.01) {
+            v.x = fd.x * hs;
+            v.z = fd.z * hs;
           }
+          approach2(v, fd.x * target, fd.z * target, 55 * dt);
+        } else {
+          approach2(v, 0, 0, 45 * dt);
+          if (inp.faceYaw != null) this.facing = inp.faceYaw;
         }
       }
 
-      // Jumps.
-      if (this.jumpBuf > 0) {
+      // One jump; how high depends on how fit this body is.
+      if (this.jumpBuf > 0 && !this.legsBroken) {
         this.jumpBuf = 0;
-        const fd = this.facingDir();
-        const cur = this.state;
-        if (!this.canAdvanced) {
-          if (this.skidTimer > 0 || inp.crouchHeld) this.hooks.onDenied?.('flips');
-          v.y = 12;
-          this.jumpChain = 1;
-          this.launch('jump');
-        } else if ((cur === 'crouch' || cur === 'slide') && hs > 4.5 && !this.canAthletic) {
-          this.hooks.onDenied?.('long jump');
-          v.y = 13.5;
-          this.jumpChain = 1;
-          this.launch('jump');
-        } else if (cur === 'crouch' || cur === 'slide') {
-          if (hs > 4.5) {
-            const sp = Math.min(Math.max(hs * 1.5, 14), 19);
-            v.set(fd.x * sp, 10.5, fd.z * sp);
-            this.launch('longjump');
-          } else {
-            v.set(-fd.x * 3.5, 21, -fd.z * 3.5);
-            this.launch('backflip');
-          }
-        } else if (cur === 'bellyslide') {
-          v.y = 9;
-          this.launch('jump');
-        } else if (this.skidTimer > 0 && wishLen > 0.1) {
-          this.facing = wishYaw;
-          v.set(wx * 3, 19.5, wz * 3);
-          this.launch('sideflip');
-        } else {
-          let chain = this.landTimer < 0.2 && this.jumpChain > 0 ? this.jumpChain + 1 : 1;
-          if (chain === 3 && hs < 6) chain = 1;
-          if (chain === 3 && !this.canAthletic) {
-            this.hooks.onDenied?.('triple jump');
-            chain = 1;
-          }
-          if (chain > 3) chain = 1;
-          this.jumpChain = chain;
-          v.y = [0, 13.5, 16.5, 21][chain];
-          this.launch(chain === 3 ? 'triple' : 'jump');
-        }
-        this.hooks.onJump?.(this.state, this.jumpChain);
-      } else if (this.diveBuf > 0 && hs > 3 && this.state === 'ground' && this.canAdvanced) {
-        this.diveBuf = 0;
-        const fd = this.facingDir();
-        const sp = Math.max(hs + 4, 13);
-        v.set(fd.x * sp, 6, fd.z * sp);
-        this.launch('dive');
-        this.hooks.onDive?.();
+        v.y = JUMP[this.tier] * (this.state === 'crouch' ? 0.75 : 1);
+        this.jumpChain = 1;
+        this.launch('jump');
+        this.hooks.onJump?.('jump', 1);
       } else {
         v.y = -6; // stick to the ground so grounded detection doesn't flicker
         // On a slope (ramps over stairs, hills), move along the surface instead of pushing
@@ -411,6 +471,9 @@ export class Player {
         this.diveBuf = 0;
         this.hooks.onRideTrick?.();
       }
+    } else if (this.sky) {
+      this.airTime += dt;
+      this.sky(dt, inp, v);
     } else {
       // Airborne.
       this.airTime += dt;
@@ -418,61 +481,34 @@ export class Player {
       if (st === 'fall' && this.airTime < 0.14 && this.jumpBuf > 0 && !this.legsBroken) {
         this.jumpBuf = 0;
         this.jumpChain = 1;
-        v.y = 13.5;
+        v.y = JUMP[this.tier];
         this.launch('jump');
         this.hooks.onJump?.('jump', 1);
-      } else if (st === 'gpFreeze') {
-        v.set(0, 0, 0);
-        if (this.stateTime > 0.28) {
-          v.y = -38;
-          this.setState('groundpound');
-          this.hooks.onGroundPound?.();
-        }
-      } else if (st === 'groundpound') {
-        v.x = 0;
-        v.z = 0;
-        v.y = -38;
       } else {
         let g = GRAVITY * (this.floatT > 0 && v.y < 0 ? 0.3 : 1);
         if (st === 'jump' && !inp.jumpHeld && v.y > 0) g *= 2.2; // variable jump height
         v.y -= g * dt;
         v.y = Math.max(v.y, -55);
 
-        const accel = st === 'longjump' ? 5 : st === 'backflip' ? 7 : st === 'dive' ? 2.5 : st === 'wallkick' ? 12 : 34;
         if (wishLen > 0.1) {
-          const before = Math.max(hs, RUN_SPEED * 0.9);
-          v.x += wx * accel * wishLen * dt;
-          v.z += wz * accel * wishLen * dt;
+          const before = Math.max(hs, RUN[this.tier] * 0.9);
+          v.x += wx * 34 * wishLen * dt;
+          v.z += wz * 34 * wishLen * dt;
           const nh = Math.hypot(v.x, v.z);
           if (nh > before) {
             v.x *= before / nh;
             v.z *= before / nh;
           }
-          if (st !== 'backflip' && st !== 'sideflip' && st !== 'triple')
-            this.facing = st === 'dive' || st === 'longjump' ? turnToward(this.facing, wishYaw, 1.5 * dt) : wishYaw;
-        } else if (st === 'jump' || st === 'fall') {
+          this.facing = wishYaw;
+        } else {
           approach2(v, 0, 0, 4 * dt);
         }
 
-        // Wall kick.
-        if (this.wallTimer > 0 && this.jumpBuf > 0 && this.airTime > 0.06 && this.canAdvanced && !this.legsBroken) {
-          this.jumpBuf = 0;
-          this.wallTimer = 0;
+        // Ledge grab: pushing into a wall near its top edge.
+        if (this.wallTimer > 0 && !this.legsBroken && this.ledgeCd <= 0 && v.y < 4 && this.airTime > 0.08) {
           const n = this.wallNormal;
-          this.facing = Math.atan2(n.x, n.z);
-          v.set(n.x * 8.5, 16, n.z * 8.5);
-          this.launch('wallkick');
-          this.hooks.onWallKick?.();
-        } else if (this.crouchBuf > 0 && this.airTime > 0.1 && st !== 'dive' && this.canAdvanced) {
-          this.crouchBuf = 0;
-          this.setState('gpFreeze');
-        } else if (this.diveBuf > 0 && st !== 'dive' && this.canAdvanced && !this.legsBroken) {
-          this.diveBuf = 0;
-          const fd = this.facingDir();
-          const sp = Math.max(hs, 12);
-          v.set(fd.x * sp, Math.max(v.y, 2) + 3, fd.z * sp);
-          this.setState('dive');
-          this.hooks.onDive?.();
+          const into = wishLen > 0.1 ? -(wx * n.x + wz * n.z) : 0;
+          if (into > 0.3 && this.tryGrab()) return;
         }
       }
     }
@@ -487,7 +523,8 @@ export class Player {
 
     const wasGrounded = this.grounded;
     let grounded = this.kcc.computedGrounded();
-    if (this.jumpedThisStep || (v.y > 0.5 && !this.onSlope)) grounded = false;
+    if (this.jumpedThisStep || (v.y > 0.5 && !this.onSlope) || this.teleported) grounded = false;
+    this.teleported = false;
     this.onSlope = false;
     this.groundN.set(0, 1, 0);
 
@@ -517,10 +554,7 @@ export class Player {
     if (grounded && !wasGrounded) {
       const landState = this.state;
       const drop = this.maxY - next.y;
-      if (landState === 'dive') this.setState('bellyslide');
-      else if (landState === 'longjump' && inp.crouchHeld) this.setState('slide');
-      else if (landState !== 'locked') this.setState(this.ride ? 'ride' : this.legsBroken ? 'crawl' : 'ground');
-      if (landState === 'triple' || landState === 'backflip' || landState === 'sideflip') this.jumpChain = 0;
+      if (landState !== 'locked') this.setState(this.ride ? 'ride' : this.legsBroken ? 'crawl' : 'ground');
       this.landTimer = 0;
       v.y = 0;
       this.hooks.onLand?.({
@@ -529,11 +563,12 @@ export class Player {
         landState,
         launchPos: this.launchPos.clone(),
         speed: Math.hypot(v.x, v.z),
+        launchSpeed: this.launchSpeed,
       });
     } else if (!grounded && wasGrounded && !this.jumpedThisStep) {
       // Walked off a ledge.
-      this.launchState = this.state === 'slide' ? 'slide' : 'fall';
-      if (this.state !== 'bellyslide' && this.state !== 'locked' && this.state !== 'crawl' && this.state !== 'ride') this.setState('fall');
+      this.launchState = 'fall';
+      if (this.state !== 'locked' && this.state !== 'crawl' && this.state !== 'ride') this.setState('fall');
       this.airTime = 0;
       this.maxY = next.y;
       this.launchPos.set(next.x, next.y, next.z);
@@ -554,7 +589,7 @@ export class Player {
   }
 
   /**
-   * Swimming: buoyancy keeps the head above water, Shift dives (unless floating),
+   * Swimming: buoyancy keeps the head above water, C (crouch) dives (unless floating),
    * Space rises and hops out at the surface. Returns true when it handled the step.
    */
   private updateSwim(dt: number, inp: PlayerInput): boolean {

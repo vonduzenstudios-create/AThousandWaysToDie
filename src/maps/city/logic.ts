@@ -8,6 +8,7 @@ import type { CityLayout } from './build';
 import { BoxBatch, Scenery, signMesh } from './mesh';
 import { buildScenery } from './scenery';
 import { AVES, G, MORTALIS, PARK, PIERS, RAIL, RAIL_PLATFORM, SITE, STREETS, SUBWAY, TUNNEL_FLOOR, WATER, blockRect } from './layout';
+import { pigeon } from '../../animals/farm';
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const STATUE_KEY = 'cestlavie-statues-v1';
@@ -223,7 +224,7 @@ export function setupCity(ctx: MapContext, L: CityLayout): MapRuntime {
     { a: actor({ shirt: 0x3a9a4a, hat: 0xffffff }, V(37, G + 1, 330), -Math.PI / 2), home: V(37, G + 1, 330), down: 0, cd: 0 },
     { a: actor({ shirt: 0xe0b030 }, V(37, G + 1, 362), -Math.PI / 2), home: V(37, G + 1, 362), down: 0, cd: 0 },
   ];
-  const DODGES = ['dive', 'longjump', 'groundpound', 'gpFreeze', 'backflip', 'sideflip', 'slide', 'bellyslide', 'wallkick', 'triple'];
+  const DODGES = ['jump', 'crouch'];
   const onLiveTrack = (p: THREE.Vector3) => Math.abs(p.x - (RAIL.live + 0.5)) < 2.4 && p.z > RAIL.z0 && p.z < RAIL.z1 && p.y < G + 2;
 
   // ================================================================ manhole worker
@@ -501,9 +502,8 @@ export function setupCity(ctx: MapContext, L: CityLayout): MapRuntime {
   lady.sitting = true;
   const crumbs = sc.add(new BoxBatch().box(0, 0.25, 0, 0.5, 0.5, 0.35, 0xd8c8a0).build());
   crumbs.position.copy(parkBench.pos).add(V(0.7, G - parkBench.pos.y + 0.6, 0));
-  const pigeonGeo = new BoxBatch().box(0, 0.18, 0, 0.22, 0.25, 0.4, 0x8a8f96).box(0, 0.36, 0.18, 0.16, 0.16, 0.16, 0x5a6a7a).box(0, 0.36, 0.28, 0.06, 0.04, 0.1, 0xe0a020).build();
   const pigeons = Array.from({ length: 30 }, (_, i) => {
-    const m = pigeonGeo.clone();
+    const m = pigeon();
     const a = (i / 30) * Math.PI * 2;
     const home = parkBench.pos.clone().add(V(Math.cos(a) * (1.5 + (i % 4)), 0, 1.5 + Math.abs(Math.sin(a)) * 3));
     m.position.copy(home);

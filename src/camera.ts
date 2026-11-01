@@ -13,6 +13,9 @@ export class FollowCam {
   pitch = 0.32;
   /** Distance the player has zoomed to with the scroll wheel. */
   dist = 9;
+  /** Lowest/highest third-person pitch. Death widens it so he can look up and fly up. */
+  minPitch = -1.1;
+  maxPitch = 1.3;
   private curDist = 9;
   private target = new THREE.Vector3();
   private shakeAmt = 0;
@@ -20,7 +23,7 @@ export class FollowCam {
   /** Forces third person at least this far out (death cams, title). */
   minDist = 0;
 
-  constructor(readonly camera: THREE.PerspectiveCamera, private physics: RAPIER.World) {}
+  constructor(readonly camera: THREE.PerspectiveCamera, public physics: RAPIER.World) {}
 
   get firstPerson() {
     return Math.max(this.dist, this.minDist) < FP_THRESHOLD;
@@ -55,7 +58,7 @@ export class FollowCam {
     this.yaw -= lookDX;
     this.yaw += this.autoOrbit * dt;
     const fp = this.firstPerson && eye !== null;
-    this.pitch = clamp(this.pitch + lookDY, fp ? -1.45 : -0.2, fp ? 1.45 : 1.25);
+    this.pitch = clamp(this.pitch + lookDY, fp ? -1.45 : this.minPitch, fp ? 1.45 : this.maxPitch);
 
     const dir = new THREE.Vector3(
       Math.sin(this.yaw) * Math.cos(this.pitch),
@@ -76,8 +79,14 @@ export class FollowCam {
     const wantDist = Math.max(this.dist, this.minDist, FP_THRESHOLD);
     let want = wantDist;
     const ray = new RAPIER.Ray(this.target, dir);
-    const hit = this.physics.castRay(ray, wantDist, true, undefined, QUERY_WORLD);
-    if (hit) want = Math.max(1.0, hit.timeOfImpact - 0.35);
+    const hit = this.physics.castRayAndGetNormal(ray, wantDist, true, undefined, QUERY_WORLD);
+    if (hit) {
+      if (hit.normal.y > 0.5 && dir.y < 0) {
+        // Looking up from below: the camera slides in along the ground toward the feet
+        // (staying a little above it) instead of stopping at arm's length under the floor.
+        want = Math.max(0.3, hit.timeOfImpact - 0.3 / Math.max(0.25, -dir.y));
+      } else want = Math.max(1.0, hit.timeOfImpact - 0.35);
+    }
     if (this.curDist < 0.5) this.curDist = want; // leaving first person
     this.curDist = want < this.curDist ? want : this.curDist + (want - this.curDist) * Math.min(1, dt * 6);
 

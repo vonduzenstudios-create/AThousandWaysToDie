@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import type { GameApi, MapContext, MapRuntime } from '../types';
 import type { Interactable } from '../../props';
+import type { RAPIER } from '../../physics';
 import { Actor, Animal, MOOD_NAMES, type Ground } from './animals';
 import * as M from './models';
 import { buildClouds, buildFoliage, buildWater } from './scenery';
 import { RIVER_A, SX, SZ, type Terrain } from './terrain';
 import type { Spots } from './structures';
 import { buildKit, disposeKit } from './kitbuild';
+import { buildRoadRibbons, type RoadProfile } from './roads';
 import type { StreetKit } from '../../kit';
 
 export interface WildLayout {
@@ -14,6 +16,7 @@ export interface WildLayout {
   spots: Spots;
   ground: Ground;
   cover: Uint8Array;
+  roads: RoadProfile[];
 }
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -144,6 +147,7 @@ export class WildRuntime implements MapRuntime {
   private logGame: { t: number; want: number; next: number; balance: number; log: THREE.Mesh } | null = null;
   private skeletons: { a: Actor; t: number; dir: THREE.Vector3 }[] = [];
   private kit: StreetKit;
+  private roadBody: RAPIER.RigidBody;
 
   constructor(private ctx: MapContext, L: WildLayout) {
     this.game = ctx.game;
@@ -154,6 +158,9 @@ export class WildRuntime implements MapRuntime {
     this.cover = L.cover;
     this.scene.add(this.root);
     this.kit = buildKit(this.root, ctx.physics);
+    const ribbons = buildRoadRibbons(L.roads, ctx.physics);
+    this.root.add(ribbons.group);
+    this.roadBody = ribbons.body;
 
     const water = buildWater(this.t);
     this.waterMat = water.mat;
@@ -808,8 +815,8 @@ export class WildRuntime implements MapRuntime {
 
   onLand(e: { drop: number; launchPos: THREE.Vector3; launchState: string; landState: string }) {
     const p = this.p;
-    // Beaver dam: ground pound it.
-    if (e.landState === 'groundpound' && !this.damBroken && this.near(this.s.beaverDam, 7)) {
+    // Beaver dam: jump down onto it from a good height.
+    if (e.drop >= 3 && !this.damBroken && this.near(this.s.beaverDam, 7)) {
       this.hitDam();
       return true;
     }
@@ -823,6 +830,7 @@ export class WildRuntime implements MapRuntime {
 
   dispose() {
     disposeKit(this.kit, this.ctx.physics);
+    this.ctx.physics.removeRigidBody(this.roadBody);
     this.scene.remove(this.root);
     for (const a of this.animals) a.dispose(this.scene);
     for (const a of this.actors) a.dispose(this.scene);
@@ -1107,7 +1115,7 @@ export class WildRuntime implements MapRuntime {
       g.sound.whoosh();
       this.after(0.6, () => {
         this.raftGuide.pose = 'stand';
-        if (this.game.input.held('crouch')) {
+        if (this.game.input.held('crouch') || this.game.input.held('sprint')) {
           g.toast('*bonk*', 'The rope bounced off the barrel lid. Skye looks betrayed.', 2400);
           g.sound.tone({ f: 300, f2: 200, dur: 0.1, type: 'square', vol: 0.3 });
         } else {
@@ -1664,7 +1672,7 @@ export class WildRuntime implements MapRuntime {
     const at = path(k);
     const floor = this.floorAt(at.x, at.z);
     if (!bs.popped) {
-      const venting = this.ride?.kind === 'balloon' && g.input.held('crouch');
+      const venting = this.ride?.kind === 'balloon' && (g.input.held('crouch') || g.input.held('sprint'));
       let target = bs.t < 6 ? (bs.t / 6) * 30 : 30;
       if (venting) bs.alt -= dt * 4;
       else bs.alt += (target - bs.alt) * Math.min(1, dt * 0.4);

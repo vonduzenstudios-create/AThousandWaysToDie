@@ -30,6 +30,7 @@ export class UI {
   private toastEl: HTMLElement;
   private card: HTMLElement;
   private fileEl: HTMLElement;
+  private scytheEl: HTMLElement;
   private ledgerEl: HTMLElement;
   private helpEl: HTMLElement;
   private banner: HTMLElement;
@@ -56,6 +57,7 @@ export class UI {
     this.toastEl = this.add('<div class="toast hidden"></div>');
     this.banner = this.add('<div class="banner hidden"></div>');
     this.fileEl = this.add('<div class="file hidden"></div>');
+    this.scytheEl = this.add('<div class="scythe hidden"></div>');
     this.dialog = this.add('<div class="dialog hidden"><div class="who"></div><div class="line"></div></div>');
     this.card = this.add('<div class="card hidden"></div>');
     this.ledgerEl = this.add('<div class="ledger hidden"></div>');
@@ -64,19 +66,16 @@ export class UI {
       <table>
         <tr><th></th><th>Keyboard</th><th>Controller</th></tr>
         <tr><td>Move</td><td>WASD</td><td>Left stick</td></tr>
-        <tr><td>Sprint</td><td>Double-tap and hold W</td><td>Click left stick</td></tr>
+        <tr><td>Sprint (speed by fitness)</td><td>Hold Shift (or double-tap W)</td><td>Click left stick</td></tr>
         <tr><td>Orbit camera</td><td>Hold left mouse</td><td>Right stick</td></tr>
         <tr><td>Steer (camera stays behind)</td><td>Hold right mouse</td><td>Right stick</td></tr>
         <tr><td>Walk forward</td><td>Hold both mouse buttons</td><td></td></tr>
         <tr><td>Zoom / first person</td><td>Scroll wheel</td><td></td></tr>
-        <tr><td>Jump (tap on landing to chain)</td><td>Space</td><td>A</td></tr>
-        <tr><td>Crouch, slide, ground pound</td><td>Shift</td><td>B or LT</td></tr>
-        <tr><td>Long jump (Athlete)</td><td>Run + Shift + Space</td><td>Run + B + A</td></tr>
-        <tr><td>Backflip</td><td>Shift + Space standing</td><td>B + A standing</td></tr>
-        <tr><td>Side flip</td><td>Reverse + Space</td><td>Reverse + A</td></tr>
-        <tr><td>Wall kick</td><td>Space on a wall</td><td>A on a wall</td></tr>
+        <tr><td>Jump (height by fitness)</td><td>Space</td><td>A</td></tr>
+        <tr><td>Grab a ledge</td><td>Jump at it, hold toward the wall</td><td>Same</td></tr>
+        <tr><td>Pull up · let go</td><td>Space or W · C or S</td><td>A or up · B or down</td></tr>
+        <tr><td>Crouch / swim down</td><td>C</td><td>B or LT</td></tr>
         <tr><td>Punch</td><td>F</td><td>X</td></tr>
-        <tr><td>Dive</td><td>G</td><td>RT</td></tr>
         <tr><td>Skills</td><td>1 – 5 (or click)</td><td>D-pad up/down pick, right use</td></tr>
         <tr><td>Interact / possess</td><td>E</td><td>Y</td></tr>
         <tr><td>Scream for help</td><td>T</td><td>LB</td></tr>
@@ -84,8 +83,9 @@ export class UI {
         <tr><td>Drive · steer</td><td>W / S · A / D</td><td>Stick or RT / LT · stick</td></tr>
         <tr><td>Handbrake · horn</td><td>Space · T</td><td>A · LB</td></tr>
         <tr><td>Pee</td><td>Q</td><td>RB</td></tr>
-        <tr><td>Ghost rise / sink</td><td>Space / Shift</td><td>A / B</td></tr>
+        <tr><td>Ghost rise / sink</td><td>Space / C</td><td>A / B</td></tr>
         <tr><td>Ledger · music</td><td>Tab · M</td><td>View · D-pad left</td></tr>
+        <tr><td>Full map · waypoints</td><td>N (or click the radar)</td><td>Click right stick</td></tr>
       </table>
     </div>`);
 
@@ -186,6 +186,44 @@ export class UI {
       <div class="verdict ${fair ? 'ok' : 'bad'}">${fair ? 'FAIR GAME' : 'NOT THEIR TIME. God will notice.'}</div>
       <div class="hint">E / Y to possess</div>`;
     this.fileEl.classList.remove('hidden');
+  }
+
+  /**
+   * The scythe vision menu (left side) shown after zooming in on someone as Death.
+   * `sel` is 0 for Possess, 1 for Pass. Pass `null` to hide it.
+   */
+  showScythe(f: PersonFile | null, sel = 0, on?: { possess: () => void; pass: () => void; hover: (i: number) => void }, pad = false) {
+    if (!f) {
+      this.scytheEl.classList.add('hidden');
+      return;
+    }
+    const fair = isDeserving(f);
+    this.scytheEl.innerHTML = `
+      <div class="sh">SCYTHE VISION</div>
+      <div class="sname">${f.name}</div>
+      <div class="srows">
+        <div class="sr"><span>Age</span><b>${f.age}</b></div>
+        <div class="sr"><span>Job</span><b>${f.job}</b></div>
+        <div class="sr"><span>Physical health</span><b>${f.physical}</b></div>
+        <div class="sr"><span>Mental health</span><b>${f.mental}</b></div>
+        <div class="sr"><span>Afterlife</span><b>${f.afterlife}</b></div>
+        <div class="sr note"><span>Note</span><b>${f.quirk}</b></div>
+      </div>
+      <div class="sbtns">
+        <div class="sb${sel === 0 ? ' sel' : ''}" data-i="0">Possess${fair ? '' : '<div class="swarn">Not their time. God will notice.</div>'}</div>
+        <div class="sb${sel === 1 ? ' sel' : ''}" data-i="1">Pass</div>
+      </div>
+      <div class="shint">${pad ? 'D-pad to choose · <b>A</b> select · <b>B</b> pass' : '<b>W/S</b> to choose · <b>E</b> / <b>Enter</b> select · <b>Esc</b> / <b>Q</b> pass'}</div>`;
+    this.scytheEl.querySelectorAll<HTMLElement>('.sb').forEach((b) => {
+      const i = Number(b.dataset.i);
+      b.addEventListener('mouseenter', () => on?.hover(i));
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (i === 0) on?.possess();
+        else on?.pass();
+      });
+    });
+    this.scytheEl.classList.remove('hidden');
   }
 
   showClaim(d: ClaimData, onDone: () => void) {

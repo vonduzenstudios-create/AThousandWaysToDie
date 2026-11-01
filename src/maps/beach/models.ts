@@ -16,6 +16,9 @@ export const mat = (color: number, opts: { emissive?: number; transparent?: bool
   return new THREE.MeshLambertMaterial({ color, map: noiseTexture(), emissive: opts.emissive ?? 0, transparent: opts.transparent, opacity: opts.opacity ?? 1 });
 };
 
+// Sea life is detailed voxel models in src/animals (same names, pivots and sizes as before).
+export { shark, whale, gull, jellyfish, pufferfish, crab, fish, marlin } from '../../animals/sea';
+
 export function cube(w: number, h: number, d: number, color: number | THREE.Material, x = 0, y = 0, z = 0, parent?: THREE.Object3D) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), typeof color === 'number' ? mat(color) : color);
   m.position.set(x, y, z);
@@ -92,73 +95,6 @@ export class LiveSign {
   }
 }
 
-export function shark(scale = 1) {
-  const g = new THREE.Group();
-  const grey = 0x6f8494, belly = 0xe8eef0;
-  cube(1.0, 0.9, 3.6, grey, 0, 0, 0, g);
-  cube(0.9, 0.35, 3.2, belly, 0, -0.45, 0.1, g);
-  cube(0.7, 0.7, 1.0, grey, 0, 0, 2.2, g); // snout
-  cube(0.12, 1.1, 0.7, grey, 0, 0.9, -0.2, g).rotation.x = -0.35; // dorsal fin
-  const tail = new THREE.Group();
-  tail.position.z = -1.9;
-  cube(0.15, 1.4, 0.6, grey, 0, 0.3, -0.4, tail).rotation.x = 0.5;
-  cube(0.15, 0.8, 0.5, grey, 0, -0.35, -0.3, tail).rotation.x = -0.6;
-  tail.name = 'tail';
-  g.add(tail);
-  for (const s of [-1, 1]) cube(0.9, 0.1, 0.5, grey, s * 0.8, -0.3, 0.6, g).rotation.z = s * 0.4;
-  const jaw = new THREE.Group();
-  jaw.position.set(0, -0.3, 2.2);
-  cube(0.65, 0.2, 0.9, 0xc04040, 0, 0, 0.1, jaw);
-  for (let i = 0; i < 4; i++) cube(0.08, 0.14, 0.08, 0xffffff, -0.24 + i * 0.16, 0.14, 0.5, jaw);
-  jaw.name = 'jaw';
-  g.add(jaw);
-  for (const s of [-1, 1]) cube(0.08, 0.12, 0.12, 0x111111, s * 0.36, 0.15, 2.4, g);
-  g.scale.setScalar(scale);
-  return g;
-}
-
-export function whale() {
-  const g = new THREE.Group();
-  const blue = 0x3a4f78, belly = 0xd9d4c8;
-  cube(7, 5, 18, blue, 0, 0, 0, g);
-  cube(6, 1.5, 16, belly, 0, -2.6, 0.5, g);
-  for (let i = 0; i < 7; i++) cube(6.2, 0.15, 0.3, 0xb0a898, 0, -2.2, -4 + i * 1.6, g);
-  const tail = new THREE.Group();
-  tail.position.z = -9;
-  cube(3, 2.5, 5, blue, 0, 0.4, -2, tail);
-  cube(9, 0.5, 2.5, blue, 0, 0.6, -4.8, tail);
-  tail.name = 'tail';
-  g.add(tail);
-  const jaw = new THREE.Group();
-  jaw.position.set(0, -1.6, 7);
-  cube(6.6, 1.2, 4.5, blue, 0, -0.2, 0.5, jaw);
-  cube(5.8, 0.3, 4.0, 0xd06070, 0, 0.45, 0.4, jaw);
-  jaw.name = 'jaw';
-  g.add(jaw);
-  for (const s of [-1, 1]) {
-    cube(0.4, 0.6, 0.6, 0x111111, s * 3.5, 0.3, 6, g);
-    cube(4, 0.4, 2, blue, s * 4.5, -1.8, 2, g).rotation.z = s * 0.4;
-  }
-  cube(0.8, 0.3, 0.8, 0x222a44, 0, 2.55, 3, g); // blowhole
-  return g;
-}
-
-export function gull() {
-  const g = new THREE.Group();
-  cube(0.35, 0.3, 0.7, 0xf4f4f4, 0, 0, 0, g);
-  cube(0.28, 0.28, 0.3, 0xf4f4f4, 0, 0.15, 0.42, g);
-  cube(0.08, 0.08, 0.2, 0xf2b630, 0, 0.12, 0.66, g);
-  for (const s of [-1, 1]) {
-    const wing = new THREE.Group();
-    wing.position.set(s * 0.18, 0.1, 0);
-    cube(0.9, 0.06, 0.4, 0xbfc6cc, s * 0.45, 0, 0, wing);
-    cube(0.25, 0.07, 0.38, 0x222222, s * 0.95, 0, 0, wing);
-    wing.name = s < 0 ? 'wl' : 'wr';
-    g.add(wing);
-  }
-  return g;
-}
-
 export function jetSki() {
   const g = new THREE.Group();
   cube(1.2, 0.6, 3, 0xe8302a, 0, 0.3, 0, g);
@@ -200,42 +136,6 @@ export function innerTube() {
 export function coconut() {
   const g = new THREE.Group();
   cube(0.5, 0.5, 0.5, 0x5a3a1e, 0, 0, 0, g);
-  return g;
-}
-
-export function jellyfish() {
-  const g = new THREE.Group();
-  const m = mat(0xff8ad8, { transparent: true, opacity: 0.7, emissive: 0x551144 });
-  cube(0.8, 0.45, 0.8, m, 0, 0, 0, g);
-  for (let i = 0; i < 4; i++) cube(0.06, 0.9, 0.06, m, -0.25 + (i % 2) * 0.5, -0.65, -0.25 + Math.floor(i / 2) * 0.5, g);
-  return g;
-}
-
-export function pufferfish() {
-  const g = new THREE.Group();
-  const body = cube(0.7, 0.6, 0.8, 0xe8c45a, 0, 0, 0, g);
-  body.name = 'body';
-  const spikes = new THREE.Group();
-  spikes.name = 'spikes';
-  for (let i = 0; i < 14; i++) {
-    const a = (i / 14) * Math.PI * 2;
-    cube(0.06, 0.06, 0.25, 0xffffff, Math.cos(a) * 0.4, Math.sin(a * 2) * 0.25, Math.sin(a) * 0.45, spikes).lookAt(0, 0, 0);
-  }
-  spikes.visible = false;
-  g.add(spikes);
-  for (const s of [-1, 1]) cube(0.12, 0.14, 0.1, 0x111111, s * 0.2, 0.12, 0.38, g);
-  cube(0.05, 0.4, 0.3, 0xe8c45a, 0, 0, -0.5, g);
-  return g;
-}
-
-export function crab() {
-  const g = new THREE.Group();
-  cube(0.5, 0.2, 0.35, 0xe0402a, 0, 0.15, 0, g);
-  for (const s of [-1, 1]) {
-    cube(0.15, 0.15, 0.15, 0xe0402a, s * 0.35, 0.2, 0.2, g);
-    for (let i = 0; i < 3; i++) cube(0.25, 0.04, 0.04, 0xc0301a, s * 0.32, 0.06, -0.1 + i * 0.1, g);
-    cube(0.06, 0.12, 0.06, 0x111111, s * 0.1, 0.32, 0.12, g);
-  }
   return g;
 }
 
@@ -365,23 +265,6 @@ export function treasureChest() {
   cube(1.25, 0.1, 0.85, 0xe0b030, 0, 0.6, 0, g);
   const brochure = cube(0.4, 0.04, 0.3, 0x1d2b4f, 0, 0.72, 0, g);
   brochure.name = 'brochure';
-  return g;
-}
-
-export function fish(color: number) {
-  const g = new THREE.Group();
-  cube(0.2, 0.3, 0.6, color, 0, 0, 0, g);
-  cube(0.05, 0.3, 0.2, color, 0, 0, -0.4, g);
-  return g;
-}
-
-export function marlin() {
-  const g = new THREE.Group();
-  cube(0.7, 1.0, 3.2, 0x1f3a7a, 0, 0, 0, g);
-  cube(0.6, 0.4, 2.8, 0xc8d0e0, 0, -0.45, 0, g);
-  cube(0.1, 0.1, 1.8, 0x1f3a7a, 0, 0.1, 2.4, g); // bill
-  cube(0.08, 1.4, 1.8, 0x2a4f9a, 0, 0.9, 0.2, g); // sail fin
-  cube(0.08, 1.6, 0.4, 0x1f3a7a, 0, 0, -1.8, g).rotation.x = 0.2;
   return g;
 }
 

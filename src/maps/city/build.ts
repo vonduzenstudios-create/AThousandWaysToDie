@@ -102,6 +102,8 @@ export interface CityLayout {
   dumpsters: { x: number; z: number; rotY: number }[];
   /** City General Hospital (src/places/hospital), stamped into HOSPITAL_LOT. */
   hospital?: HospitalInfo;
+  /** Base of the tube man's fan on the Crazy Larry Motors lot (src/maps/city/tubeman.ts). */
+  dealerFan?: THREE.Vector3;
 }
 
 const SHOP_NAMES: [string, string, string, { item: string; price: number }[]][] = [
@@ -685,12 +687,14 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     // Trees: dense groves, avoiding paths, plaza and pond.
     const tree = (x: number, z: number) => {
       const hh = 5 + Math.floor(rng() * 4);
-      fill(x, G, z, x, G + hh - 1, z, B.Wood);
+      // Invisible collision blocks; the detailed tree is a kit prop (docs/prop-kit.md).
+      fill(x, G, z, x, G + hh - 1, z, B.GhostWood);
       const rr = 2 + Math.floor(rng() * 2);
-      const leaf = rng() < 0.5 ? B.Leaves : B.LeavesDark;
+      const oak = rng() < 0.5 ? 0 : 1;
       for (let dx = -rr; dx <= rr; dx++)
         for (let dy = -rr; dy <= rr; dy++)
-          for (let dz = -rr; dz <= rr; dz++) if (dx * dx + dy * dy * 1.6 + dz * dz <= rr * rr + 0.5 && w.get(x + dx, G + hh + dy, z + dz) === 0 && rng() > 0.06) set(x + dx, G + hh + dy, z + dz, leaf);
+          for (let dz = -rr; dz <= rr; dz++) if (dx * dx + dy * dy * 1.6 + dz * dz <= rr * rr + 0.5 && w.get(x + dx, G + hh + dy, z + dz) === 0 && rng() > 0.06) set(x + dx, G + hh + dy, z + dz, B.GhostLeaf);
+      w.prop(`tree:${hh}:${rr}:${oak}`, x + 0.5, G, z + 0.5);
       out.trees.push(V(x + 0.5, G + hh + rr, z + 0.5));
 };
     for (let i = 0; i < 160; i++) {
@@ -890,9 +894,10 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     surf(r, B.Asphalt);
     for (let x = r.x0 + 2; x <= r.x1 - 2; x += 5) fill(x, G - 1, r.z0 + 2, x, G - 1, r.z0 + 12, B.White);
     for (let i = 0; i < 6; i++) out.parked.push({ pos: V(r.x0 + 4.5 + i * 5, G, r.z0 + 7), rotY: 0 });
-    building({ x0: r.x0 + 4, z0: r.z0 + 16, x1: r.x1 - 4, z1: r.z1 }, { floors: 2, wall: B.White, trim: B.RoofBlue, front: 'n', glassy: true, shop: { name: 'Crazy Larry Motors', kind: 'shop', sells: [{ item: 'used sedan', price: 4000 }], jobs: ['Car Salesman'], sign: ['#d01818', '#ffff00'] }, look: { signBoard: 0xd01818, awning: [0xd01818, 0xf2d040] } });
+    building({ x0: r.x0 + 4, z0: r.z0 + 16, x1: r.x1 - 4, z1: r.z1 }, { floors: 2, wall: B.White, trim: B.RoofBlue, front: 'n', glassy: true, shop: { name: 'Crazy Larry Motors', kind: 'shop', sells: [{ item: 'convertible', price: 4000 }, { item: 'used sedan', price: 4000 }], jobs: ['Car Salesman'], lines: ['Honest Al. Used to sell in Smallville. The city has better margins.'], sign: ['#d01818', '#ffff00'] }, look: { signBoard: 0xd01818, awning: [0xd01818, 0xf2d040] } });
     // Pennant poles.
     for (let x = r.x0; x <= r.x1; x += 6) fill(x, G, r.z0, x, G + 5, r.z0, B.Metal);
+    out.dealerFan = V(r.x0 + 3.5, G, r.z0 + 14);
   }
 
   // ------------------------------------------------------------------ waterfront and harbor

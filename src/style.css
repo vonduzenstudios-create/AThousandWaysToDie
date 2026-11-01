@@ -100,6 +100,29 @@ body:not(.pad) .help td:nth-child(3), body:not(.pad) .help th:nth-child(3) { opa
 .hud .body.small { font-size: 12px; margin-top: 2px; }
 .file .dim { color: #999; font-size: 11px; }
 
+/* Travel: ticket window, black-out, trip card */
+.ticket { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(520px, 94vw); background: #f4efe1; color: #222; border-radius: 8px; padding: 14px 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); font-family: 'Courier New', monospace; pointer-events: auto; border-top: 10px dashed #c23b30; }
+.ticket .th { display: flex; justify-content: space-between; font-weight: bold; border-bottom: 2px solid #222; padding-bottom: 6px; font-size: 14px; gap: 10px; }
+.ticket .tbal { margin: 8px 0; font-size: 14px; }
+.ticket .tbal b { color: #1d8a2a; }
+.ticket .trow { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; cursor: pointer; border: 2px solid transparent; }
+.ticket .trow.sel { border-color: #222; background: #fff8d8; }
+.ticket .trow.locked, .ticket .trow.poor { opacity: 0.55; cursor: default; }
+.ticket .ic { font-size: 24px; }
+.ticket .dest { flex: 1; display: flex; flex-direction: column; }
+.ticket .dest small { color: #666; }
+.ticket .fare { text-align: right; font-size: 14px; }
+.ticket .lock { color: #a33; font-size: 12px; }
+.ticket .thelp { margin-top: 10px; font-size: 12px; color: #555; text-align: center; }
+.ticket .thelp .key { background: #222; color: #ffd84a; border-radius: 3px; padding: 0 5px; }
+.ticket .tclose { text-decoration: underline; cursor: pointer; }
+.travelfade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
+.travelcard { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-1.5deg); width: min(480px, 92vw); background: #f4efe1; color: #222; padding: 18px 22px; border-radius: 6px; font-family: 'Courier New', monospace; box-shadow: 0 0 60px rgba(255,216,74,0.25); border-left: 10px dashed #c23b30; }
+.travelcard .tc-k { font-size: 12px; letter-spacing: 3px; color: #666; }
+.travelcard .tc-route { font-family: Impact, 'Arial Black', sans-serif; font-size: 34px; margin: 4px 0; }
+.travelcard .tc-route span { color: #c23b30; }
+.travelcard .tc-stop { font-weight: bold; }
+.travelcard .tc-line { margin-top: 8px; font-style: italic; color: #444; }
 .health { position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%); width: 300px; height: 16px; background: rgba(0,0,0,0.65); border: 2px solid #fff; border-radius: 9px; overflow: hidden; }
 .health .hfill { height: 100%; width: 100%; transition: width 0.15s; }
 .health .htext { position: absolute; inset: 0; text-align: center; font-size: 11px; line-height: 12px; font-weight: bold; text-shadow: 0 1px 0 #000; }
@@ -125,6 +148,50 @@ body:not(.pad) .help td:nth-child(3), body:not(.pad) .help th:nth-child(3) { opa
 .minimap .mm-name { position: absolute; left: 0; right: 0; bottom: -20px; text-align: center; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; text-shadow: 0 2px 0 #000; opacity: 0.85; }
 .minimap .mm-speed { position: absolute; left: 50%; bottom: -46px; transform: translateX(-50%); background: rgba(0,0,0,0.65); border-radius: 12px; padding: 2px 10px; font-size: 13px; white-space: nowrap; }
 .minimap .mm-speed b { font-size: 18px; color: #ffd84a; }
+.minimap { pointer-events: auto; cursor: pointer; }
+.minimap .mm-wp { position: absolute; top: -2px; left: -6px; background: #c45cff; color: #fff; border: 2px solid #0b0d14; border-radius: 10px; padding: 0 7px; font-size: 12px; font-weight: bold; white-space: nowrap; }
+.minimap .mm-hint { position: absolute; top: -2px; right: -4px; font-size: 11px; opacity: 0.8; text-shadow: 0 1px 0 #000; white-space: nowrap; }
+.minimap .mm-hint .key { display: inline-block; background: #ffd84a; color: #000; border-radius: 3px; padding: 0 4px; font-weight: bold; margin-right: 2px; }
+
+/* ---------- Full-screen map (src/mapscreen) ---------- */
+.mapscreen { position: absolute; inset: 0; z-index: 30; background: #0b0f16; pointer-events: auto; user-select: none; -webkit-user-select: none; }
+.mapscreen canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
+.mapscreen .ms-title { position: absolute; top: 14px; left: 16px; display: flex; gap: 14px; align-items: baseline; font-size: 13px; text-shadow: 0 2px 0 #000; pointer-events: none; }
+.mapscreen .ms-title b { font-family: Impact, 'Arial Black', sans-serif; font-size: 28px; letter-spacing: 2px; text-transform: uppercase; color: #ffd84a; }
+.mapscreen .ms-title span { color: #ff8a96; font-weight: bold; }
+.mapscreen .ms-legend { position: absolute; top: 14px; right: 16px; width: 228px; max-height: calc(100% - 80px); overflow: auto; background: rgba(10,12,20,0.88); border: 2px solid #2a3142; border-radius: 10px; padding: 10px 10px 12px; font-size: 13px; }
+.mapscreen .ms-lh { font-weight: bold; color: #ffd84a; margin-bottom: 6px; }
+.mapscreen .ms-lh small { color: #8a90a0; font-weight: normal; margin-left: 4px; }
+.mapscreen .ms-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
+.mapscreen .ms-row:hover { background: rgba(255,255,255,0.08); }
+.mapscreen .ms-row.static { cursor: default; background: none; }
+.mapscreen .ms-row.off { opacity: 0.38; }
+.mapscreen .ms-row.off span { text-decoration: line-through; }
+.mapscreen .ms-row i { flex: 0 0 20px; height: 20px; border-radius: 50%; border: 1.5px solid #000; color: #000; font-style: normal; font-weight: bold; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+.mapscreen .ms-row i.lock { border-radius: 3px; background: #ffd84a; flex-basis: 14px; height: 11px; margin: 0 3px; }
+.mapscreen .ms-row span { flex: 1; }
+.mapscreen .ms-row em { font-style: normal; color: #8a90a0; font-size: 12px; }
+.mapscreen .ms-wp { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a3142; }
+.mapscreen .ms-wp .pin { flex: 0 0 14px; height: 14px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: #c45cff; border: 1.5px solid #000; }
+.mapscreen .ms-wp span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mapscreen .ms-wp .dim { color: #8a90a0; }
+.mapscreen button { font: inherit; font-size: 12px; color: #fff; background: #2a3142; border: 1px solid #4a5268; border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+.mapscreen button:hover { background: #3a4258; }
+.mapscreen .ms-close { display: block; width: 100%; margin-top: 10px; padding: 6px; }
+.mapscreen .ms-tip { position: absolute; max-width: 280px; background: rgba(10,12,20,0.95); border: 2px solid #ffd84a; border-radius: 8px; padding: 8px 11px; font-size: 12.5px; line-height: 1.4; pointer-events: none; }
+.mapscreen .ms-tip b { font-size: 14px; }
+.mapscreen .ms-kind { color: #8a90a0; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
+.mapscreen .ms-lock { color: #ffd84a; }
+.mapscreen .ms-deaths { color: #ff8a96; font-weight: bold; margin-top: 3px; }
+.mapscreen .ms-death { padding-left: 14px; }
+.mapscreen .ms-death.unk { color: #8a90a0; }
+.mapscreen .ms-act { color: #c45cff; margin-top: 4px; font-weight: bold; }
+.mapscreen .ms-cross { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; border: 2px solid rgba(255,255,255,0.85); border-radius: 50%; box-shadow: 0 0 0 2px rgba(0,0,0,0.5); pointer-events: none; display: none; }
+.mapscreen.aim-center .ms-cross { display: block; }
+.mapscreen.aim-center canvas { cursor: default; }
+.mapscreen .ms-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: rgba(0,0,0,0.7); border-radius: 14px; padding: 5px 14px; font-size: 12.5px; white-space: nowrap; color: #ccd; pointer-events: none; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
+.mapscreen .ms-hint b { color: #ffd84a; }
+@media (max-width: 720px) { .mapscreen .ms-legend { width: 180px; font-size: 12px; } .mapscreen .ms-hint { white-space: normal; text-align: center; } }
 /* The life clock sits under the radar (and its speedometer) instead of on top of it. */
 #ui .life-clock { top: calc(14px + clamp(130px, 17vw, 200px) + 52px); right: 16px; width: clamp(130px, 17vw, 200px); text-align: center; }
 /* Scythe vision files open below the radar and clock. */
@@ -157,3 +224,20 @@ body:not(.pad) .help td:nth-child(3), body:not(.pad) .help th:nth-child(3) { opa
 .title { z-index: 900; }
 .carhud { position: absolute; right: 18px; bottom: 18px; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.5)); }
 .carhud canvas { display: block; }
+/* Scythe vision menu (Death zooms in on someone). */
+.scythe { position: absolute; left: 36px; top: 50%; transform: translateY(-50%); width: 400px; max-width: calc(100vw - 32px); box-sizing: border-box; background: rgba(10,8,22,0.9); border: 2px solid #b9a6ff; border-radius: 14px; padding: 20px 24px; box-shadow: 0 0 40px rgba(150,120,255,0.45); pointer-events: auto; animation: scytheIn 0.35s ease-out; z-index: 50; }
+@keyframes scytheIn { from { opacity: 0; transform: translate(-30px, -50%); } to { opacity: 1; transform: translate(0, -50%); } }
+.scythe .sh { font-size: 12px; letter-spacing: 4px; color: #b9a6ff; }
+.scythe .sname { font-family: Impact, 'Arial Black', sans-serif; font-size: 36px; line-height: 1.1; margin: 4px 0 14px; }
+.scythe .sr { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid rgba(185,166,255,0.18); font-size: 18px; }
+.scythe .sr span { color: #b3abcc; white-space: nowrap; }
+.scythe .sr b { text-align: right; }
+.scythe .sr.note { flex-direction: column; gap: 4px; border-bottom: 0; }
+.scythe .sr.note b { text-align: left; font-weight: normal; font-style: italic; color: #f1ecff; }
+.scythe .sbtns { display: flex; gap: 12px; margin-top: 16px; }
+.scythe .sb { flex: 1; text-align: center; padding: 12px 8px; border-radius: 10px; border: 2px solid #4a3f78; background: rgba(40,30,80,0.6); font-family: Impact, 'Arial Black', sans-serif; font-size: 24px; letter-spacing: 1px; cursor: pointer; }
+.scythe .sb.sel { border-color: #ffd84a; background: rgba(90,70,160,0.85); color: #ffd84a; box-shadow: 0 0 16px rgba(255,216,74,0.35); }
+.scythe .swarn { font-family: sans-serif; font-size: 11px; letter-spacing: 0; color: #ff8a7a; margin-top: 4px; }
+.scythe .shint { margin-top: 12px; text-align: center; font-size: 13px; color: #b3abcc; }
+.scythe .shint b { color: #ffd84a; }
+#ui.inspecting .hud, #ui.inspecting .dialog, #ui.inspecting .banner, #ui.inspecting .skills, #ui.inspecting .toast { display: none; }

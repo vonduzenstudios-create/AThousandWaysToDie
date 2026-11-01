@@ -251,6 +251,8 @@ export class Rides {
   private grindT = 0;
   private dareToldT = 0;
   readonly interactables: Interactable[] = [];
+  /** Scene objects to drop when the map unloads (physics goes with the map's world). */
+  private objs: THREE.Object3D[] = [];
 
   constructor(
     private scene: THREE.Scene,
@@ -263,6 +265,7 @@ export class Rides {
       const r = new Ride(s.kind, s.pos.clone(), s.yaw, i * 3 + 1);
       r.interactable.id = `ride:${i}`;
       this.scene.add(r.group);
+      this.objs.push(r.group);
       this.rides.push(r);
       this.interactables.push(r.interactable);
     });
@@ -362,6 +365,7 @@ export class Rides {
       grp.add(board);
     }
     this.scene.add(grp);
+    this.objs.push(grp);
 
     // Physics: one slanted plank for the slope plus a solid block under the back half.
     const fixed = this.physics.createRigidBody(RAPIER.RigidBodyDesc.fixed());
@@ -669,7 +673,7 @@ export class Rides {
 
     // Wheelies (bike, hold crouch).
     if (r.kind === 'bicycle') {
-      const want = pl.grounded && this.host.input.held('crouch') && sp > 3;
+      const want = pl.grounded && (this.host.input.held('crouch') || this.host.input.held('sprint')) && sp > 3;
       if (want) {
         this.wheelieT += h;
         this.wheelieAngle = Math.min(0.35 + this.wheelieT * 0.28, 1.5);
@@ -827,6 +831,13 @@ export class Rides {
       ch.spinner.rotation.x = 0.32 - tilt;
       ch.spinner.rotation.z = 0;
     }
+  }
+
+  dispose() {
+    for (const o of this.objs) this.scene.remove(o);
+    this.objs = [];
+    this.riding = null;
+    for (const r of this.rides) r.body = null;
   }
 
   /** The interactables to offer right now: parked rides, or nothing while riding (E hops off). */
