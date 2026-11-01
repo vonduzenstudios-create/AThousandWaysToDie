@@ -426,3 +426,8 @@ export class ChunkStreamer {
     if (this.world.onChange) this.world.onChange = null;
   }
 }
+
+/** Base color of a block id (used by the minimap). */
+export function blockColor(b: number): number {
+  return PALETTE[b]?.[0] ?? 0xff00ff;
+}
