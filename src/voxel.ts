@@ -71,6 +71,14 @@ const PALETTE: Record<number, [number, number]> = {
   [B.RoofBrown]: [0x6b4330, 0.08],
 };
 
+/**
+ * Register an extra block color from a map module. Maps pick ids in their own range so they
+ * don't collide (wilderness uses 180-219).
+ */
+export function defineBlock(id: number, color: number, noise: number) {
+  PALETTE[id] = [color, noise];
+}
+
 const AO_CURVE = [0.42, 0.62, 0.8, 1.0];
 
 export class VoxelWorld {
