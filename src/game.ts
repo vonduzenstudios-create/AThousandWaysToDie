@@ -31,6 +31,7 @@ import { G, SIZE, buildTown, inBox, type TownInfo } from './town';
 import { HOMETOWN_DEATHS, Hometown } from './hometown';
 import { GROCERY } from './places/grocery';
 import type { PlaceRuntime } from './places/types';
+import { PostFX, warmLighting } from './render/post';
 import { UI } from './ui';
 import { mulberry32, pick, turnToward, type Rng } from './util';
 import { Minimap, type Blip } from './minimap';
@@ -93,6 +94,8 @@ export class Game {
   private activeRagdoll: Ragdoll | null = null;
   private mode: Mode = 'title';
   private sun: THREE.DirectionalLight;
+  /** Post-processing (bloom, grade, AO by quality). Render through this, not the renderer. */
+  private post!: PostFX;
   private lastT = performance.now();
   private helpShown = false;
   private latched = { jump: false, crouch: false, dive: false };
@@ -165,6 +168,7 @@ export class Game {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.post?.setSize(window.innerWidth, window.innerHeight);
     });
 
     // Sky dome and lighting.
@@ -184,7 +188,8 @@ export class Game {
     sky.renderOrder = -1;
     this.scene.add(sky);
     (sky as THREE.Mesh).onBeforeRender = () => sky.position.copy(this.camera.position);
-    this.scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x6a5a3a, 1.4));
+    const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x6a5a3a, 1.4);
+    this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight(0xfff2d6, 2.2);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -197,6 +202,9 @@ export class Game {
     sc.far = 200;
     this.sun.shadow.bias = -0.0008;
     this.scene.add(this.sun, this.sun.target);
+    // Shared render upgrades (src/render/post.ts): warm sun, sky reflections, bloom and grading.
+    warmLighting(this.scene, this.renderer, { sun: this.sun, hemi });
+    this.post = new PostFX(this.renderer, this.scene, this.camera);
 
     // Physics and world.
     this.physics = new RAPIER.World({ x: 0, y: -30, z: 0 });
@@ -1857,7 +1865,7 @@ export class Game {
     this.drawMinimap(realDt);
 
     if (!this.driving) this.engine.set(false, 0, 0);
-    this.renderer.render(this.scene, this.camera);
+    this.post.render();
     this.input.endFrame();
   }
 
