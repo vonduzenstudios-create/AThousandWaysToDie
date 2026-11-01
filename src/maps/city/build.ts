@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { B, type VoxelWorld } from '../../voxel';
 import { pick, type Rng } from '../../util';
+import { buildHospital, type HospitalInfo } from '../../places/hospital';
 import {
   AIRPORT_LOT,
   AIRPORT_ROAD_Z,
@@ -79,6 +80,8 @@ export interface CityLayout {
   billboards: { pos: THREE.Vector3; rotY: number; w: number; h: number; kind: number }[];
   awnings: { x0: number; x1: number; z0: number; z1: number; y: number; colors: [number, number] }[];
   statuePlinth: THREE.Vector3;
+  /** City General Hospital (src/places/hospital), stamped into HOSPITAL_LOT. */
+  hospital?: HospitalInfo;
 }
 
 const SHOP_NAMES: [string, string, string, { item: string; price: number }[]][] = [
@@ -799,8 +802,9 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     fill(sb.x0, G - 1, sb.z0, sb.x1, G - 1, sb.z1, B.Concrete);
     fill(sb.x0, G, sb.z0, sb.x1, G + 8, sb.z1, B.Air);
     const H = HOSPITAL_LOT;
-    // Placeholder until the hospital module lands: a plain white block with a red cross.
-    building({ x0: H.x, z0: H.z, x1: H.x + H.sx - 1, z1: H.z + 30 }, { floors: 4, wall: B.White, trim: B.RedPaint, front: 'n', glassy: true, shop: { name: 'St. Mercy General', kind: 'civic', jobs: ['Doctor', 'Nurse'], sign: ['#ffffff', '#d01818'], sells: [] } });
+    // City General Hospital: four floors, job-gated past the lobby (src/places/hospital).
+    out.hospital = buildHospital(w, { x: H.x, y: G, z: H.z }, rng);
+    out.places.push({ id: 'hospital', name: 'City General Hospital', kind: 'civic', door: V(H.x + 32, G, H.z - 4), jobs: ['Doctor', 'Nurse'] });
     for (let x = sb.x0 + 4; x < sb.x1 - 4; x += 5) fill(x, G - 1, H.z + H.sz + 2, x, G - 1, sb.z1 - 3, B.White);
   }
 
