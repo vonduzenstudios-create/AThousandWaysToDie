@@ -273,20 +273,22 @@ export class Rides {
   static smallvilleLayout() {
     const v = (x: number, z: number) => new THREE.Vector3(x, G, z);
     const spots: { kind: RideKind; pos: THREE.Vector3; yaw: number }[] = [
-      { kind: 'skateboard', pos: v(86.5, 89.5), yaw: 0.4 }, // outside the diner, by the spawn
-      { kind: 'bicycle', pos: v(75.5, 91), yaw: 0 }, // Duke's Garage sidewalk
-      { kind: 'skateboard', pos: v(42.5, 52), yaw: Math.PI }, // park path, near the kicker
-      { kind: 'bicycle', pos: v(84.8, 60), yaw: Math.PI }, // main road sidewalk, north
-      { kind: 'bicycle', pos: v(56, 128.5), yaw: Math.PI / 2 }, // start of the Dare Ramp run-up
-      { kind: 'skateboard', pos: v(64, 69), yaw: Math.PI / 2 }, // police station walk
-      { kind: 'bicycle', pos: v(101, 88), yaw: Math.PI / 2 }, // farm road
-      { kind: 'skateboard', pos: v(112, 146), yaw: Math.PI / 2 }, // by the rail line
+      { kind: 'skateboard', pos: v(266.5, 234.5), yaw: 0.4 }, // outside the diner on Main St
+      { kind: 'bicycle', pos: v(320.5, 246), yaw: 0 }, // Duke's Garage sidewalk
+      { kind: 'skateboard', pos: v(208.5, 124.5), yaw: Math.PI / 2 }, // park path, near the kicker
+      { kind: 'bicycle', pos: v(240, 55.5), yaw: Math.PI / 2 }, // Railroad Ave by the station
+      { kind: 'bicycle', pos: v(350, 44.5), yaw: Math.PI / 2 }, // start of the Dare Ramp run-up
+      { kind: 'skateboard', pos: v(191, 262.5), yaw: Math.PI / 2 }, // police station walk
+      { kind: 'bicycle', pos: v(75.5, 200), yaw: 0 }, // Farm Rd
+      { kind: 'skateboard', pos: v(330, 30.5), yaw: Math.PI / 2 }, // by the rail line
+      { kind: 'skateboard', pos: v(200, 377), yaw: Math.PI / 2 }, // school field
+      { kind: 'bicycle', pos: v(380, 371), yaw: Math.PI / 2 }, // Maple St
     ];
     const ramps: Ramp[] = [
-      // The Dare Ramp sits in the open field by the rail line (off the roads, so traffic is clear) and launches east.
-      { id: 'dare', name: 'The Dare Ramp', base: v(96, 130.5), dir: new THREE.Vector3(1, 0, 0), length: 8, height: 5, width: 5, kick: 1.0 },
+      // The Dare Ramp sits in the open field east of the station (off the roads, so traffic is clear) and launches east.
+      { id: 'dare', name: 'The Dare Ramp', base: v(380, 44.5), dir: new THREE.Vector3(1, 0, 0), length: 8, height: 5, width: 5, kick: 1.0 },
       // A friendly little kicker on the park path.
-      { id: 'kicker', name: 'Park Kicker', base: v(40.5, 46), dir: new THREE.Vector3(0, 0, 1), length: 3.2, height: 1.3, width: 3, kick: 0.55 },
+      { id: 'kicker', name: 'Park Kicker', base: v(218, 124.5), dir: new THREE.Vector3(1, 0, 0), length: 3.2, height: 1.3, width: 3, kick: 0.55 },
     ];
     return { spots, ramps };
   }

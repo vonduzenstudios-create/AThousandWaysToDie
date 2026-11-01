@@ -67,6 +67,9 @@ async function main() {
   (window as any).E = (id: string) => rt.interact?.(id);
   (window as any).move = { x: 0, y: 0, jump: false };
   const rt = build.setup!({ scene, physics, world, rng: mulberry32(2), game: api });
+  // Place every streamed kit building now unless ?stream is given.
+  if (!new URLSearchParams(location.search).has('stream')) (globalThis as any).cityScenery?.kit.flush();
+  (window as any).kit = (globalThis as any).cityScenery?.kit;
   let life: LifeSystem | null = null;
   if (new URLSearchParams(location.search).has('life')) {
     const tl = performance.now();

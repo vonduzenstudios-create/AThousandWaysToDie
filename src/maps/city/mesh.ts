@@ -70,6 +70,7 @@ export class Scenery {
   readonly objects: THREE.Object3D[] = [];
   readonly bodies: RAPIER.RigidBody[] = [];
   readonly fixed: RAPIER.RigidBody;
+  private disposers: (() => void)[] = [];
   constructor(
     readonly scene: THREE.Scene,
     readonly physics: RAPIER.World,
@@ -102,7 +103,14 @@ export class Scenery {
     return body;
   }
 
+  /** Run fn when the scenery is disposed (for things that clean up after themselves). */
+  onDispose(fn: () => void) {
+    this.disposers.push(fn);
+  }
+
   dispose() {
+    for (const fn of this.disposers) fn();
+    this.disposers.length = 0;
     for (const o of this.objects) {
       this.scene.remove(o);
       o.traverse((c) => {

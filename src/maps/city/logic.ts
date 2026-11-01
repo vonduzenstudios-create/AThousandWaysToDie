@@ -171,7 +171,8 @@ class Train {
 export function setupCity(ctx: MapContext, L: CityLayout): MapRuntime {
   const { game } = ctx;
   const sc = new Scenery(ctx.scene, ctx.physics);
-  const scenery = buildScenery(sc, L);
+  const scenery = buildScenery(sc, L, new THREE.Vector3(PARK.x0 + 58, G, PARK.z1 + 6));
+  (globalThis as { cityScenery?: unknown }).cityScenery = scenery; // for dev/city.html
   const rng = mulberry32(2026);
   const actors: Actor[] = [];
   const actor = (o: Partial<Appearance>, pos: THREE.Vector3, facing = 0) => {
@@ -932,7 +933,7 @@ export function setupCity(ctx: MapContext, L: CityLayout): MapRuntime {
       lastBody = game.body;
       resetBody();
     }
-    scenery.tick(dt, t);
+    scenery.tick(dt, t, game.body ? feet() : null);
 
     // Steam from manholes and vents.
     if (Math.random() < dt * 10) {

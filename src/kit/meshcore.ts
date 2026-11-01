@@ -66,7 +66,7 @@ export interface MeshOptions {
   size?: number;
   /** Strength of baked ambient occlusion, 0..1. Default 1. */
   ao?: number;
-  /** Skip downward faces (things that sit on the ground). */
+  /** Skip downward faces on the bottom layer (things that sit on the ground). */
   noBottom?: boolean;
 }
 
@@ -104,8 +104,9 @@ export function meshArrays(g: GridLike, opts: MeshOptions = {}): MeshArrays {
     const maskV = new Uint32Array(du * dv);
     const maskA = new Uint8Array(du * dv);
     for (const s of [1, -1]) {
-      if (opts.noBottom && a === 1 && s === -1) continue;
       for (let d = 0; d < da; d++) {
+        // Skip only the faces resting on the ground; ceilings, awnings and balconies keep their undersides.
+        if (opts.noBottom && a === 1 && s === -1 && d === 0) continue;
         const nd = d + s;
         const neighbourIn = nd >= 0 && nd < da;
         // Build the face mask for this slice.
