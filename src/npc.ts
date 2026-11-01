@@ -49,10 +49,17 @@ export class Npc {
     scene: THREE.Scene,
     private nav: NavGrid,
     rng: Rng,
-    opts: { job?: string; file?: PersonFile; at?: { x: number; z: number } } = {},
+    opts: {
+      job?: string;
+      file?: PersonFile;
+      at?: { x: number; z: number };
+      /** Edit the file (name, age...) before the body is built from it, so the look matches. */
+      edit?: (f: PersonFile) => void;
+    } = {},
   ) {
     this.file = opts.file ?? randomFile(rng, opts.job as Job | undefined);
     if (opts.job) this.file.job = opts.job as Job;
+    opts.edit?.(this.file);
     this.character = Character.fromFile(this.file, Math.floor(rng() * 1e9));
     this.app = this.character.app;
     const feeble = this.file.physical === 'Feeble';

@@ -83,7 +83,7 @@ export class Character {
   readonly voxel: VoxelBody | null = null;
 
   /** Build a person whose look matches their scythe-vision file (job, age, health). */
-  static fromFile(file: { job: string; age: number; physical?: string; mental?: string; name?: string }, seed?: number) {
+  static fromFile(file: { job: string; age: number; physical?: string; mental?: string; name?: string; sex?: 'm' | 'f' }, seed?: number) {
     const vb = buildVoxelBody(specFromFile(file, seed));
     return new Character(null, vb);
   }

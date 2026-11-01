@@ -46,11 +46,13 @@ export function dims(s: PersonSpec): Dims {
   const b = s.build;
   // Stature stretches the legs (and a little of the torso) under the same head.
   const st = child ? 0 : s.stature === 'tall' ? 3 : s.stature === 'short' ? -3 : 0;
-  const torsoW = child ? (b === 'heavy' ? 14 : 12) : b === 'slim' ? 14 : b === 'heavy' || b === 'buff' ? 18 : 16;
+  // Women are drawn a size narrower through the shoulders.
+  const narrow = s.sex === 'f' && !child ? 2 : 0;
+  const torsoW = (child ? (b === 'heavy' ? 14 : 12) : b === 'slim' ? 14 : b === 'heavy' || b === 'buff' ? 18 : 16) - narrow;
   const torsoD = child ? 8 : b === 'heavy' ? 11 : b === 'slim' ? 8 : b === 'buff' ? 10 : 9;
   const torsoH = (child ? 13 : teen ? 17 : elder ? 18 : 19) + Math.round(st / 3);
   const legH = (child ? 17 : teen ? 27 : elder ? 28 : 30) + st - Math.round(st / 3);
-  const legW = child ? (b === 'heavy' ? 6 : 5) : b === 'slim' ? 6 : b === 'heavy' || b === 'buff' ? 8 : 7;
+  const legW = (child ? (b === 'heavy' ? 6 : 5) : b === 'slim' ? 6 : b === 'heavy' || b === 'buff' ? 8 : 7) - narrow / 2;
   const armW = child ? 4 : b === 'buff' ? 6 : b === 'slim' ? 4 : 5;
   const armH = (child ? 18 : teen ? 26 : elder ? 27 : 28) + Math.round(st / 2);
   return {
