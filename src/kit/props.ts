@@ -129,7 +129,13 @@ const BUILDERS: Record<PropKind, () => PropModel> = {
         const r = 11 - i * 3;
         cyl(g, c + 0.5, c + 0.5, r, 18 + i, 18 + i, (x, _y, z) => (Math.floor((Math.atan2(z - c, x - c) + Math.PI) / (Math.PI / 4)) % 2 ? A : B));
       }
-      for (const [x, z] of [[c - 6, c], [c + 6, c], [c, c - 6], [c, c + 6]]) g.box(x - 1, 0, z - 1, x + 1, 3, z + 1, (_x, y) => (y === 3 || y === 0 ? vox(0x2f5e3b) : 0));
+      const chairV = vox(0x2f5e3b, { jitter: 0.05 });
+      for (const [x, z, bx, bz] of [[c - 6, c, -1, 0], [c + 6, c, 1, 0], [c, c - 6, 0, -1], [c, c + 6, 0, 1]]) {
+        g.box(x - 1, 3, z - 1, x + 1, 3, z + 1, chairV);
+        for (const [lx, lz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.box(x + lx, 0, z + lz, x + lx, 2, z + lz, chairV);
+        // Back on the side away from the table.
+        g.box(x + bx * 1 - (bz ? 1 : 0), 4, z + bz * 1 - (bx ? 1 : 0), x + bx * 1 + (bz ? 1 : 0), 6, z + bz * 1 + (bx ? 1 : 0), chairV);
+      }
     }),
   bin: () =>
     make(6, 9, 6, [0.3, 0.55, 0.3], (g, c) => {
