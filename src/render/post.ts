@@ -69,12 +69,27 @@ const GradeShader = {
  * The game's render pipeline. Replace `renderer.render(scene, camera)` with `post.render()` and
  * call `post.setSize(w, h)` on resize.
  */
+/**
+ * Exposure and bloom targets. The bloom threshold is in linear HDR (before tone mapping), so
+ * anything under it never glows: lit white walls and floors sit around 1.0 to 1.4 at midday and
+ * must stay below it; only emissive panels, lamps and sun glints should cross. Indoors the
+ * ceiling lights and white tile read brighter still, so the indoor look drops both further.
+ */
+const LOOK = {
+  outdoor: { exposure: 0.92, bloom: 0.16, threshold: 1.5 },
+  indoor: { exposure: 0.78, bloom: 0.05, threshold: 2.2 },
+};
+
 export class PostFX {
   private composer: EffectComposer | null = null;
   private gtao: GTAOPass | null = null;
   private bloom: UnrealBloomPass | null = null;
   readonly grade = new ShaderPass(GradeShader);
   quality: Quality;
+  /** 0 = outdoor look, 1 = indoor look; eased toward the target in render(). */
+  private indoorMix = 0;
+  private indoorTarget = 0;
+  private bloomScale = 1;
 
   constructor(
     readonly renderer: THREE.WebGLRenderer,
@@ -83,7 +98,7 @@ export class PostFX {
     quality: Quality = pickQuality(),
   ) {
     renderer.toneMapping = THREE.NeutralToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMappingExposure = LOOK.outdoor.exposure;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.quality = quality;
     this.setQuality(quality);
@@ -114,9 +129,10 @@ export class PostFX {
       composer.addPass(gtao);
       this.gtao = gtao;
     }
-    const bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.32, 0.45, 0.92);
+    const bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), LOOK.outdoor.bloom, 0.3, LOOK.outdoor.threshold);
     composer.addPass(bloom);
     this.bloom = bloom;
+    this.applyLook();
     composer.addPass(new OutputPass());
     composer.addPass(this.grade);
     this.composer = composer;
@@ -132,12 +148,38 @@ export class PostFX {
     this.gtao?.setSize(w, h);
   }
 
-  /** Bloom strength, e.g. raise it at night for glowing lamps. */
-  setBloom(strength: number) {
-    if (this.bloom) this.bloom.strength = strength;
+  /** Bloom multiplier on top of the indoor/outdoor look, e.g. 1.5 at night for glowing lamps. */
+  setBloom(scale: number) {
+    this.bloomScale = scale;
+    this.applyLook();
   }
 
+  /** Switch to the dimmer, low-bloom indoor look (eased over about half a second). */
+  setIndoor(on: boolean) {
+    this.indoorTarget = on ? 1 : 0;
+  }
+
+  private applyLook() {
+    const t = this.indoorMix, a = LOOK.outdoor, b = LOOK.indoor;
+    this.renderer.toneMappingExposure = a.exposure + (b.exposure - a.exposure) * t;
+    if (this.bloom) {
+      this.bloom.strength = (a.bloom + (b.bloom - a.bloom) * t) * this.bloomScale;
+      this.bloom.threshold = a.threshold + (b.threshold - a.threshold) * t;
+    }
+  }
+
+  private lastRender = 0;
+
   render(dt?: number) {
+    const now = performance.now();
+    const frame = Math.min(0.1, this.lastRender ? (now - this.lastRender) / 1000 : 1 / 60);
+    this.lastRender = now;
+    if (this.indoorMix !== this.indoorTarget) {
+      const step = Math.min(1, frame * 4);
+      this.indoorMix += (this.indoorTarget - this.indoorMix) * step;
+      if (Math.abs(this.indoorTarget - this.indoorMix) < 0.01) this.indoorMix = this.indoorTarget;
+      this.applyLook();
+    }
     if (this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
   }
