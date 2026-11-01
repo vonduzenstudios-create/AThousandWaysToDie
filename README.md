@@ -39,6 +39,7 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 | Scream for help | T | LB |
 | Pee | Q | RB |
 | Death ledger | Tab | Back |
+| Full map: click (or A) to set a GPS waypoint, right-click (or X) to clear | N, or click the radar | Click right stick |
 | Ride / hop off a skateboard or bike | E | Y |
 | Ollie (board) / bunny hop (bike) | Space | A |
 | Kickflip (board, in the air) | G | RT |
@@ -98,5 +99,6 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/ui.ts`: HUD, scythe vision panel, claim card, ledger
 - `src/places/`: big detailed buildings a map stamps into its voxels (`PlaceDef`, the `Frame` rotation helper, scripted staff `Actor`s)
 - `src/places/grocery/`: Smallville Grocery and its 16 deaths. Dev test page: `npm run dev`, then open `/grocery.html` (keys 1-7 pick a job, 8 Feeble, 9 peanut allergy, 0 respawn)
+- `src/mapscreen/`: the full-screen map (`mapscreen.ts`), points of interest built from a map's places, stops and deaths (`pois.ts`), and GPS routing along the roads (`gps.ts`)
 - `src/minimap.ts`: the radar (works on any VoxelWorld)
 - `src/vehicles/`: road graph and lanes (`roads.ts`), traffic AI (`traffic.ts`), drivable cars on Rapier's ray-cast vehicle controller (`car.ts`), voxel car models (`carModel.ts`), car sounds, and Smallville's roads and parked cars (`smallville.ts`)

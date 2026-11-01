@@ -14,47 +14,25 @@ export interface Blip {
 }
 
 /** The world as the minimap needs it. Any VoxelWorld works, on any map. */
-type World = Pick<VoxelWorld, 'sx' | 'sy' | 'sz' | 'get' | 'topY'>;
+export type World = Pick<VoxelWorld, 'sx' | 'sy' | 'sz' | 'get' | 'topY'>;
 
-const TILE = 64;
+export const TILE = 64;
 const ROAD = new Set<number>([B.Asphalt, B.Yellow]);
 const PATH = new Set<number>([B.Sidewalk, B.Gravel, B.Concrete]);
 
 /**
- * GTA-style round radar in the top-right corner. It rotates with the camera so "up" is
- * always where you're looking, and draws the map straight from the voxels, so it works
- * on any map with no extra data. Tiles are built lazily around the player.
+ * The radar's map picture, drawn straight from the voxels in 64 x 64 tiles and cached.
+ * The radar and the full-screen map share one of these, so a tile is only ever built once.
  */
-export class Minimap {
-  readonly el: HTMLElement;
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
-  private label: HTMLElement;
-  private speedEl: HTMLElement;
-  private world: World | null = null;
+export class MapTiles {
+  world: World | null = null;
+  /** Ground level, for telling streets from rooftops. */
+  base = 4;
   private tiles = new Map<number, HTMLCanvasElement>();
-  private base = 4;
-  /** Pixels per block, eased toward the wanted zoom. */
-  private zoom = 2.6;
 
-  constructor(parent: HTMLElement) {
-    this.el = document.createElement('div');
-    this.el.className = 'minimap';
-    this.canvas = document.createElement('canvas');
-    this.label = document.createElement('div');
-    this.label.className = 'mm-name';
-    this.speedEl = document.createElement('div');
-    this.speedEl.className = 'mm-speed hidden';
-    this.el.append(this.canvas, this.label, this.speedEl);
-    parent.appendChild(this.el);
-    this.ctx = this.canvas.getContext('2d')!;
-  }
-
-  /** Point the radar at a (new) map. */
-  setWorld(world: World, name = '', groundY?: number) {
+  setWorld(world: World, groundY?: number) {
     this.world = world;
     this.tiles.clear();
-    this.label.textContent = name;
     // Ground level: the most common surface height along a coarse grid.
     if (groundY !== undefined) this.base = groundY;
     else {
@@ -70,23 +48,17 @@ export class Minimap {
     }
   }
 
-  /** Forget cached tiles around a spot after the world was edited there. */
   invalidate(x: number, z: number) {
     const tx = Math.floor(x / TILE), tz = Math.floor(z / TILE);
     this.tiles.delete(tx * 4096 + tz);
   }
 
-  /** Speedometer under the radar while driving (null hides it). */
-  setSpeed(mph: number | null) {
-    this.speedEl.classList.toggle('hidden', mph === null);
-    if (mph !== null) this.speedEl.innerHTML = `<b>${Math.round(mph)}</b> mph`;
+  has(tx: number, tz: number) {
+    return this.tiles.has(tx * 4096 + tz);
   }
 
-  setVisible(on: boolean) {
-    this.el.classList.toggle('hidden', !on);
-  }
-
-  private tile(tx: number, tz: number) {
+  /** The tile at tile coords (tx, tz), building it if needed. */
+  tile(tx: number, tz: number) {
     const key = tx * 4096 + tz;
     const have = this.tiles.get(key);
     if (have) return have;
@@ -138,12 +110,108 @@ export class Minimap {
     return c;
   }
 
+}
+
+/** Purple GPS color, shared by the radar and the full map. */
+export const WAYPOINT_COLOR = '#c45cff';
+
+/** Draw the waypoint flag (a pin) at (0, 0) in the current transform, `u` = one screen pixel. */
+export function drawWaypointPin(ctx: CanvasRenderingContext2D, u: number) {
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.bezierCurveTo(-3 * u, -6 * u, -8 * u, -9 * u, -8 * u, -15 * u);
+  ctx.arc(0, -15 * u, 8 * u, Math.PI, 0);
+  ctx.bezierCurveTo(8 * u, -9 * u, 3 * u, -6 * u, 0, 0);
+  ctx.closePath();
+  ctx.fillStyle = WAYPOINT_COLOR;
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1.6 * u;
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, -15 * u, 3.2 * u, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+}
+
+/**
+ * GTA-style round radar in the top-right corner. It rotates with the camera so "up" is
+ * always where you're looking, and draws the map straight from the voxels, so it works
+ * on any map with no extra data. Tiles are built lazily around the player.
+ */
+export class Minimap {
+  readonly el: HTMLElement;
+  /** The voxel map picture. The full-screen map shares it. */
+  readonly tiles = new MapTiles();
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private label: HTMLElement;
+  private speedEl: HTMLElement;
+  private wpEl: HTMLElement;
+  /** Pixels per block, eased toward the wanted zoom. */
+  private zoom = 2.6;
+  private waypoint: { x: number; z: number } | null = null;
+  private route: { x: number; z: number }[] | null = null;
+  /** Clicking the radar (opens the full map). */
+  onClick: (() => void) | null = null;
+
+  constructor(parent: HTMLElement) {
+    this.el = document.createElement('div');
+    this.el.className = 'minimap';
+    this.canvas = document.createElement('canvas');
+    this.label = document.createElement('div');
+    this.label.className = 'mm-name';
+    this.speedEl = document.createElement('div');
+    this.speedEl.className = 'mm-speed hidden';
+    this.wpEl = document.createElement('div');
+    this.wpEl.className = 'mm-wp hidden';
+    const hint = document.createElement('div');
+    hint.className = 'mm-hint';
+    hint.innerHTML = '<span class="key">N</span> Map';
+    this.el.append(this.canvas, this.label, this.speedEl, this.wpEl, hint);
+    parent.appendChild(this.el);
+    this.ctx = this.canvas.getContext('2d')!;
+    this.el.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      if (e.button === 0) this.onClick?.();
+    });
+  }
+
+  /** Point the radar at a (new) map. */
+  setWorld(world: World, name = '', groundY?: number) {
+    this.tiles.setWorld(world, groundY);
+    this.label.textContent = name;
+  }
+
+  /** Forget cached tiles around a spot after the world was edited there. */
+  invalidate(x: number, z: number) {
+    this.tiles.invalidate(x, z);
+  }
+
+  /** Speedometer under the radar while driving (null hides it). */
+  setSpeed(mph: number | null) {
+    this.speedEl.classList.toggle('hidden', mph === null);
+    if (mph !== null) this.speedEl.innerHTML = `<b>${Math.round(mph)}</b> mph`;
+  }
+
+  /** The GPS waypoint and the road route to it (null clears). `dist` is shown under the radar, in blocks. */
+  setWaypoint(wp: { x: number; z: number } | null, route: { x: number; z: number }[] | null, dist = 0) {
+    this.waypoint = wp;
+    this.route = route;
+    this.wpEl.classList.toggle('hidden', !wp);
+    if (wp) this.wpEl.textContent = `${dist >= 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m'}`;
+  }
+
+  setVisible(on: boolean) {
+    this.el.classList.toggle('hidden', !on);
+  }
+
   /**
    * Draw the radar. `yaw` is the camera yaw (the view direction ends up pointing up),
    * `facing` is the player arrow's facing, `wantZoom` is pixels per block.
    */
   draw(cx: number, cz: number, yaw: number, facing: number, blips: Blip[], wantZoom: number, dt: number) {
-    const world = this.world;
+    const world = this.tiles.world;
     if (!world) return;
     const css = this.el.clientWidth || 180;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -178,17 +246,31 @@ export class Minimap {
     for (let tx = t0x; tx <= t1x; tx++)
       for (let tz = t0z; tz <= t1z; tz++) {
         if (tx < 0 || tz < 0 || tx * TILE >= world.sx || tz * TILE >= world.sz) continue;
-        const key = tx * 4096 + tz;
-        if (!this.tiles.has(key)) {
+        if (!this.tiles.has(tx, tz)) {
           // Build at most two new tiles a frame so a big map never hitches.
           if (built >= 2) continue;
           built++;
         }
-        ctx.drawImage(this.tile(tx, tz), tx * TILE, tz * TILE);
+        ctx.drawImage(this.tiles.tile(tx, tz), tx * TILE, tz * TILE);
       }
 
-    // Blips in world space, sized in screen pixels.
     const s = dpr / z;
+    // GPS route along the roads.
+    if (this.route && this.route.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(this.route[0].x, this.route[0].z);
+      for (let i = 1; i < this.route.length; i++) ctx.lineTo(this.route[i].x, this.route[i].z);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.lineWidth = 7 * s;
+      ctx.stroke();
+      ctx.strokeStyle = WAYPOINT_COLOR;
+      ctx.lineWidth = 4 * s;
+      ctx.stroke();
+    }
+
+    // Blips in world space, sized in screen pixels.
     for (const b of blips) {
       if (Math.hypot(b.x - cx, b.z - cz) > reach) continue;
       ctx.save();
@@ -225,6 +307,23 @@ export class Minimap {
       ctx.restore();
     }
     ctx.restore();
+
+    // Waypoint pin: in place when it's on the radar, otherwise pinned to the rim pointing at it.
+    if (this.waypoint) {
+      const dx = this.waypoint.x - cx, dz = this.waypoint.z - cz;
+      // Same rotation as the world layer.
+      const c = Math.cos(yaw), sn = Math.sin(yaw);
+      let px = (dx * c - dz * sn) * z, py = (dx * sn + dz * c) * z;
+      const lim = R - 14 * dpr;
+      const d = Math.hypot(px, py);
+      const onRim = d > lim;
+      if (onRim) (px *= lim / d), (py *= lim / d);
+      ctx.save();
+      ctx.translate(R + px, R + py + (onRim ? 7 * dpr : 0));
+      const u = onRim ? 0.75 * dpr : dpr;
+      drawWaypointPin(ctx, u);
+      ctx.restore();
+    }
 
     // Player arrow at the center, pointing where the player faces relative to the view.
     ctx.save();
