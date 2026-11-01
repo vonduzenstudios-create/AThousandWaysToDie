@@ -105,6 +105,8 @@ export interface AnimState {
   state: string;
   stateTime: number;
   airTime: number;
+  /** Knocked out flat on their back. */
+  ko?: boolean;
 }
 
 /** A voxel-style person built entirely from boxes and generated textures. */
@@ -118,6 +120,9 @@ export class Character {
   private squash = 0;
   private squashVel = 0;
   private spin = 0;
+  /** Seconds left in a punch swing, and which arm throws it. */
+  private punchT = 0;
+  private punchLeft = false;
   tintColor = new THREE.Color(1, 1, 1);
 
   constructor(readonly app: Appearance) {
@@ -221,6 +226,12 @@ export class Character {
     }
   }
 
+  /** Throw a punch (arm snaps forward, alternating arms). */
+  punch() {
+    this.punchT = 0.22;
+    this.punchLeft = !this.punchLeft;
+  }
+
   flash(on: boolean) {
     for (const m of this.mats) m.emissive.setHex(on ? 0xffffff : 0x000000);
   }
@@ -280,6 +291,23 @@ export class Character {
       legR = -0.3;
     }
 
+    if (s.ko) {
+      pitch = -1.5;
+      spinnerY = 0.3;
+      armL = armR = -2.9;
+      armSpread = 0.6;
+      legL = legR = 0;
+    }
+
+    let punchArm: 'armL' | 'armR' | null = null;
+    if (this.punchT > 0) {
+      this.punchT -= dt;
+      punchArm = this.punchLeft ? 'armL' : 'armR';
+      if (this.punchLeft) armL = -1.6;
+      else armR = -1.6;
+      roll = 0;
+    }
+
     // Flip spins replace the pose pitch.
     const flipDur = 0.75;
     if (st === 'backflip') this.spin = -Math.min(s.airTime / flipDur, 1) * Math.PI * 2;
@@ -294,6 +322,7 @@ export class Character {
     p.armR.pivot.rotation.x += (armR - p.armR.pivot.rotation.x) * k;
     p.armL.pivot.rotation.z += (armSpread - p.armL.pivot.rotation.z) * k;
     p.armR.pivot.rotation.z += (-armSpread - p.armR.pivot.rotation.z) * k;
+    if (punchArm) p[punchArm].pivot.rotation.x = punchArm === 'armL' ? armL : armR;
 
     if (st === 'sideflip') {
       roll = Math.min(s.airTime / flipDur, 1) * Math.PI * 2;

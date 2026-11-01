@@ -12,7 +12,11 @@ export class Npc {
   readonly app: Appearance;
   readonly pos = new THREE.Vector3();
   private target = new THREE.Vector3();
-  private facing = 0;
+  facing = 0;
+  /** While true, someone else (combat) drives this body and update() only syncs the mesh. */
+  controlled = false;
+  hp = 100;
+  maxHp = 100;
   private pause = 0;
   private speed: number;
   private helpTarget: THREE.Vector3 | null = null;
@@ -62,7 +66,19 @@ export class Npc {
     return true;
   }
 
+  /** Hand the body back after a fight; the wander brain re-plans from here. */
+  release() {
+    this.controlled = false;
+    this.target.copy(this.pos);
+    this.pause = 1;
+  }
+
   update(dt: number) {
+    if (this.controlled) {
+      this.character.root.position.copy(this.pos);
+      this.character.root.rotation.y = this.facing;
+      return;
+    }
     if (this.helpTarget) {
       const to = this.helpTarget.clone().sub(this.pos);
       to.y = 0;
