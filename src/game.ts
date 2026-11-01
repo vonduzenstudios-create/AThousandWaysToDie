@@ -46,7 +46,7 @@ import { arrest, commit } from './maps/institutions/common';
 import { TitleMenu, type DevMap } from './titlemenu';
 import { loadOptions, saveOptions, type Options } from './options';
 
-type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing';
+type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'inspect' | 'possessing';
 
 type DeathStyle =
   | { kind: 'ragdoll'; vel: THREE.Vector3; spin?: number; bounce?: number }
@@ -124,6 +124,16 @@ export class Game {
   private ghost: THREE.Group;
   private ghostPos = new THREE.Vector3();
   private ghostTarget: Npc | null = null;
+  /** Death's flight pitch; like moveYaw, left-click looking leaves it alone. */
+  private movePitch = 0.32;
+  /** Zoomed in on someone with the scythe menu open (world frozen). */
+  private inspect: { npc: Npc; sel: number; t: number; fromPos: THREE.Vector3; fromQuat: THREE.Quaternion; toPos: THREE.Vector3; toQuat: THREE.Quaternion } | null = null;
+  /** Possess fly-in from the inspect view: camera pans from `fromPos` into the body. */
+  private possessCam: { fromPos: THREE.Vector3; quat: THREE.Quaternion; toPos: THREE.Vector3; t: number } | null = null;
+  /** Eases the camera from a held pose back to wherever the normal camera wants to be. */
+  private camBlend: { pos: THREE.Vector3; quat: THREE.Quaternion; t: number; dur: number } | null = null;
+  /** Current world saturation (eased; Death sees the world washed out). */
+  private sat = 1.1;
   private peeTime = 0;
   private peeSoundT = 0;
   /** Times (ms) of recent screams that turned out to be about nothing. Three in a minute gets you committed. */
@@ -600,7 +610,7 @@ export class Game {
     this.sound.setStyle('ghost');
     this.sound.ghost();
     this.ui.setHud(this.ledger, null);
-    this.ui.setBanner('GHOST MODE · Look at someone to read their file · <b>E</b> / <b>Y</b> to possess');
+    this.ui.setBanner('GHOST MODE · Look at someone, <b>E</b> / <b>Y</b> to read their file · Right click or both buttons to fly where you look');
     this.crosshair.classList.remove('hidden');
     if (first) {
       this.ui.say('Death', '"Fine. You do it then." Look at people with the scythe. Their file tells you everything. Pick one and jump in.', 6000);
@@ -612,6 +622,15 @@ export class Game {
   private possess(n: Npc) {
     this.mode = 'possessing';
     this.ui.showFile(null);
+    this.ui.showScythe(null);
+    if (this.inspect) {
+      const head = n.pos.clone().add(new THREE.Vector3(0, 1.55, 0));
+      this.possessCam = { fromPos: this.camera.position.clone(), quat: this.camera.quaternion.clone(), toPos: head, t: 0 };
+      // Come out the other side looking the same way we flew in.
+      const d = this.camera.position.clone().sub(head);
+      this.cam.yaw = Math.atan2(d.x, d.z);
+      this.inspect = null;
+    }
     this.ui.setBanner(null);
     this.crosshair.classList.add('hidden');
     this.sound.possess();
@@ -638,6 +657,11 @@ export class Game {
           this.setBody(n.file, n.character, n.pos.clone(), facing);
           this.sound.setStyle('town');
           this.mode = 'play';
+          n.character.mats.forEach((m) => m.emissive.setHex(0));
+          if (this.possessCam) {
+            this.camBlend = { pos: this.possessCam.toPos.clone(), quat: this.possessCam.quat.clone(), t: 0, dur: 0.7 };
+            this.possessCam = null;
+          }
           if (!this.helpShown) {
             this.helpShown = true;
             this.ui.toggleHelp();
@@ -1742,7 +1766,7 @@ export class Game {
       return;
     }
     this.minimap.setVisible(true);
-    const ghost = this.mode === 'ghost' || this.mode === 'possessing';
+    const ghost = this.mode === 'ghost' || this.mode === 'possessing' || this.mode === 'inspect';
     const c = this.focusPos();
     const facing = this.driving ? this.driving.facing : this.mode === 'play' ? this.player.facing : this.cam.forwardFacing;
     const blips: Blip[] = [...this.pois];
@@ -1795,14 +1819,22 @@ export class Game {
 
     const mouseSens = 0.0032 * this.options.sens;
     if (this.mode === 'play' || this.mode === 'ghost') this.cam.zoom(inp.wheel);
+    // Death can look (and fly) much further up and down than a body can.
+    this.cam.minPitch = this.mode === 'ghost' ? -1.2 : -0.2;
+    this.cam.maxPitch = this.mode === 'ghost' ? 1.4 : 1.25;
+    if (this.mode !== 'ghost' && this.cam.pitch < -0.2 && !this.cam.firstPerson) this.cam.pitch = -0.2;
     this.cam.minDist = this.mode === 'dying' || this.mode === 'claim' ? 6 : 0;
     // Right mouse (or first person) makes the character face where the camera looks.
     const steer = inp.rmb || this.cam.firstPerson;
-    if (!(inp.lmb && !inp.rmb && !this.cam.firstPerson)) this.moveYaw = this.cam.yaw;
+    if (!(inp.lmb && !inp.rmb && !this.cam.firstPerson)) {
+      this.moveYaw = this.cam.yaw;
+      this.movePitch = this.cam.pitch;
+    }
     const lookDX = inp.mouseDX * mouseSens + inp.lookX * realDt * 2.6;
     const lookDY = (inp.mouseDY * mouseSens + inp.lookY * realDt * 2) * (this.options.invertY ? -1 : 1);
 
-    const dt = realDt * this.timeScale;
+    // Scythe vision freezes the world.
+    const dt = this.mode === 'inspect' ? 0 : realDt * this.timeScale;
     this.time += dt;
     this.updateSeq(realDt);
 
@@ -1944,13 +1976,20 @@ export class Game {
       this.cam.pitch += (0.55 - this.cam.pitch) * Math.min(1, realDt * 2);
       if (this.character) this.character.root.visible = true;
       this.cam.update(realDt, target, lookDX + realDt * 0.25, lookDY);
-    } else if (this.mode === 'ghost' || this.mode === 'possessing') {
+    } else if (this.mode === 'ghost' || this.mode === 'possessing' || this.mode === 'inspect') {
       if (this.mode === 'ghost') this.updateGhost(realDt, lookDX, lookDY);
-      else this.cam.update(realDt, this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0)), lookDX, lookDY);
+      else if (this.mode === 'inspect') this.updateInspect(realDt);
+      else if (this.possessCam) {
+        const pc = this.possessCam;
+        pc.t = Math.min(1, pc.t + realDt / 0.5);
+        const e = pc.t * pc.t * (3 - 2 * pc.t);
+        this.camera.position.lerpVectors(pc.fromPos, pc.toPos, e);
+        this.camera.quaternion.copy(pc.quat);
+      } else this.cam.update(realDt, this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0)), lookDX, lookDY);
       this.ghost.position.copy(this.ghostPos);
-      this.ghost.visible = this.mode === 'possessing' || !this.cam.firstPerson;
+      this.ghost.visible = this.mode === 'possessing' ? !this.possessCam : !this.cam.firstPerson;
       this.ghost.position.y += Math.sin(this.time * 3) * 0.15;
-      this.ghost.rotation.y = this.cam.yaw + Math.PI;
+      if (this.mode === 'ghost') this.ghost.rotation.y = this.moveYaw + Math.PI;
     } else {
       this.cam.update(realDt, this.town.spawn.clone().setY(G + 6), 0, 0);
     }
@@ -1958,10 +1997,20 @@ export class Game {
     if (this.mode !== 'play') this.rides.update(realDt);
 
     // Sun follows the action for crisp shadows.
-    const focus = this.mode === 'play' ? this.player.position() : this.mode === 'ghost' ? this.ghostPos : this.activeRagdoll?.position() ?? this.ghostPos;
+    const focus = this.mode === 'play' ? this.player.position() : this.mode === 'ghost' || this.mode === 'inspect' ? this.ghostPos : this.activeRagdoll?.position() ?? this.ghostPos;
     this.sun.position.set(focus.x + 30, focus.y + 60, focus.z + 20);
     this.sun.target.position.copy(focus);
     this.drawMinimap(realDt);
+
+    if (this.camBlend) {
+      const b = this.camBlend;
+      b.t = Math.min(1, b.t + realDt / b.dur);
+      const e = b.t * b.t * (3 - 2 * b.t);
+      this.camera.position.lerpVectors(b.pos, this.camera.position, e);
+      this.camera.quaternion.slerpQuaternions(b.quat, this.camera.quaternion.clone(), e);
+      if (b.t >= 1) this.camBlend = null;
+    }
+    this.updateSaturation(realDt);
 
     if (!this.driving) this.engine.set(false, 0, 0);
     this.post.render();
@@ -1971,15 +2020,22 @@ export class Game {
   private updateGhost(dt: number, lookDX: number, lookDY: number) {
     const inp = this.input;
     const yaw = this.moveYaw;
-    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    // Fly where the camera points. The resting third-person view (looking a little down
+    // at Death) flies level; tilt further up or down to climb or dive.
+    const fp = this.cam.firstPerson;
+    let p = fp ? this.movePitch : this.movePitch - 0.32;
+    const dead = fp ? 0.06 : 0.12;
+    p = Math.abs(p) < dead ? 0 : p - Math.sign(p) * dead;
+    const cp = Math.cos(p);
+    const fx = -Math.sin(yaw) * cp, fz = -Math.cos(yaw) * cp, fy = -Math.sin(p);
     const rx = Math.cos(yaw), rz = -Math.sin(yaw);
-    const sp = 14;
+    const sp = inp.sprint ? 26 : 14;
     let vy = 0;
     if (inp.held('jump') || inp.held('up')) vy += 1;
     if (inp.held('crouch') || inp.held('down')) vy -= 1;
     this.ghostPos.x += (fx * inp.moveY + rx * inp.moveX) * sp * dt;
     this.ghostPos.z += (fz * inp.moveY + rz * inp.moveX) * sp * dt;
-    this.ghostPos.y += vy * sp * 0.7 * dt;
+    this.ghostPos.y += (fy * inp.moveY * sp + vy * sp * 0.7) * dt;
     this.ghostPos.x = Math.min(Math.max(this.ghostPos.x, 2), SIZE - 2);
     this.ghostPos.z = Math.min(Math.max(this.ghostPos.z, 2), SIZE - 2);
     this.ghostPos.y = Math.min(Math.max(this.ghostPos.y, G + 0.5), G + 60);
@@ -2009,15 +2065,106 @@ export class Game {
     if (best !== this.ghostTarget) {
       this.ghostTarget?.character.mats.forEach((m) => m.emissive.setHex(0));
       this.ghostTarget = best;
-      best?.character.mats.forEach((m) => m.emissive.setHex(0x3a2a66));
-      this.ui.showFile(best ? best.file : null);
       if (best) this.sound.blip(1.4);
     }
-    if (best && inp.pressed('interact')) {
-      best.character.mats.forEach((m) => m.emissive.setHex(0));
-      this.ghostTarget = null;
-      this.possess(best);
+    // Highlight only (the file opens on E). A soft pulse so it reads against the grey world.
+    if (best) {
+      const k = 0.75 + Math.sin(performance.now() * 0.006) * 0.25;
+      const c = new THREE.Color(0x5a3fb0).multiplyScalar(k);
+      best.character.mats.forEach((m) => m.emissive.copy(c));
     }
+    if (best && inp.pressed('interact')) this.enterInspect(best);
+  }
+
+  /** E on a highlighted person: freeze the world, zoom in, open the scythe menu. */
+  private enterInspect(n: Npc) {
+    this.mode = 'inspect';
+    this.ui.setBanner(null);
+    this.crosshair.classList.add('hidden');
+    this.sound.blip(0.8);
+    const head = n.pos.clone().add(new THREE.Vector3(0, 1.55, 0));
+    // Approach from where we're looking, so there's open space between us.
+    const away = this.camera.position.clone().sub(head).setY(0);
+    if (away.lengthSq() < 0.01) away.set(0, 0, 1);
+    away.normalize();
+    const toPos = head.clone().addScaledVector(away, 2.7).add(new THREE.Vector3(0, 0.25, 0));
+    // Look a little to their right (our left) so they stand right of the menu.
+    const side = new THREE.Vector3(-away.z, 0, away.x); // camera's right
+    const look = head.clone().addScaledVector(side, -1.0).add(new THREE.Vector3(0, -0.1, 0));
+    const m = new THREE.Matrix4().lookAt(toPos, look, new THREE.Vector3(0, 1, 0));
+    const toQuat = new THREE.Quaternion().setFromRotationMatrix(m);
+    this.inspect = { npc: n, sel: 0, t: 0, fromPos: this.camera.position.clone(), fromQuat: this.camera.quaternion.clone(), toPos, toQuat };
+    this.renderScythe();
+  }
+
+  private renderScythe() {
+    const ins = this.inspect;
+    if (!ins) return this.ui.showScythe(null);
+    this.ui.showScythe(
+      ins.npc.file,
+      ins.sel,
+      {
+        possess: () => this.inspectChoose(0),
+        pass: () => this.inspectChoose(1),
+        hover: (i) => {
+          if (this.inspect && this.inspect.sel !== i) {
+            this.inspect.sel = i;
+            this.renderScythe();
+          }
+        },
+      },
+      this.input.padConnected,
+    );
+  }
+
+  private inspectChoose(i: number) {
+    const ins = this.inspect;
+    if (!ins || this.mode !== 'inspect') return;
+    this.sound.blip(i === 0 ? 1.6 : 0.9);
+    if (i === 0) {
+      ins.npc.character.mats.forEach((m) => m.emissive.setHex(0));
+      this.ghostTarget = null;
+      this.possess(ins.npc);
+      return;
+    }
+    // Pass: zoom back out to Death's view.
+    this.ui.showScythe(null);
+    this.camBlend = { pos: this.camera.position.clone(), quat: this.camera.quaternion.clone(), t: 0, dur: 0.6 };
+    this.inspect = null;
+    this.mode = 'ghost';
+    this.ui.setBanner('GHOST MODE · Look at someone, <b>E</b> / <b>Y</b> to read their file · Right click or both buttons to fly where you look');
+    this.crosshair.classList.remove('hidden');
+  }
+
+  private updateInspect(dt: number) {
+    const ins = this.inspect;
+    if (!ins) return;
+    ins.t = Math.min(1, ins.t + dt / 0.55);
+    const e = 1 - Math.pow(1 - ins.t, 3);
+    this.camera.position.lerpVectors(ins.fromPos, ins.toPos, e);
+    this.camera.quaternion.slerpQuaternions(ins.fromQuat, ins.toQuat, e);
+    const k = 0.75 + Math.sin(performance.now() * 0.006) * 0.25;
+    const c = new THREE.Color(0x5a3fb0).multiplyScalar(k);
+    ins.npc.character.mats.forEach((m) => m.emissive.copy(c));
+    const inp = this.input;
+    if (inp.pressed('menuUp') || inp.pressed('menuDown') || inp.pressed('menuLeft') || inp.pressed('menuRight')) {
+      ins.sel = 1 - ins.sel;
+      this.sound.blip(1.2);
+      this.renderScythe();
+    }
+    if (inp.pressed('back') || inp.pressed('pee')) this.inspectChoose(1);
+    else if (inp.pressed('confirm') && ins.t > 0.3) this.inspectChoose(ins.sel);
+  }
+
+  /** Death sees the world washed out; color floods back as you possess someone. */
+  private updateSaturation(dt: number) {
+    const want = this.mode === 'ghost' || this.mode === 'inspect' ? 0.22 : 1.1;
+    this.sat += (want - this.sat) * (1 - Math.exp(-dt * (want > this.sat ? 3.5 : 2.5)));
+    if (Math.abs(want - this.sat) < 0.002) this.sat = want;
+    this.post.grade.uniforms.saturation.value = this.sat;
+    const css = this.post.graded || this.sat >= 1.09 ? '' : `saturate(${(this.sat / 1.1).toFixed(3)})`;
+    const el = this.renderer.domElement;
+    if (el.style.filter !== css) el.style.filter = css;
   }
 }
 
