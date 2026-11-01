@@ -149,7 +149,11 @@ export class Animal {
     this.onArrive = null;
   }
 
-  face(x: number, z: number) {
+  face(x: number | { x: number; z: number }, z = 0) {
+    if (typeof x !== 'number') {
+      z = x.z;
+      x = x.x;
+    }
     this.yaw = Math.atan2(x - this.pos.x, z - this.pos.z);
   }
 

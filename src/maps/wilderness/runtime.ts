@@ -499,6 +499,7 @@ export class WildRuntime implements MapRuntime {
   // ================================================================ interact
 
   interact(id: string) {
+    this.syncBody();
     const g = this.game;
     const body = this.body;
     if (!body || this.busy && !['fuse', 'unclip', 'sandwich', 'drive'].includes(id)) return;
@@ -724,9 +725,8 @@ export class WildRuntime implements MapRuntime {
     }
   }
 
-  update(dt: number, time: number) {
-    this.clock += dt;
-    // Body changes (possession, death) reset what Gary is carrying.
+  /** Body changes (possession, death) reset what Gary is carrying. */
+  private syncBody() {
     if (this.body !== this.lastBody) {
       this.lastBody = this.body;
       this.items.clear();
@@ -749,6 +749,11 @@ export class WildRuntime implements MapRuntime {
       this.hat?.removeFromParent();
       this.hat = null;
     }
+  }
+
+  update(dt: number, time: number) {
+    this.clock += dt;
+    this.syncBody();
     const due = this.timers.filter((t) => t.at <= this.clock);
     this.timers = this.timers.filter((t) => t.at > this.clock);
     for (const t of due) t.fn();
@@ -933,7 +938,7 @@ export class WildRuntime implements MapRuntime {
     const helping = cyc > 38;
     if (helping && !this.bungeeHelping) {
       this.bungeeHelping = true;
-      b.goTo(this.s.bridgeDeck.clone().add(V(0, 0, -16)), 3, () => {
+      b.goTo(this.s.bridgeDeck.clone().add(V(0, 0, -36)), 3, () => {
         b.pose = 'point';
         this.game.sound.blip(0.6);
       });
@@ -957,6 +962,12 @@ export class WildRuntime implements MapRuntime {
     const hook = s.bungeeHook;
     const pos = this.game.player.position();
     (this.rope.geometry as THREE.BufferGeometry).setFromPoints([hook, pos]);
+    if (this.bungee.cord === 'cord300') {
+      // The river doesn't count as a landing, so check the surface ourselves.
+      const surf = Math.max(this.ground.floor(pos.x, pos.z), this.ground.water(pos.x, pos.z));
+      if (pos.y < deck - 4 && pos.y < surf + 1.2) this.bungeeSplat(pos.clone());
+      return;
+    }
     if (this.bungee.cord === 'cord60') {
       const end = deck - 20;
       const pl = this.game.player;
