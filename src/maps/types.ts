@@ -10,6 +10,7 @@ import type { Player } from '../player';
 import type { Character } from '../character';
 import type { Sound } from '../audio';
 import type { Particles } from '../particles';
+import type { Input } from '../input';
 
 /**
  * The multi-map interface. Every place in the game (Smallville, the city, the beach,
@@ -74,6 +75,22 @@ export interface GameApi {
   toast(title: string, body: string, ms?: number): void;
   say(who: string, line: string, ms?: number): void;
   shake(amount: number): void;
+  /** Screen flash (CSS color). */
+  flash(color: string, ms: number): void;
+  /** Bottom-center prompt, or null to hide. Overwritten each frame by the interact prompt when one is in range. */
+  prompt(html: string | null): void;
+  /** Raw input: held(action), pressed(action), moveX, moveY. */
+  readonly input: Input;
+  /** Camera yaw (radians). */
+  readonly camYaw: number;
+  /** Game time in seconds (slows down with slow-mo). */
+  readonly time: number;
+  /** Insurance money Gary can spend right now. */
+  readonly balance: number;
+  /** Pay for something (rentals, charters). Returns false and shows "can't afford" if short. */
+  spend(amount: number, label: string): boolean;
+  /** Hue-rotate the screen (degrees, 0 = off). */
+  setHueShift(deg: number): void;
 }
 
 /** Things a map can do at runtime once it is loaded. All optional except dispose. */
@@ -116,6 +133,16 @@ export interface MapBuild {
   areas: Record<string, Box>;
   /** Transit stops. Ids must be unique within the map. */
   stops: TravelStop[];
+  /**
+   * Drivable roads as centerline polylines at road-surface height (feet y). Two-way, cars drive on
+   * the right. Points shared by two roads (within 1.5 units) become intersections. Used by traffic.
+   */
+  roads?: { points: THREE.Vector3[]; width: number; loop?: boolean }[];
+  /**
+   * Rich NPC data (LifeMap from src/life/types.ts, owned by the NPC life thread): nav grid,
+   * places, population. When present the game hands it to the LifeSystem; `npcs` is the fallback.
+   */
+  life?: unknown;
   /** Who lives here. Defaults to a few random people in each area. */
   npcs?: NpcSpawn[];
   /** Add props, interactables and per-map logic after the voxels are built. */
