@@ -240,6 +240,14 @@ export class Character {
       legR = -swing;
       armL = -swing * 0.8;
       armR = swing * 0.8;
+    } else if (st === 'crawl') {
+      pitch = 1.45;
+      spinnerY = 0.3;
+      const c = Math.sin(this.phase * 0.6) * 0.6 * Math.min(s.speed / 1.5, 1);
+      armL = -2.6 + c;
+      armR = -2.6 - c;
+      legL = -c * 0.5;
+      legR = c * 0.5;
     } else if (st === 'crouch') {
       crouch = 0.72;
       legL = swing * 0.5;

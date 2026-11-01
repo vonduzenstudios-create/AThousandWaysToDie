@@ -224,6 +224,8 @@ export class Props {
   private clouds: THREE.Group;
   private mushroom: THREE.Group;
   private wires: THREE.Mesh[] = [];
+  barnDoorCollider: RAPIER.Collider;
+  barnDoorMesh: THREE.Mesh;
 
   constructor(scene: THREE.Scene, physics: RAPIER.World, info: TownInfo) {
     // Rails and ties.
@@ -418,6 +420,43 @@ export class Props {
     scene.add(this.lever);
     this.interactables.push({ id: 'lever', pos: info.lever.clone(), radius: 2, prompt: 'Pull the hoist lever (farm staff only)', mesh: this.lever, enabled: true });
 
+    // Barn door: closed (solid) unless a Farmhand is driving.
+    const bd = info.barnDoor;
+    const doorW = bd.x1 - bd.x0 + 1;
+    const doorTex = canvasTexture(16, 16, (c) => {
+      c.fillStyle = '#8a2a22';
+      c.fillRect(0, 0, 16, 16);
+      c.strokeStyle = '#f2e6d0';
+      c.lineWidth = 1;
+      c.strokeRect(0.5, 0.5, 15, 15);
+      c.beginPath();
+      c.moveTo(0, 0);
+      c.lineTo(16, 16);
+      c.moveTo(16, 0);
+      c.lineTo(0, 16);
+      c.stroke();
+    });
+    this.barnDoorMesh = boxMesh(doorW, 6, 0.3, new THREE.MeshLambertMaterial({ map: doorTex }));
+    this.barnDoorMesh.position.set(bd.x0 + doorW / 2, G + 3, bd.z + 0.5);
+    scene.add(this.barnDoorMesh);
+    this.barnDoorCollider = physics.createCollider(
+      RAPIER.ColliderDesc.cuboid(doorW / 2, 3, 0.3).setTranslation(bd.x0 + doorW / 2, G + 3, bd.z + 0.5).setCollisionGroups(groups(G_WORLD, G_ALL)),
+      fenceBody,
+    );
+    this.interactables.push({ id: 'barndoor', pos: bd.knock.clone(), radius: 2.6, prompt: 'Open the barn door', enabled: true });
+    this.interactables.push({ id: 'baler', pos: info.baler.clone(), radius: 2.2, prompt: 'Climb into the hay baler', enabled: true });
+
+    // Police station sign and the department taser.
+    sign(['POLICE'], info.station.sign, Math.PI / 2, '#1a2a6a', '#ffffff');
+    const taser = new THREE.Group();
+    const tb = boxMesh(0.35, 0.18, 0.12, lambert(0xf2d020, null));
+    const tg = boxMesh(0.1, 0.2, 0.1, lambert(0x222222, null));
+    tg.position.set(-0.1, -0.15, 0);
+    taser.add(tb, tg);
+    taser.position.copy(info.station.taser).add(new THREE.Vector3(0, 0.1, 0));
+    scene.add(taser);
+    this.interactables.push({ id: 'taser', pos: info.station.taser.clone().setY(G), radius: 2, prompt: 'Test the department taser on yourself', mesh: taser, enabled: true });
+
     this.bale = new HayBale(scene, physics, info.baleHang, info.gantry.top);
     this.train = new Train(scene, physics, info.trackZ + 0.5);
 
@@ -436,6 +475,11 @@ export class Props {
       this.clouds.add(c);
     }
     scene.add(this.clouds);
+  }
+
+  setBarnOpen(open: boolean) {
+    this.barnDoorCollider.setEnabled(!open);
+    this.barnDoorMesh.visible = !open;
   }
 
   update(dt: number, t: number) {

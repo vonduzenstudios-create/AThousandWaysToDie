@@ -33,6 +33,9 @@ export interface TownInfo {
   fence: { x0: number; z0: number; x1: number; z1: number };
   trackZ: number;
   billboard: THREE.Vector3;
+  station: { interior: Box; outside: THREE.Vector3; taser: THREE.Vector3; sign: THREE.Vector3 };
+  barnDoor: { x0: number; x1: number; z: number; knock: THREE.Vector3 };
+  baler: THREE.Vector3;
   areas: Record<string, Box>;
   treeTops: THREE.Vector3[];
 }
@@ -210,7 +213,7 @@ export function buildTown(): TownInfo {
   w.fill(20, G - 1, 39, 60, G - 1, 41, B.Gravel);
   w.fill(39, G - 1, 20, 41, G - 1, 74, B.Gravel);
   bigOak(w, rng, 30, 30);
-  for (const [x, z] of [[52, 26], [55, 50], [25, 55], [48, 62], [22, 44]]) smallTree(w, rng, x, z, treeTops);
+  for (const [x, z] of [[52, 26], [55, 50], [25, 55], [22, 44]]) smallTree(w, rng, x, z, treeTops);
 
   // Water tower.
   waterTower(w, 120, 40);
@@ -260,6 +263,18 @@ export function buildTown(): TownInfo {
     w.set(137 + i, G - 1, gantry.z - i, B.RedPaint);
   }
 
+  // Hay baler inside the barn.
+  w.fill(140, G, 96, 143, G + 2, 99, B.RedPaint);
+  w.fill(140, G + 3, 97, 143, G + 3, 98, B.Metal);
+  w.fill(139, G + 1, 97, 139, G + 1, 98, B.Dark); // intake
+
+  // Smallville Police Station (door faces east toward the main road).
+  fillBuilding(w, 46, 60, 60, 72, 6, B.WallBlue, B.Dark);
+  for (let z = 65; z <= 67; z++) for (let y = G; y < G + 3; y++) w.set(60, y, z, B.Air);
+  for (let x = 48; x < 60; x += 3) w.set(x, G + 2, 60, B.Glass);
+  w.fill(49, G, 62, 52, G, 63, B.Wood); // desk
+  w.fill(61, G - 1, 64, 74, G - 1, 68, B.Sidewalk); // front walk
+
   // Whisper Woods.
   for (let i = 0; i < 26; i++) {
     const x = 8 + Math.floor(rng() * 42), z = 108 + Math.floor(rng() * 32);
@@ -291,6 +306,14 @@ export function buildTown(): TownInfo {
     fence,
     trackZ,
     billboard: new THREE.Vector3(95.5, G + 7.5, 70.5),
+    station: {
+      interior: box(47, G - 1, 61, 59.6, G + 4, 71),
+      outside: new THREE.Vector3(63, G, 66.5),
+      taser: new THREE.Vector3(50.5, G + 1, 62.6),
+      sign: new THREE.Vector3(60.6, G + 4.2, 66.5),
+    },
+    barnDoor: { x0: 134, x1: 140, z: 108, knock: new THREE.Vector3(137.5, G, 110.2) },
+    baler: new THREE.Vector3(138.6, G, 97.5),
     areas: {
       downtown: box(70, G, 70, 90, G, 90),
       park: box(18, G, 18, 62, G, 70),
@@ -298,6 +321,8 @@ export function buildTown(): TownInfo {
       woods: box(6, G, 106, 52, G, 142),
       tower: box(95, G, 25, 140, G, 60),
       garage: box(60, G, 86, 74, G, 110),
+      station: box(47.5, G, 61.5, 59, G, 70.5),
+      construction: box(130, G, 50, 150, G, 75),
     },
     treeTops,
   };

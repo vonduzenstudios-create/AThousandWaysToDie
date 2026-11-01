@@ -27,7 +27,8 @@ type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing';
 
 type DeathStyle =
   | { kind: 'ragdoll'; vel: THREE.Vector3; spin?: number; bounce?: number }
-  | { kind: 'pancake' };
+  | { kind: 'pancake' }
+  | { kind: 'cube' };
 
 interface Step {
   at: number;
@@ -72,6 +73,12 @@ export class Game {
   private sun: THREE.DirectionalLight;
   private lastT = performance.now();
   private helpShown = false;
+  private latched = { jump: false, crouch: false, dive: false };
+  private barnTries = 0;
+  private stationVisits = 0;
+  private deniedToastT = 0;
+  private wasInStation = false;
+  private screamCooldown = 0;
   private acc = 0;
   private time = 0;
   private timeScale = 1;
@@ -216,9 +223,12 @@ export class Game {
       ['farm', 'Farmhand'],
       ['farm', 'Farmhand'],
       ['woods', undefined],
-      ['tower', undefined],
+      ['tower', 'Construction Worker'],
       ['garage', 'Mechanic'],
       ['downtown', undefined],
+      ['station', 'Cop'],
+      ['station', 'Cop'],
+      ['construction', 'Construction Worker'],
     ];
     plan.forEach(([area, job], i) => {
       const n = new Npc(this.scene, this.town.world, a[area], mulberry32(500 + i * 77 + (Date.now() % 1000)), job);
@@ -227,14 +237,21 @@ export class Game {
         n.file.quirk = 'Has a peanut allergy. Like, a bad one.';
       }
       if (i === 2) n.file.daysLeft = 2; // always at least one fair mark nearby
+      if (i === 8) {
+        n.file.physical = 'Athlete'; // someone who can do the water tower long jump
+        n.file.age = 27;
+        n.file.daysLeft = 12;
+      }
+      if (i === 4) n.file.physical = 'Feeble';
       this.npcs.push(n);
     });
   }
 
   private spawnRandomNpc() {
     const keys = Object.keys(this.town.areas);
-    const area = this.town.areas[pick(this.rng, keys)];
-    this.npcs.push(new Npc(this.scene, this.town.world, area, mulberry32(Math.floor(this.rng() * 1e9))));
+    const key = pick(this.rng, keys);
+    const area = this.town.areas[key];
+    this.npcs.push(new Npc(this.scene, this.town.world, area, mulberry32(Math.floor(this.rng() * 1e9)), key === 'station' ? 'Cop' : undefined));
   }
 
   private wirePlayerHooks() {
@@ -249,6 +266,11 @@ export class Game {
       onWallKick: () => {
         this.sound.wallKick();
         this.particles.burst(this.player.position(), 8, 0xdddddd, 3, { life: 0.4, size: 0.2, gravity: 4 });
+      },
+      onDenied: (move) => {
+        if (performance.now() < this.deniedToastT) return;
+        this.deniedToastT = performance.now() + 4000;
+        this.ui.toast('TOO WEAK', `This body can't do a ${move}. Physical health: ${this.player.tier}.`, 2400);
       },
       onGroundPound: () => this.sound.whoosh(),
       onDive: () => this.sound.whoosh(),
@@ -273,7 +295,12 @@ export class Game {
     this.scene.add(ch.root);
     this.player.setEnabled(true);
     this.player.teleport(at, facing);
+    this.player.tier = file.physical;
+    this.player.healLegs();
     this.player.lock(false);
+    this.props.setBarnOpen(file.job === 'Farmhand');
+    this.barnTries = 0;
+    this.stationVisits = 0;
     this.ui.setHud(this.ledger, file);
   }
 
@@ -284,12 +311,12 @@ export class Game {
     this.player.setEnabled(false);
     this.body = null;
     this.character = null;
-    this.cam.dist = 8;
+    if (first) this.cam.dist = 8;
     this.cam.autoOrbit = 0;
     this.sound.setStyle('ghost');
     this.sound.ghost();
     this.ui.setHud(this.ledger, null);
-    this.ui.setBanner('GHOST MODE · Look at someone to read their file · <b>E</b> to possess');
+    this.ui.setBanner('GHOST MODE · Look at someone to read their file · <b>E</b> / <b>Y</b> to possess');
     this.crosshair.classList.remove('hidden');
     if (first) {
       this.ui.say('Death', '"Fine. You do it then." Look at people with the scythe. Their file tells you everything. Pick one and jump in.', 6000);
@@ -326,7 +353,6 @@ export class Game {
           this.scene.remove(n.character.root);
           const facing = n.character.root.rotation.y;
           this.setBody(n.file, n.character, n.pos.clone(), facing);
-          this.cam.dist = 9;
           this.sound.setStyle('town');
           this.mode = 'play';
           this.npcRespawnT = 4;
@@ -364,7 +390,17 @@ export class Game {
     this.pendingDeath = { id, victim, startPos: this.player.position() };
     this.timeScale = 0.35;
 
-    if (style.kind === 'pancake') {
+    if (style.kind === 'cube') {
+      ch.root.scale.set(ch.app.height * 1.1, ch.app.height * 0.45, ch.app.height * 1.1);
+      ch.spinner.rotation.set(0, 0, 0);
+      ch.tint(0xe3c25a, 0.7);
+      ch.root.position.copy(this.town.baler).add(new THREE.Vector3(-1.6, 0, 0));
+      this.pancakes.push(ch.root);
+      if (this.pancakes.length > 4) this.scene.remove(this.pancakes.shift()!);
+      this.sound.stamp();
+      this.particles.burst(ch.root.position.clone().add(new THREE.Vector3(0, 0.5, 0)), 40, 0xe3c25a, 6, { life: 1.4, size: 0.18 });
+      this.activeRagdoll = null;
+    } else if (style.kind === 'pancake') {
       ch.root.scale.set(ch.app.height * 1.7, ch.app.height * 0.08, ch.app.height * 1.7);
       ch.root.position.y = this.player.feet().y + 0.02;
       ch.spinner.rotation.set(0, 0, 0);
@@ -474,7 +510,16 @@ export class Game {
       ch.kick(0.15 + heavy * 0.4);
       if (e.drop > 3) this.particles.burst(this.player.feet(), 8, 0xcdbf9a, 3, { life: 0.5, size: 0.2, gravity: 6 });
     }
-    if (e.drop >= 9 && this.mode === 'play') {
+    const [breakH, fatalH] = this.player.tier === 'Feeble' ? [3.5, 7] : this.player.tier === 'Athlete' ? [6, 11] : [5, 9];
+    if (e.drop >= breakH && e.drop < fatalH && this.mode === 'play' && !this.player.legsBroken && e.landState !== 'groundpound') {
+      this.player.breakLegs();
+      this.sound.crunch();
+      this.sound.scream(1.2);
+      this.cam.shake(0.5);
+      this.ui.toast('BOTH LEGS BROKEN', 'Crawl to your doom, or press T (LB) to scream for help.', 3800);
+      return;
+    }
+    if (e.drop >= fatalH && this.mode === 'play') {
       const impact = Math.sqrt(2 * 42 * e.drop);
       const v = this.player.vel.clone().multiplyScalar(1.3);
       v.y = impact * 0.45;
@@ -507,6 +552,21 @@ export class Game {
   private interact(id: string) {
     const ch = this.character;
     if (!ch || !this.body) return;
+    if (id === 'barndoor') {
+      if (this.body.job === 'Farmhand') {
+        this.ui.toast('Door is open', "You're the farmer. Walk right in.", 1600);
+        return;
+      }
+      this.barnTries++;
+      this.sound.denied();
+      if (this.barnTries > 3) this.ui.say('Death', "That's a barn. You need to be a farmer to get in there. Quit fuckin' around.", 4000);
+      else this.ui.toast('LOCKED', "I don't have the key for this.", 1800);
+      return;
+    }
+    if (id === 'taser' && this.body.job !== 'Cop') {
+      this.ui.toast('NOT YOURS', 'Only a cop would be dumb enough to touch that.', 2000);
+      return;
+    }
     if (id === 'lever') {
       if (this.body.job !== 'Farmhand') {
         this.ui.toast('STAFF ONLY', 'Only farm staff can work the hoist. Find a Farmhand with scythe vision.', 3200);
@@ -524,6 +584,31 @@ export class Game {
       return;
     }
     this.player.lock(true);
+    if (id === 'taser') {
+      this.sound.zap(1.6);
+      this.runSeq([
+        ...Array.from({ length: 16 }, (_, i) => ({
+          at: i * 0.09,
+          fn: () => {
+            ch.flash(i % 2 === 0);
+            ch.kick(i % 2 ? 0.5 : -0.5);
+            this.particles.burst(this.player.position(), 3, 0x9ad8ff, 5, { life: 0.3, size: 0.1, gravity: 0 });
+          },
+        })),
+        { at: 1.5, fn: () => (ch.flash(false), ch.tint(0x222222, 0.6)) },
+        { at: 1.6, fn: () => this.kill('taser', { kind: 'ragdoll', vel: new THREE.Vector3(0, 6, 0), spin: 9, bounce: 0.4 }) },
+      ]);
+      return;
+    }
+    if (id === 'baler') {
+      this.sound.creak();
+      this.runSeq([
+        { at: 0.2, fn: () => this.ui.toast('*clunk*', 'The baler roars to life.', 1500) },
+        ...Array.from({ length: 12 }, (_, i) => ({ at: 0.4 + i * 0.1, fn: () => (this.sound.crunch(), ch.kick(0.3)) })),
+        { at: 1.7, fn: () => this.kill('baled', { kind: 'cube' }) },
+      ]);
+      return;
+    }
     if (id === 'jug') {
       this.sound.gulp();
       this.runSeq([
@@ -571,6 +656,85 @@ export class Game {
     }
   }
 
+  private ejectFromStation() {
+    this.stationVisits++;
+    const out = this.town.station.outside;
+    const lines = ['Sir, this is a police station.', 'Out. Now.', 'Last warning, pal. I mean it.'];
+    if (this.stationVisits <= 3) {
+      this.player.lock(true);
+      this.ui.say('Officer', lines[this.stationVisits - 1], 2500);
+      this.sound.denied();
+      this.runSeq([
+        {
+          at: 0.5,
+          fn: () => {
+            this.player.lock(false);
+            this.player.teleport(out, Math.PI / 2);
+            this.player.knock(new THREE.Vector3(10, 7, 0));
+            this.sound.whoosh();
+            this.ui.toast('THROWN OUT', `Only cops get in. (${this.stationVisits}/3)`, 1800);
+          },
+        },
+      ]);
+      return;
+    }
+    // They warned you.
+    const ch = this.character;
+    if (!ch) return;
+    this.player.lock(true);
+    this.ui.say('Officer', "That's it. STOP RESISTING!", 2500);
+    this.runSeq([
+      ...Array.from({ length: 14 }, (_, i) => ({
+        at: 0.3 + i * 0.12,
+        fn: () => {
+          this.sound.noise({ dur: 0.08, vol: 0.6, freq: 600 + Math.random() * 600, type: 'bandpass', q: 2 });
+          this.sound.tone({ f: 120, f2: 60, dur: 0.08, type: 'sine', vol: 0.3 });
+          ch.kick(i % 2 ? 0.6 : -0.4);
+          ch.tint(0x6a3a7a, i / 20);
+          this.cam.shake(0.3);
+          this.particles.burst(this.player.position().add(new THREE.Vector3(0, 0.6, 0)), 4, 0xffffff, 4, { life: 0.3, size: 0.12, gravity: 0 });
+        },
+      })),
+      { at: 2.1, fn: () => this.kill('beatdown', { kind: 'ragdoll', vel: new THREE.Vector3(9, 8, 0), spin: 10, bounce: 0.4 }) },
+    ]);
+  }
+
+  private scream() {
+    if (!this.character || performance.now() < this.screamCooldown) return;
+    this.screamCooldown = performance.now() + 1500;
+    this.sound.scream(1.1 + Math.random() * 0.3);
+    this.character.kick(-0.3);
+    const p = this.player.feet();
+    const near = this.npcs
+      .filter((n) => !n.helping && n.pos.distanceTo(p) < 28)
+      .sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p))
+      .slice(0, 2);
+    if (!near.length) {
+      if (this.player.legsBroken) this.ui.say('Death', 'Nobody can hear you out here. Crawl somewhere busier.', 3000);
+      else this.ui.toast('AAAAAAAH', 'Nobody heard you.', 1400);
+      return;
+    }
+    this.ui.toast('AAAAAAAH', `${near.length === 1 ? 'Someone is' : 'People are'} coming.`, 1600);
+    let handled = false;
+    for (const n of near)
+      n.summon(p, () => {
+        if (handled || this.mode !== 'play' || !this.body) return;
+        handled = true;
+        if (this.player.legsBroken) {
+          this.ui.say(n.file.name, "Oh god, your legs! I called 911, hang on!", 3000);
+          setTimeout(() => {
+            if (this.mode !== 'play' || !this.player.legsBroken) return;
+            this.ui.flash('#ffffff', 600);
+            this.player.healLegs();
+            this.sound.cash();
+            this.ui.toast('PATCHED UP', 'The paramedics put casts on both legs. Somehow you can run.', 2600);
+          }, 3500);
+        } else {
+          this.ui.say(n.file.name, pick(this.rng, ["What? What happened? ...You look fine.", 'Was that you screaming? Weirdo.', "I'm calling the cops if you do that again."]), 2600);
+        }
+      });
+  }
+
   private nearFence(p: THREE.Vector3) {
     const f = this.town.fence;
     const m = 1.4;
@@ -586,6 +750,9 @@ export class Game {
       this.kill('edge', { kind: 'ragdoll', vel: this.player.vel.clone(), spin: 5 });
       return;
     }
+    const inStation = inBox(p, this.town.station.interior);
+    if (inStation && !this.wasInStation && this.body?.job !== 'Cop' && this.player.state !== 'locked') this.ejectFromStation();
+    this.wasInStation = inStation;
     const tr = this.props.train;
     if (tr.moving) {
       if (tr.contains(p)) {
@@ -677,8 +844,14 @@ export class Game {
     if (inp.pressed('help')) this.ui.toggleHelp();
     if (inp.pressed('ledger') && this.mode !== 'title') this.ui.toggleLedger(this.ledger);
     if (this.mode === 'claim' && inp.pressed('confirm')) this.ui.pendingClaim?.();
+    if (this.mode === 'title' && inp.pressed('confirm')) this.ui.titleGo?.();
+    this.ui.setPadMode(inp.padConnected);
 
-    const mouseSens = 0.0026;
+    const mouseSens = 0.0032;
+    if (this.mode === 'play' || this.mode === 'ghost') this.cam.zoom(inp.wheel);
+    this.cam.minDist = this.mode === 'dying' || this.mode === 'claim' ? 6 : 0;
+    // Right mouse (or first person) makes the character face where the camera looks.
+    const steer = inp.rmb || this.cam.firstPerson;
     const lookDX = inp.mouseDX * mouseSens + inp.lookX * realDt * 2.6;
     const lookDY = inp.mouseDY * mouseSens + inp.lookY * realDt * 2;
 
@@ -689,6 +862,11 @@ export class Game {
     // Fixed-step physics + player.
     this.acc += dt;
     const h = 1 / 60;
+    // Latch button presses until a physics step consumes them, so a press on a
+    // frame with no fixed step (common on 120/144 Hz screens) is never lost.
+    if (inp.pressed('jump')) this.latched.jump = true;
+    if (inp.pressed('crouch')) this.latched.crouch = true;
+    if (inp.pressed('dive')) this.latched.dive = true;
     let first = true;
     let steps = 0;
     while (this.acc >= h && steps < 5) {
@@ -699,11 +877,13 @@ export class Game {
             moveX: peeing || this.ui.ledgerOpen ? 0 : inp.moveX,
             moveY: peeing || this.ui.ledgerOpen ? 0 : inp.moveY,
             camYaw: this.cam.yaw,
-            jumpPressed: first && inp.pressed('jump'),
+            jumpPressed: first && this.latched.jump,
             jumpHeld: inp.held('jump'),
             crouchHeld: inp.held('crouch'),
-            crouchPressed: first && inp.pressed('crouch'),
-            divePressed: first && inp.pressed('dive'),
+            crouchPressed: first && this.latched.crouch,
+            divePressed: first && this.latched.dive,
+            sprint: inp.sprint,
+            faceYaw: steer ? this.cam.forwardFacing : null,
           });
         }
       }
@@ -712,6 +892,7 @@ export class Game {
       this.physics.step();
       if (this.mode === 'play') this.checkHazards(h);
       this.acc -= h;
+      if (first) this.latched = { jump: false, crouch: false, dive: false };
       first = false;
       steps++;
     }
@@ -734,7 +915,7 @@ export class Game {
     // Keep the town populated.
     if (this.npcRespawnT > 0) {
       this.npcRespawnT -= dt;
-      if (this.npcRespawnT <= 0 && this.npcs.length < 11) this.spawnRandomNpc();
+      if (this.npcRespawnT <= 0 && this.npcs.length < 14) this.spawnRandomNpc();
     }
 
     // Mode-specific per-frame logic and camera.
@@ -753,22 +934,26 @@ export class Game {
       const it = this.player.state !== 'locked' ? this.nearestInteractable() : null;
       this.ui.prompt(it ? `<span class="key">E</span>${it.prompt}` : null);
       if (it && inp.pressed('interact')) this.interact(it.id);
-      const hs = this.player.horizSpeed();
-      this.cam.update(realDt, feet.clone().add(new THREE.Vector3(0, 1.6, 0)), lookDX, lookDY, this.player.facing, hs > 6 ? 0.6 : 0);
+      if (inp.pressed('scream') && this.player.state !== 'locked') this.scream();
+      const eyeH = this.player.state === 'crawl' ? 0.6 : this.player.state === 'crouch' ? 1.1 : 1.65;
+      this.cam.update(realDt, feet.clone().add(new THREE.Vector3(0, 1.6, 0)), lookDX, lookDY, feet.clone().add(new THREE.Vector3(0, eyeH, 0)));
+      ch.root.visible = !this.cam.firstPerson;
     } else if (this.mode === 'dying' || this.mode === 'claim') {
       const target = this.activeRagdoll ? this.activeRagdoll.position() : this.player.position();
       if (target.y < -20) target.y = -20;
       target.y += 1;
       this.cam.pitch += (0.55 - this.cam.pitch) * Math.min(1, realDt * 2);
-      this.cam.update(realDt, target, lookDX + realDt * 0.25, lookDY, null);
+      if (this.character) this.character.root.visible = true;
+      this.cam.update(realDt, target, lookDX + realDt * 0.25, lookDY);
     } else if (this.mode === 'ghost' || this.mode === 'possessing') {
       if (this.mode === 'ghost') this.updateGhost(realDt, lookDX, lookDY);
-      else this.cam.update(realDt, this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0)), lookDX, lookDY, null);
+      else this.cam.update(realDt, this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0)), lookDX, lookDY);
       this.ghost.position.copy(this.ghostPos);
+      this.ghost.visible = this.mode === 'possessing' || !this.cam.firstPerson;
       this.ghost.position.y += Math.sin(this.time * 3) * 0.15;
       this.ghost.rotation.y = this.cam.yaw + Math.PI;
     } else {
-      this.cam.update(realDt, new THREE.Vector3(90, G + 6, 80), 0, 0, null);
+      this.cam.update(realDt, new THREE.Vector3(90, G + 6, 80), 0, 0);
     }
 
     // Sun follows the action for crisp shadows.
@@ -795,7 +980,8 @@ export class Game {
     this.ghostPos.x = Math.min(Math.max(this.ghostPos.x, 2), SIZE - 2);
     this.ghostPos.z = Math.min(Math.max(this.ghostPos.z, 2), SIZE - 2);
     this.ghostPos.y = Math.min(Math.max(this.ghostPos.y, G + 0.5), 50);
-    this.cam.update(dt, this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0)), lookDX, lookDY, null);
+    const gEye = this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0));
+    this.cam.update(dt, gEye, lookDX, lookDY, gEye);
 
     // Scythe vision: whoever is closest to the center of the screen.
     const camPos = this.camera.position;
