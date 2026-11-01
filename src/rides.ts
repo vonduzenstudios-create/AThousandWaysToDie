@@ -45,8 +45,10 @@ export interface RideHost {
   toast(title: string, body: string, ms?: number): void;
   say(who: string, line: string, ms?: number): void;
   shake(amount: number): void;
-  /** Called when a fall should be handled by the normal fall rules after the rider is thrown off. */
+  /** Break the rider's legs after a hard bail. */
   breakLegs(): void;
+  /** True if a car (moving or not) is touching this point. Optional: maps without traffic leave it out. */
+  carAt?(p: THREE.Vector3): boolean;
 }
 
 export interface Ramp {
@@ -275,14 +277,14 @@ export class Rides {
       { kind: 'bicycle', pos: v(75.5, 91), yaw: 0 }, // Duke's Garage sidewalk
       { kind: 'skateboard', pos: v(42.5, 52), yaw: Math.PI }, // park path, near the kicker
       { kind: 'bicycle', pos: v(84.8, 60), yaw: Math.PI }, // main road sidewalk, north
-      { kind: 'bicycle', pos: v(62.5, 79.5), yaw: -Math.PI / 2 }, // E-W road, east of the Dare Ramp run-up
+      { kind: 'bicycle', pos: v(56, 128.5), yaw: Math.PI / 2 }, // start of the Dare Ramp run-up
       { kind: 'skateboard', pos: v(64, 69), yaw: Math.PI / 2 }, // police station walk
       { kind: 'bicycle', pos: v(101, 88), yaw: Math.PI / 2 }, // farm road
       { kind: 'skateboard', pos: v(112, 146), yaw: Math.PI / 2 }, // by the rail line
     ];
     const ramps: Ramp[] = [
-      // The Dare Ramp sits on the east-west road and launches west. Ride at it hard.
-      { id: 'dare', name: 'The Dare Ramp', base: v(53, 80.5), dir: new THREE.Vector3(-1, 0, 0), length: 8, height: 5, width: 5, kick: 1.0 },
+      // The Dare Ramp sits in the open field by the rail line (off the roads, so traffic is clear) and launches east.
+      { id: 'dare', name: 'The Dare Ramp', base: v(96, 130.5), dir: new THREE.Vector3(1, 0, 0), length: 8, height: 5, width: 5, kick: 1.0 },
       // A friendly little kicker on the park path.
       { id: 'kicker', name: 'Park Kicker', base: v(40.5, 46), dir: new THREE.Vector3(0, 0, 1), length: 3.2, height: 1.3, width: 3, kick: 0.55 },
     ];
@@ -520,6 +522,15 @@ export class Rides {
     if (r.kind === 'skateboard' && feeble && impact >= 5) {
       this.crashed = true;
       this.hipShatter(normal.clone().multiplyScalar(5).add(new THREE.Vector3(0, 6, 0)));
+      return;
+    }
+    if (impact >= c.bail && this.host.carAt?.(pl.position())) {
+      // Rode into a car. The car wins.
+      this.crashed = true;
+      this.host.sound.splat();
+      this.host.shake(1.0);
+      const vel = normal.clone().multiplyScalar(impact * 0.5).add(new THREE.Vector3(0, 9 + impact * 0.3, 0)).addScaledVector(fwd, impact * 0.3);
+      this.host.kill('sharetheroad', { kind: 'ragdoll', vel, spin: 14, bounce: 0.6 });
       return;
     }
     if (impact >= c.fatal) {

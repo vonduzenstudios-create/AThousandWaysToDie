@@ -42,12 +42,18 @@ export const DEATHS: DeathDef[] = [
   { id: 'brawl', name: 'Picked the Wrong Fight', category: 'Stupidity', location: 'Anywhere in Smallville', payout: 1300, blurb: 'Punched a stranger. The stranger punched back. A lot.' },
   { id: 'grandma', name: 'Beaten by a Senior', category: 'Stupidity', location: 'Anywhere in Smallville', payout: 2600, blurb: 'Started a fist fight with someone frail. Lost. Badly.' },
   { id: 'peanut', name: 'Peanut Panic', category: 'Allergies', location: 'Smallville Diner', payout: 1400, blurb: 'Ate a peanut butter cookie in a body with a deadly peanut allergy.' },
+  { id: 'roadkill', name: 'Jaywalker', category: 'Vehicles', location: 'Any Road', payout: 1100, blurb: 'Stepped into traffic. The driver was texting. Everyone was texting.' },
+  { id: 'cliff', name: 'Cliffhanger', category: 'Vehicles', location: 'Any Cliff, In Any Car', payout: 3500, blurb: 'Floored it off a cliff in a stolen car. Stuck the landing, in a way.' },
+  { id: 'windshield', name: 'No Seatbelt', category: 'Vehicles', location: 'Any Wall, At Speed', payout: 2400, blurb: 'Hit a wall at highway speed and left through the windshield.' },
+  { id: 'bailout', name: 'Tuck and Roll', category: 'Vehicles', location: 'Any Moving Car', payout: 1700, blurb: 'Jumped out of a moving car like in the movies. Did not tuck. Did not roll.' },
+  { id: 'traincar', name: 'Beat the Train', category: 'Vehicles', location: 'Smallville Rail Crossing', payout: 3800, blurb: 'Tried to beat the train across the tracks in a stolen car. Lost by a lot.' },
   // Skateboards and bikes (src/rides.ts).
   { id: 'handlebars', name: 'Over the Handlebars', category: 'Vehicles', location: 'Anywhere with a wall', payout: 1400, blurb: 'Rode a bike into a wall at full speed. The bike stopped. The rider did not.' },
   { id: 'boardmeeting', name: 'Board Meeting', category: 'Sports', location: 'Anywhere with a wall', payout: 1200, blurb: 'Skated face-first into a wall. The wall called the meeting.' },
   { id: 'kneecap', name: 'Evel Kneecap', category: 'Sports', location: 'The Dare Ramp', payout: 2800, blurb: 'Hit the Dare Ramp at full speed and cleared everything, including the landing.' },
   { id: 'grindrail', name: 'Grind Rail', category: 'Vehicles', location: 'Smallville Rail Crossing', payout: 2600, blurb: 'Tried to grind the train tracks. The train was already grinding them.' },
   { id: 'actyourage', name: 'Act Your Age', category: 'Sports', location: 'Anywhere', payout: 1800, blurb: 'Hopped on a skateboard with hips made of drywall.' },
+  { id: 'sharetheroad', name: 'Share the Road', category: 'Vehicles', location: 'Any Road, On Two Wheels', payout: 1600, blurb: 'Rode a bike or a board into a car, or a car into them. The bike lane was a suggestion.' },
   { id: 'wheelie', name: 'Wheelie Bad Idea', category: 'Stupidity', location: 'Anywhere', payout: 1500, blurb: 'Held a wheelie way too long. Gravity held it longer.' },
 ];
 

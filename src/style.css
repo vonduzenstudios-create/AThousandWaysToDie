@@ -120,6 +120,16 @@ body:not(.pad) .help td:nth-child(3), body:not(.pad) .help th:nth-child(3) { opa
 @keyframes slotnope { 0%, 50% { border-color: #e04040; transform: translateX(-3px); } 25%, 75% { transform: translateX(3px); } }
 .skilltip { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); max-width: 340px; background: rgba(0,0,0,0.88); border: 1px solid #8a7cff; border-radius: 8px; padding: 8px 12px; font-size: 13px; line-height: 1.35; }
 .skilltip .src { color: #b9a6ff; font-size: 11px; }
+.minimap { position: absolute; top: 14px; right: 16px; width: clamp(130px, 17vw, 200px); aspect-ratio: 1; border-radius: 50%; box-shadow: 0 4px 18px rgba(0,0,0,0.55); }
+.minimap canvas { width: 100%; height: 100%; display: block; }
+.minimap .mm-name { position: absolute; left: 0; right: 0; bottom: -20px; text-align: center; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; text-shadow: 0 2px 0 #000; opacity: 0.85; }
+.minimap .mm-speed { position: absolute; left: 50%; bottom: -46px; transform: translateX(-50%); background: rgba(0,0,0,0.65); border-radius: 12px; padding: 2px 10px; font-size: 13px; white-space: nowrap; }
+.minimap .mm-speed b { font-size: 18px; color: #ffd84a; }
+/* The life clock sits under the radar (and its speedometer) instead of on top of it. */
+#ui .life-clock { top: calc(14px + clamp(130px, 17vw, 200px) + 52px); right: 16px; width: clamp(130px, 17vw, 200px); text-align: center; }
+/* Scythe vision files open below the radar and clock. */
+#ui .file { top: calc(14px + clamp(130px, 17vw, 200px) + 84px); transform: none; max-height: calc(100vh - clamp(130px, 17vw, 200px) - 112px); overflow: auto; }
+#ui .file:not(.hidden) ~ .dialog { right: 366px; width: max(300px, min(560px, calc(100vw - 760px))); }
 
 /* ---------- Story cutscenes (src/story) ---------- */
 .cutscene { position: fixed; inset: 0; z-index: 50; background: #000; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none; }
