@@ -506,27 +506,33 @@ export function buildBuilding(input: BuildingSpec): BuiltBuilding {
       f.box(da, 1, -3, db, 15, -3, (u, y) => (y > 7 && u !== da && u !== db && u !== Math.round(dc) ? glass : V.woodDark));
       f.box(da - 1, 0, 1, db + 1, 0, 2, vox(PAL.stoneGrey, { jitter: 0.06 }));
       doors.push(f.local(Math.round(dc), 0, 2));
-      // Awning over the whole shopfront.
+      // Awning over the whole shopfront. It hangs from just under the first-floor string
+      // course and its lowest voxel is 2 blocks up, so people walk under it; the shop name is
+      // lettered on the valance, where it reads from the street.
       if (s.awning) {
         const [c1, c2] = s.awning;
         const A = vox(c1, { jitter: 0.04 }), Bv = vox(c2, { jitter: 0.04 });
         const stripe = (u: number) => (Math.floor(u / 3) % 2 === 0 ? A : Bv);
         const reach = 9;
-        for (let i = 0; i < reach; i++) {
-          const y = 15 - Math.floor(i * 0.5);
-          f.box(2, y, 1 + i, f.len - 3, y, 1 + i, (u) => stripe(u));
+        const slopeY = (i: number) => 22 - Math.floor(i * 0.25);
+        for (let i = 0; i < reach; i++) f.box(2, slopeY(i), 1 + i, f.len - 3, slopeY(i), 1 + i, (u) => stripe(u));
+        const yEdge = slopeY(reach - 1); // 20
+        const vTop = yEdge - 1, vBot = yEdge - 5; // valance rows 15..19
+        f.box(2, vBot, reach, f.len - 3, vTop, reach, s.sign ? A : (u: number) => stripe(u));
+        f.box(2, vBot - 1, reach, f.len - 3, vBot - 1, reach, (u) => (u % 3 === 1 ? stripe(u) : 0));
+        if (s.sign) {
+          const text = s.sign.slice(0, Math.floor((f.len - 8) / 4));
+          const start = Math.floor((f.len - textWidth(text)) / 2);
+          rasterText(text, (px, py) => f.set(start + px, vBot + py, reach + 1, Bv));
         }
-        const yEdge = 15 - Math.floor((reach - 1) * 0.5);
-        f.box(2, yEdge - 2, reach, f.len - 3, yEdge - 1, reach, (u) => stripe(u));
-        f.box(2, yEdge - 3, reach, f.len - 3, yEdge - 3, reach, (u) => (u % 3 === 1 ? stripe(u) : 0));
         // Side cheeks.
         for (let i = 0; i < reach; i++) {
-          const y = 15 - Math.floor(i * 0.5);
-          f.box(2, yEdge - 1, 1 + i, 2, y, 1 + i, A);
-          f.box(f.len - 3, yEdge - 1, 1 + i, f.len - 3, y, 1 + i, A);
+          f.box(2, vTop, 1 + i, 2, slopeY(i), 1 + i, A);
+          f.box(f.len - 3, vTop, 1 + i, f.len - 3, slopeY(i), 1 + i, A);
         }
-        const a = f.local(2, yEdge - 1, 1), b = f.local(f.len - 3, 16, reach + 1);
-        boxes.push({ min: [Math.min(a[0], b[0]), a[1], Math.min(a[2], b[2])], max: [Math.max(a[0], b[0]) + DV, b[1], Math.max(a[2], b[2]) + DV] });
+        // Collider: the canopy only (2.5 blocks up and higher), so it never blocks walking.
+        const ca = f.local(2, yEdge, 1), cb = f.local(f.len - 3, 23, reach + 1);
+        boxes.push({ min: [Math.min(ca[0], cb[0]), ca[1], Math.min(ca[2], cb[2])], max: [Math.max(ca[0], cb[0]) + DV, cb[1], Math.max(ca[2], cb[2]) + DV] });
       }
       // Wall lantern beside the door.
       lantern(f, db + 3, 13);
