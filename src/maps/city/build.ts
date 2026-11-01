@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { B, type VoxelWorld } from '../../voxel';
 import { pick, type Rng } from '../../util';
 import { buildHospital, type HospitalInfo } from '../../places/hospital';
+import { StreetKit, PAL, type BuildingSpec, type Placement, type Preset, type WallStyle } from '../../kit';
 import {
   AIRPORT_LOT,
   AIRPORT_ROAD_Z,
@@ -68,6 +69,16 @@ export interface TowerSpec {
   name?: string;
 }
 
+/** One kit building: its spec, and whether its ground floor is hollowed out to walk in. */
+export interface KitLot {
+  spec: BuildingSpec & Placement;
+  hollow: boolean;
+  /** Front fire escape (walk-ups): local x where it starts. */
+  fireEscape?: number;
+  /** Wooden water tank on the roof, at this fraction of the footprint. */
+  tank?: [number, number];
+}
+
 export interface CityLayout {
   places: CityPlace[];
   towers: TowerSpec[];
@@ -80,6 +91,15 @@ export interface CityLayout {
   billboards: { pos: THREE.Vector3; rotY: number; w: number; h: number; kind: number }[];
   awnings: { x0: number; x1: number; z0: number; z1: number; y: number; colors: [number, number] }[];
   statuePlinth: THREE.Vector3;
+  /** Detailed buildings drawn by the shared kit (src/kit) in setup. */
+  kit: KitLot[];
+  /** Columns people can't walk through (kit buildings have no voxels). Index z * SX + x. */
+  blocked: Uint8Array;
+  /** Street props from the kit (hydrants, bins, cafe tables...). */
+  props: { kind: string; x: number; z: number; rotY: number }[];
+  /** Bunting strung across streets (world end points). */
+  bunting: [THREE.Vector3, THREE.Vector3][];
+  dumpsters: { x: number; z: number; rotY: number }[];
   /** City General Hospital (src/places/hospital), stamped into HOSPITAL_LOT. */
   hospital?: HospitalInfo;
 }
@@ -113,6 +133,27 @@ const BRIGHT = [B.RedPaint, B.RoofGreen, B.RoofBlue, B.Yellow, B.WallMint, B.Roo
  * About 512 x 640 voxels: a lot for the airport, a grid of 42 blocks, Central Park, Little Italy,
  * Mortalis Mutual HQ, a construction site, a rail yard, a subway line and the harbor.
  */
+type BOpts = {
+  floors: number;
+  wall: number;
+  trim: number;
+  front: Side;
+  shop?: { name: string; kind: string; sells?: { item: string; price: number }[]; jobs?: string[]; awning?: [number, number]; sign?: [string, string]; lines?: string[] };
+  home?: string;
+  fireEscape?: boolean;
+  roofJunk?: boolean;
+  glassy?: boolean;
+  solidGround?: boolean;
+  /** Old-style voxel building (landmarks whose interiors the deaths use). */
+  voxel?: boolean;
+  preset?: Preset;
+  /** Kit storeys (3 blocks each); default matches the voxel height. */
+  kitFloors?: number;
+  look?: Partial<BuildingSpec>;
+  /** Shops: put a counter across the back (default true). */
+  counter?: boolean;
+};
+
 export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
   const out: CityLayout = {
     places: [],
@@ -126,6 +167,11 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     billboards: [],
     awnings: [],
     statuePlinth: new THREE.Vector3(),
+    kit: [],
+    blocked: new Uint8Array(SX * SZ),
+    props: [],
+    bunting: [],
+    dumpsters: [],
   };
   const set = (x: number, y: number, z: number, b: number) => w.set(x, y, z, b);
   const fill = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, b: number) => w.fill(x0, y0, z0, x1, y1, z1, b);
@@ -186,9 +232,12 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
   // Street furniture along every sidewalk: lamps, hydrants, trash cans, newspaper boxes.
   const furnish = (x: number, z: number, i: number) => {
     if (w.get(x, G - 1, z) !== B.Sidewalk || w.get(x, G, z) !== 0) return;
-    if (i % 14 === 0) out.lamps.push(V(x + 0.5, G, z + 0.5)); // thin mesh lamp posts, see scenery else if (i % 37 === 5) set(x, G, z, B.RedPaint);
-    else if (i % 29 === 9) set(x, G, z, B.Dark);
-    else if (i % 53 === 21) set(x, G, z, B.WallBlue);
+    if (i % 14 === 0) out.lamps.push(V(x + 0.5, G, z + 0.5)); // thin mesh lamp posts, see scenery
+    else if (i % 37 === 5) out.props.push({ kind: 'hydrant', x: x + 0.5, z: z + 0.5, rotY: 0 });
+    else if (i % 29 === 9) out.props.push({ kind: 'bin', x: x + 0.5, z: z + 0.5, rotY: 0 });
+    else if (i % 53 === 21) out.props.push({ kind: 'newsStand', x: x + 0.5, z: z + 0.5, rotY: 0 });
+    else if (i % 61 === 40) out.props.push({ kind: 'mailbox', x: x + 0.5, z: z + 0.5, rotY: 0 });
+    else if (i % 47 === 30) out.props.push({ kind: 'bollard', x: x + 0.5, z: z + 0.5, rotY: 0 });
   };
   for (const c of AVES) {
     let i = 0;
@@ -207,24 +256,100 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
   // Keep intersections' corners clear (furniture can land on corner sidewalks).
   for (const ax of AVES)
     for (const sz of STREETS) fill(ax - AVE_HALF - WALK, G, sz - ST_HALF - WALK, ax + AVE_HALF - 1 + WALK, G + 5, sz + ST_HALF - 1 + WALK, B.Air);
+  out.props = out.props.filter((p) => !AVES.some((ax) => STREETS.some((sz) => p.x >= ax - AVE_HALF - WALK && p.x <= ax + AVE_HALF + WALK && p.z >= sz - ST_HALF - WALK && p.z <= sz + ST_HALF + WALK)));
 
   // ------------------------------------------------------------------ buildings
+  /** Hex colors for the few block colors call sites still use for awnings. */
+  const HEX: Record<number, number> = { [B.RoofGreen]: 0x2f7a45, [B.White]: 0xf2ece0, [B.RedPaint]: 0xc8302c, [B.RoofBlue]: 0x2f5a9a, [B.Yellow]: 0xe0a830 };
+  /** New York walls: brownstone, red and brown brick, limestone, the odd cream stucco. */
+  const NY_LOOKS: { wall: number; wallStyle: WallStyle; trim?: number }[] = [
+    { wall: 0x7a4a36, wallStyle: 'stone', trim: 0x8e5a44 },
+    { wall: 0x6e4030, wallStyle: 'stone', trim: 0x85513e },
+    { wall: PAL.brickRed, wallStyle: 'brick' },
+    { wall: PAL.brickBrown, wallStyle: 'brick' },
+    { wall: 0x9a5a40, wallStyle: 'brick' },
+    { wall: 0x7c3a2c, wallStyle: 'brick' },
+    { wall: PAL.stone, wallStyle: 'stone' },
+    { wall: 0xc9b48e, wallStyle: 'brick' },
+    { wall: PAL.cream, wallStyle: 'stucco' },
+  ];
+  const signText = (name: string) => name.toUpperCase().replace(/[^A-Z0-9 .,!?'&$+/:#-]/g, '').trim();
+
+  /**
+   * A detailed kit building on a lot (drawn in setup). Shops get a hollow ground floor with
+   * an open door, a plank floor and a counter, so people and the player can walk in.
+   */
+  const kitShell = (r: Rect, o: BOpts) => {
+    const wx = r.x1 - r.x0 + 1, wz = r.z1 - r.z0 + 1;
+    const along = o.front === 'n' || o.front === 's';
+    const wd = along ? wx : wz, dp = along ? wz : wx;
+    const floors = o.kitFloors ?? Math.max(1, Math.round((o.floors * 4) / 3));
+    const preset: Preset = o.preset ?? (o.glassy ? 'modern' : 'mainstreet');
+    const look = preset === 'mainstreet' ? pick(rng, NY_LOOKS) : {};
+    const hollow = !!o.shop;
+    const spec: BuildingSpec & Placement = {
+      x: r.x0,
+      z: r.z0,
+      y: G,
+      face: o.front,
+      w: wd,
+      d: dp,
+      floors,
+      preset,
+      seed: Math.floor(rng() * 1e9),
+      ground: o.shop ? 'shop' : o.home ? 'door' : 'blank',
+      ...look,
+      ...(o.shop ? { sign: signText(o.shop.name) } : {}),
+      ...(o.shop?.awning ? { awning: [HEX[o.shop.awning[0]] ?? 0xc8302c, HEX[o.shop.awning[1]] ?? 0xf2ece0] as [number, number] } : {}),
+      ...o.look,
+};
+    const lot: KitLot = { spec, hollow };
+    if (o.fireEscape && !o.shop && floors >= 3 && wd >= 9) lot.fireEscape = Math.min(wd / 2 + 0.8, wd - 4.9);
+    if (o.roofJunk && wd >= 8 && dp >= 8 && rng() < 0.6) lot.tank = [0.25 + rng() * 0.5, 0.35 + rng() * 0.4];
+    out.kit.push(lot);
+    surf(r, hollow ? B.Plank : B.Concrete);
+    for (let x = r.x0; x <= r.x1; x++) for (let z = r.z0; z <= r.z1; z++) out.blocked[z * SX + x] = 1;
+    // Building-local (front at z = 0, facing -z) to world.
+    const m = StreetKit.placement(spec, wd, dp);
+    const L = (lx: number, lz: number) => new THREE.Vector3(lx, 0, lz).applyMatrix4(m).setY(G);
+    const doorOut = L(wd / 2, -1.5);
+    const top = G + floors * 3;
+    if (o.shop) {
+      for (let x = r.x0 + 1; x < r.x1; x++) for (let z = r.z0 + 1; z < r.z1; z++) out.blocked[z * SX + x] = 0;
+      const dc = L(wd / 2, 0.5);
+      out.blocked[Math.floor(dc.z) * SX + Math.floor(dc.x)] = 0;
+      // Counter two blocks off the back wall, staff behind it.
+      const cr = L(wd / 2, dp - 2.5);
+      if (o.counter === false) void 0;
+      else if (along) fill(r.x0 + 2, G, Math.floor(cr.z), r.x1 - 2, G, Math.floor(cr.z), o.shop.kind === 'bar' ? B.Wood : B.White);
+      else fill(Math.floor(cr.x), G, r.z0 + 2, Math.floor(cr.x), G, r.z1 - 2, o.shop.kind === 'bar' ? B.Wood : B.White);
+      out.places.push({
+        id: `shop-${uid++}`,
+        name: o.shop.name,
+        kind: o.shop.kind,
+        door: doorOut,
+        inside: { x0: r.x0 + 1, z0: r.z0 + 1, x1: r.x1 - 1, z1: r.z1 - 1 },
+        sells: o.shop.sells,
+        jobs: o.shop.jobs ?? ['Clerk'],
+        hours: o.shop.kind === 'bar' ? [16, 3] : [7, 21],
+        staffSpots: [L(wd / 2, dp - 1.5)],
+        lines: o.shop.lines,
+      });
+    } else if (o.home) {
+      out.places.push({ id: `home-${uid++}`, name: o.home, kind: 'home', door: doorOut, residents: 2 + Math.floor(rng() * 3) });
+    }
+    if (lot.fireEscape !== undefined) {
+      // A dumpster under the first landing, so anyone can climb up.
+      const dpos = L(lot.fireEscape + 1.2, -1.1);
+      out.dumpsters.push({ x: dpos.x, z: dpos.z, rotY: { n: 0, s: Math.PI, e: -Math.PI / 2, w: Math.PI / 2 }[o.front] });
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) out.blocked[Math.floor(dpos.z + dz * 0.7) * SX + Math.floor(dpos.x + dx * 0.9)] = 1;
+    }
+    return { top, doorOut };
+  };
+
   /** Generic building with windows, cornice, optional storefront, fire escape and roof clutter. */
-  const building = (
-    r: Rect,
-    o: {
-      floors: number;
-      wall: number;
-      trim: number;
-      front: Side;
-      shop?: { name: string; kind: string; sells?: { item: string; price: number }[]; jobs?: string[]; awning?: [number, number]; sign?: [string, string]; lines?: string[] };
-      home?: string;
-      fireEscape?: boolean;
-      roofJunk?: boolean;
-      glassy?: boolean;
-      solidGround?: boolean;
-    },
-  ) => {
+  const building = (r: Rect, o: BOpts) => {
+    if (!o.voxel) return kitShell(r, o);
     const h = o.floors * 4;
     const top = G + h;
     surf(r, B.Concrete);
@@ -386,7 +511,7 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
   const homeNames = ['Brownstone', 'Walk-up', 'Row House', 'Apartments', 'Tenement'];
 
   /** A block of mixed shops and walk-ups: lots along the north and south halves. */
-  const mixedBlock = (r: Rect, floorsMin: number, floorsMax: number, shopChance: number, shops = nextShop) => {
+  const mixedBlock = (r: Rect, floorsMin: number, floorsMax: number, shopChance: number, shops = nextShop, preset?: Preset) => {
     const mid = Math.floor((r.z0 + r.z1) / 2);
     for (const half of ['n', 's'] as Side[]) {
       const z0 = half === 'n' ? r.z0 : mid + 1, z1 = half === 'n' ? mid - 1 : r.z1;
@@ -402,29 +527,60 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
           home: shop ? undefined : `${pick(rng, homeNames)} ${100 + uid}`,
           fireEscape: i % 2 === 0,
           roofJunk: true,
+          preset,
         });
       });
     }
   };
 
-  /** Midtown: a podium with a lobby and a mesh tower above. */
+  /** Split [a0, a1] into runs between min and max long. */
+  const splitRange = (a0: number, a1: number, min: number, max: number) => {
+    const runs: [number, number][] = [];
+    let a = a0;
+    while (a <= a1) {
+      let len = min + Math.floor(rng() * (max - min + 1));
+      if (a1 - (a + len - 1) < min) len = a1 - a + 1;
+      runs.push([a, a + len - 1]);
+      a += len;
+    }
+    return runs;
+  };
+
+  /**
+   * Midtown: a four-storey podium of kit buildings (lobby in the middle of the front, shops
+   * beside it) with a mesh tower rising from its roof.
+   */
   const towerBlock = (r: Rect, name: string, style: number, heights: [number, number], front: Side, lobby = true) => {
-    const podium = 3;
-    building(r, {
-      floors: podium,
-      wall: style % 2 ? B.Concrete : B.Stone,
-      trim: B.White,
-      front,
-      glassy: true,
-      shop: lobby ? { name, kind: 'work', jobs: ['Office Worker', 'Stockbroker', 'Security Guard'], sign: ['#111111', '#e8d8a0'], sells: [] } : undefined,
-      solidGround: !lobby,
-    });
+    const alongX = front === 'n' || front === 's';
+    const back: Side = ({ n: 's', s: 'n', e: 'w', w: 'e' } as const)[front];
+    const classic = style % 2 === 0;
+    const look: Partial<BuildingSpec> = classic
+      ? { wall: pick(rng, [PAL.stone, 0xd2c6ae, 0xbfae92]), wallStyle: 'stone', trim: PAL.trimStone, windowTop: 'arch' }
+      : { wall: pick(rng, [PAL.concrete, 0xa9b0b8, 0xd8d2c4, 0x8a8f96]), wallStyle: 'concrete' };
+    const preset: Preset = classic ? 'mainstreet' : 'modern';
+    const mid = alongX ? Math.floor((r.z0 + r.z1) / 2) : Math.floor((r.x0 + r.x1) / 2);
+    for (const side of [front, back]) {
+      const lo = side === 'n' || side === 'w';
+      const runs = alongX ? splitRange(r.x0, r.x1, 14, 22) : splitRange(r.z0, r.z1, 12, 20);
+      runs.forEach(([a0, a1], i) => {
+        const rect = alongX
+          ? { x0: a0, x1: a1, z0: lo ? r.z0 : mid + 1, z1: lo ? mid : r.z1 }
+          : { z0: a0, z1: a1, x0: lo ? r.x0 : mid + 1, x1: lo ? mid : r.x1 };
+        const isLobby = lobby && side === front && i === Math.floor(runs.length / 2);
+        const shop = isLobby
+          ? { name, kind: 'work', jobs: ['Office Worker', 'Stockbroker', 'Security Guard'], sells: [] }
+          : side === front && rng() < 0.6
+            ? nextShop()
+            : undefined;
+        building(rect, { floors: 3, kitFloors: 4, wall: 0, trim: 0, front: side, glassy: true, preset, shop, look: { ...look, awning: isLobby ? false : undefined } });
+      });
+    }
     const inset = 3;
     const h = heights[0] + Math.floor(rng() * (heights[1] - heights[0]));
     const segs: [number, number][] = [[inset, Math.floor(h * 0.6)]];
     if (rng() < 0.7) segs.push([inset + 4, Math.floor(h * 0.25)]);
     if (rng() < 0.5) segs.push([inset + 8, Math.floor(h * 0.15)]);
-    out.towers.push({ x0: r.x0, z0: r.z0, x1: r.x1 + 1, z1: r.z1 + 1, y0: G + podium * 4 + 1, segs, style, spire: rng() < 0.3 ? 10 + rng() * 20 : undefined, name });
+    out.towers.push({ x0: r.x0, z0: r.z0, x1: r.x1 + 1, z1: r.z1 + 1, y0: G + 12, segs, style, spire: rng() < 0.3 ? 10 + rng() * 20 : undefined, name });
   };
 
   // Districts block by block.
@@ -536,7 +692,7 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
         for (let dy = -rr; dy <= rr; dy++)
           for (let dz = -rr; dz <= rr; dz++) if (dx * dx + dy * dy * 1.6 + dz * dz <= rr * rr + 0.5 && w.get(x + dx, G + hh + dy, z + dz) === 0 && rng() > 0.06) set(x + dx, G + hh + dy, z + dz, leaf);
       out.trees.push(V(x + 0.5, G + hh + rr, z + 0.5));
-    };
+};
     for (let i = 0; i < 160; i++) {
       const x = p.x0 + 3 + Math.floor(rng() * (p.x1 - p.x0 - 6)), z = p.z0 + 3 + Math.floor(rng() * (p.z1 - p.z0 - 6));
       if (w.get(x, G - 1, z) !== B.Grass && w.get(x, G - 1, z) !== B.Flower) continue;
@@ -567,7 +723,7 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
   // ------------------------------------------------------------------ Mortalis Mutual HQ
   {
     const r = MORTALIS;
-    building(r, { floors: 3, wall: B.Dark, trim: B.Metal, front: 'n', glassy: true, shop: { name: 'Mortalis Mutual', kind: 'work', jobs: ['Insurance Salesman', 'Claims Adjuster', 'Security Guard', 'Office Worker'], sign: ['#1d2b4f', '#c9a227'], sells: [], lines: ['Have you considered our Platinum Exclusions plan?', 'Your claim is very important to us.'] } });
+    building(r, { floors: 3, wall: B.Dark, trim: B.Metal, front: 'n', glassy: true, shop: { name: 'Mortalis Mutual', kind: 'work', jobs: ['Insurance Salesman', 'Claims Adjuster', 'Security Guard', 'Office Worker'], sign: ['#1d2b4f', '#c9a227'], sells: [], lines: ['Have you considered our Platinum Exclusions plan?', 'Your claim is very important to us.'] }, voxel: true });
     out.towers.push({ x0: r.x0, z0: r.z0, x1: r.x1 + 1, z1: r.z1 + 1, y0: G + 13, segs: [[2, 120], [6, 40], [12, 20]], style: 5, spire: 34, name: 'Mortalis Mutual' });
     // Plaza in front with a reflecting strip.
     fill(r.x0, G - 1, r.z0 - 3, r.x1, G - 1, r.z0 - 1, B.Sidewalk);
@@ -576,7 +732,7 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
   // ------------------------------------------------------------------ station
   {
     const r = STATION;
-    building(r, { floors: 4, wall: B.Stone, trim: B.White, front: 'w', shop: { name: 'Grand Centralish Station', kind: 'transit', sells: [{ item: 'train ticket', price: 50 }], jobs: ['Conductor', 'Ticket Clerk'], sign: ['#2a2a2a', '#f2d77a'] }, roofJunk: false });
+    building(r, { floors: 4, wall: B.Stone, trim: B.White, front: 'w', shop: { name: 'Grand Centralish Station', kind: 'transit', sells: [{ item: 'train ticket', price: 50 }], jobs: ['Conductor', 'Ticket Clerk'], sign: ['#2a2a2a', '#f2d77a'] }, roofJunk: false, voxel: true });
     // Big arched windows on the west face.
     for (let z = r.z0 + 3; z <= r.z1 - 3; z += 6) fill(r.x0, G + 4, z, r.x0, G + 12, z + 2, B.Glass);
   }
@@ -669,7 +825,7 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     fill(k.x1, G + 29, k.z0 + 10, k.x1 + 14, G + 29, k.z0 + 10, B.RedPaint);
     // Half-demolished brick building beside it (the wrecking ball's target).
     const d = { x0: s.x0 + 20, z0: s.z0 + 50, x1: s.x0 + 34, z1: s.z0 + 66 };
-    building(d, { floors: 4, wall: B.Brick, trim: B.Concrete, front: 'w', solidGround: true });
+    building(d, { floors: 4, wall: B.Brick, trim: B.Concrete, front: 'w', solidGround: true, voxel: true });
     // The wrecking ball has already taken a bite out of the west wall.
     fill(d.x0, G + 2, d.z0 + 4, d.x0 + 2, G + 9, d.z0 + 12, B.Air);
     fill(d.x0 + 3, G + 10, d.z0 + 2, d.x0 + 5, G + 15, d.z0 + 7, B.Air);
@@ -686,7 +842,7 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     const italyShop = () => {
       const s = ITALY_SHOPS[n++ % ITALY_SHOPS.length];
       return { name: s[2], kind: s[1], sells: s[3], awning: [B.RoofGreen, B.White] as [number, number] };
-    };
+};
     // Don Calzone's Pizzeria takes the corner of block (1,4).
     const r14 = blockRect(1, 4);
     const pz = { x0: r14.x0, z0: r14.z0, x1: r14.x0 + 17, z1: r14.z0 + 14 };
@@ -706,6 +862,9 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
       },
       fireEscape: true,
       roofJunk: true,
+      counter: false,
+      kitFloors: 4,
+      look: { wall: PAL.brickRed, wallStyle: 'brick', signBoard: 0x23402c, trim: PAL.trimCream, flowerBoxes: 0.8 },
     });
     // Back room (separated by a wall with a doorway).
     fill(pz.x0 + 1, G, pz.z0 + 9, pz.x1 - 1, G + 2, pz.z0 + 9, B.Brick);
@@ -713,9 +872,15 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     fill(pz.x0 + 8, G, pz.z0 + 3, pz.x0 + 10, G, pz.z0 + 4, B.RedPaint); // tables
     fill(pz.x0 + 13, G, pz.z0 + 3, pz.x0 + 15, G, pz.z0 + 4, B.RedPaint);
     fill(pz.x0 + 9, G, pz.z0 + 11, pz.x0 + 13, G, pz.z0 + 12, B.Wood); // the boss's table
-    mixedBlock({ x0: r14.x0 + 18, z0: r14.z0, x1: r14.x1, z1: r14.z0 + 14 }, 3, 5, 0.7, italyShop);
-    for (const [c, rr] of [[0, 4], [0, 5], [1, 5]] as [number, number][]) mixedBlock(blockRect(c, rr), 3, 5, 0.55, italyShop);
-    mixedBlock({ x0: r14.x0, z0: r14.z0 + 16, x1: r14.x1, z1: r14.z1 }, 3, 5, 0.5, italyShop);
+    mixedBlock({ x0: r14.x0 + 18, z0: r14.z0, x1: r14.x1, z1: r14.z0 + 14 }, 3, 5, 0.7, italyShop, 'euro');
+    for (const [c, rr] of [[0, 4], [0, 5], [1, 5]] as [number, number][]) mixedBlock(blockRect(c, rr), 3, 5, 0.55, italyShop, 'euro');
+    mixedBlock({ x0: r14.x0, z0: r14.z0 + 16, x1: r14.x1, z1: r14.z1 }, 3, 5, 0.5, italyShop, 'euro');
+    // Feast lights strung across the street between the two halves, cafe tables on the sidewalks.
+    for (let x = I.x0 + 6; x < I.x1 - 4; x += 9) {
+      out.bunting.push([V(x, G + 7.5, STREETS[5] - ST_HALF - WALK + 0.2), V(x + 4, G + 7.5, STREETS[5] + ST_HALF + WALK - 0.2)]);
+      if ((x / 9) % 2 < 1) out.props.push({ kind: 'umbrellaTable', x: x + 1.5, z: STREETS[5] - ST_HALF - 1.6, rotY: 0.3 });
+      else out.props.push({ kind: 'cafeTable', x: x + 1.5, z: STREETS[5] + ST_HALF + 1.6, rotY: 0.2 });
+    }
     out.places.push({ id: 'italy', name: 'Little Italy', kind: 'attraction', door: V((I.x0 + I.x1) / 2, G, STREETS[5] + 0.5) });
   }
 
@@ -725,7 +890,7 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     surf(r, B.Asphalt);
     for (let x = r.x0 + 2; x <= r.x1 - 2; x += 5) fill(x, G - 1, r.z0 + 2, x, G - 1, r.z0 + 12, B.White);
     for (let i = 0; i < 6; i++) out.parked.push({ pos: V(r.x0 + 4.5 + i * 5, G, r.z0 + 7), rotY: 0 });
-    building({ x0: r.x0 + 4, z0: r.z0 + 16, x1: r.x1 - 4, z1: r.z1 }, { floors: 2, wall: B.White, trim: B.RoofBlue, front: 'n', glassy: true, shop: { name: 'Crazy Larry Motors', kind: 'shop', sells: [{ item: 'used sedan', price: 4000 }], jobs: ['Car Salesman'], sign: ['#d01818', '#ffff00'] } });
+    building({ x0: r.x0 + 4, z0: r.z0 + 16, x1: r.x1 - 4, z1: r.z1 }, { floors: 2, wall: B.White, trim: B.RoofBlue, front: 'n', glassy: true, shop: { name: 'Crazy Larry Motors', kind: 'shop', sells: [{ item: 'used sedan', price: 4000 }], jobs: ['Car Salesman'], sign: ['#d01818', '#ffff00'] }, look: { signBoard: 0xd01818, awning: [0xd01818, 0xf2d040] } });
     // Pennant poles.
     for (let x = r.x0; x <= r.x1; x += 6) fill(x, G, r.z0, x, G + 5, r.z0, B.Metal);
   }
@@ -746,16 +911,16 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
         set(p.x0, G, z, B.Wood);
         set(p.x1, G, z, B.Wood);
       }
-    };
+};
     // Pier 13: the mob's pier, with a bait shack at the end.
     pier(PIERS.mob, B.Plank);
     const m = PIERS.mob;
-    building({ x0: m.x0 + 1, z0: m.z1 - 9, x1: m.x1 - 1, z1: m.z1 - 4 }, { floors: 1, wall: B.Plank, trim: B.Wood, front: 'n', solidGround: true });
+    building({ x0: m.x0 + 1, z0: m.z1 - 9, x1: m.x1 - 1, z1: m.z1 - 4 }, { floors: 1, wall: B.Plank, trim: B.Wood, front: 'n', solidGround: true, voxel: true });
     fill(m.x0, G, m.z1, m.x1, G, m.z1, B.Air); // open end, nothing to stop you
     // Ferry terminal pier.
     pier(PIERS.ferry, B.Concrete);
     const f = PIERS.ferry;
-    building({ x0: f.x0 + 3, z0: f.z0 + 2, x1: f.x1 - 3, z1: f.z0 + 12 }, { floors: 2, wall: B.WallBlue, trim: B.White, front: 'n', glassy: true, shop: { name: 'Big Apple Ferry', kind: 'transit', sells: [{ item: 'ferry ticket', price: 80 }], jobs: ['Deckhand', 'Ticket Clerk'], sign: ['#1a3a6a', '#ffffff'] } });
+    building({ x0: f.x0 + 3, z0: f.z0 + 2, x1: f.x1 - 3, z1: f.z0 + 12 }, { floors: 2, wall: B.WallBlue, trim: B.White, front: 'n', glassy: true, shop: { name: 'Big Apple Ferry', kind: 'transit', sells: [{ item: 'ferry ticket', price: 80 }], jobs: ['Deckhand', 'Ticket Clerk'], sign: ['#1a3a6a', '#ffffff'] }, voxel: true });
     // Cargo pier with stacked shipping containers to climb.
     pier(PIERS.cargo, B.Concrete);
     const c = PIERS.cargo;
@@ -803,7 +968,7 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     fill(A.x + 10, G - 1, A.z + 30, A.x + A.sx - 11, G - 1, A.z + 50, B.Asphalt);
     for (let x = A.x + 20; x < A.x + A.sx - 20; x++) if (x % 10 < 6) set(x, G - 1, A.z + 40, B.White);
     fill(A.x + 140, G - 1, A.z + 51, A.x + 180, G - 1, A.z + A.sz - 1, B.Concrete);
-    building({ x0: A.x + 140, z0: A.z + A.sz - 30, x1: A.x + 180, z1: A.z + A.sz - 10 }, { floors: 2, wall: B.White, trim: B.RoofBlue, front: 's', glassy: true, shop: { name: 'Fuhgeddaboudit International', kind: 'transit', jobs: ['Ticket Clerk'], sign: ['#1a3a6a', '#ffffff'], sells: [{ item: 'plane ticket', price: 400 }] } });
+    building({ x0: A.x + 140, z0: A.z + A.sz - 30, x1: A.x + 180, z1: A.z + A.sz - 10 }, { floors: 2, wall: B.White, trim: B.RoofBlue, front: 's', glassy: true, shop: { name: 'Fuhgeddaboudit International', kind: 'transit', jobs: ['Ticket Clerk'], sign: ['#1a3a6a', '#ffffff'], sells: [{ item: 'plane ticket', price: 400 }] }, voxel: true });
   }
 
   // ------------------------------------------------------------------ hospital superblock
@@ -837,13 +1002,38 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     { pos: V(tsx + 9, G + 36, tsz + 10.5), rotY: -Math.PI * 0.75 + Math.PI / 2, w: 12, h: 8, kind: 3 },
   );
 
+  // Party walls: a kit building's side touching another kit building gets no windows or trim.
+  {
+    const owner = new Int32Array(SX * SZ).fill(-1);
+    out.kit.forEach((k, i) => {
+      const s = k.spec;
+      const ex = s.face === 'n' || s.face === 's' ? s.w : s.d, ez = s.face === 'n' || s.face === 's' ? s.d : s.w;
+      for (let x = s.x; x < s.x + ex; x++) for (let z = s.z; z < s.z + ez; z++) owner[z * SX + x] = i;
+    });
+    const LEFT: Record<Side, [number, number]> = { n: [1, 0], s: [-1, 0], e: [0, 1], w: [0, -1] };
+    out.kit.forEach((k, i) => {
+      const s = k.spec;
+      const f = s.face as Side;
+      const ex = f === 'n' || f === 's' ? s.w : s.d, ez = f === 'n' || f === 's' ? s.d : s.w;
+      const cx = s.x + ex / 2, cz = s.z + ez / 2;
+      const probe = (dx: number, dz: number) => {
+        const x = Math.floor(cx + dx * (ex / 2 + 0.5)), z = Math.floor(cz + dz * (ez / 2 + 0.5));
+        const o = x >= 0 && z >= 0 && x < SX && z < SZ ? owner[z * SX + x] : -1;
+        return o >= 0 && o !== i;
+      };
+      const [lx, lz] = LEFT[f];
+      s.party = { left: probe(lx, lz), right: probe(-lx, -lz) };
+    });
+  }
+
   return out;
 }
 
 /** Standing height for townsfolk at a column, or NaN if nobody can stand there. */
-export function standHeight(w: VoxelWorld, x: number, z: number) {
+export function standHeight(w: VoxelWorld, x: number, z: number, blocked?: Uint8Array) {
   x = Math.floor(x);
   z = Math.floor(z);
+  if (blocked && x >= 0 && z >= 0 && x < SX && z < SZ && blocked[z * SX + x]) return NaN;
   for (let y = G + 1; y >= G - 2; y--) {
     if (w.get(x, y, z) !== 0 && w.get(x, y + 1, z) === 0 && w.get(x, y + 2, z) === 0) return y + 1;
   }

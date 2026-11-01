@@ -140,7 +140,7 @@ function lifeMap(w: VoxelWorld, L: CityLayout): LifeMap {
     name: CITY_NAME,
     nav: {
       bounds: { x0: LAND.x0 + 1, z0: AIRPORT_ROAD_Z - 8, x1: LAND.x1 - 1, z1: PIERS.mob.z1 },
-      walkable: (x, z) => !Number.isNaN(standHeight(w, x, z)),
+      walkable: (x, z) => !Number.isNaN(standHeight(w, x, z, L.blocked)),
       groundAt: (x, z) => {
         const h = standHeight(w, x, z);
         return Number.isNaN(h) ? G : h;
