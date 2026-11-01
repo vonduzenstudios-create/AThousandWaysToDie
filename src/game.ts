@@ -2277,7 +2277,11 @@ export class Game {
   private setupMapScreen(roads: Road[]) {
     const b = this.mapBuild, t = this.town;
     const places = this.life.places;
-    const pois = poisFromPlaces(places, b.stops, places.filter((p) => p.tags?.includes('maple12')).map((p) => p.id));
+    const deaths = Object.values(DEATH_BY_ID).filter((d) => mapOfDeath(d.id) === this.mapDef.id);
+    // Homes stay off the map, except the story's 12 Maple St and homes where someone can die.
+    const homeDeath = new Set(deaths.map((d) => d.location.toLowerCase()));
+    const keepHomes = places.filter((p) => p.tags?.includes('maple12') || homeDeath.has(p.name.toLowerCase())).map((p) => p.id);
+    const pois = poisFromPlaces(places, b.stops, keepHomes);
     pois.push(...(b.pois ?? []));
     for (const r of this.rides.ramps) pois.push({ id: `ramp:${r.id}`, x: r.base.x, z: r.base.z, name: r.name, kind: 'ride' });
     for (const it of this.props?.interactables ?? []) if (it.id.startsWith('atm:')) pois.push({ id: it.id, x: it.pos.x, z: it.pos.z, name: 'ATM', kind: 'atm' });
@@ -2295,7 +2299,6 @@ export class Game {
         'Smallville Police Station': 'police',
         'The Dare Ramp': 'ramp:dare',
       });
-    const deaths = Object.values(DEATH_BY_ID).filter((d) => mapOfDeath(d.id) === this.mapDef.id);
     const missed = placeDeaths(pois, deaths, spots);
     if (missed.length) console.debug(`[map] ${this.mapDef.id} deaths with no spot:`, missed.map((d) => `${d.id} @ ${d.location}`));
     this.mapPois = pois;

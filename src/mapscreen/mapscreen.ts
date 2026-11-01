@@ -20,7 +20,7 @@ export interface MapView {
 }
 
 /** Kinds hidden until switched on in the legend (they'd bury everything else). */
-const HIDDEN_BY_DEFAULT = new Set<PoiKind>(['home', 'atm']);
+const HIDDEN_BY_DEFAULT = new Set<PoiKind>(['atm']);
 const HOVER_PX = 14;
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -550,7 +550,7 @@ export class MapScreen {
     for (const p of this.pois) counts.set(p.kind, (counts.get(p.kind) ?? 0) + 1);
     const allDeaths = this.pois.flatMap((p) => p.deaths ?? []);
     const found = v ? allDeaths.filter((id) => v.found(id)).length : 0;
-    this.titleEl.innerHTML = `<b>${esc(this.name)}</b>${allDeaths.length ? `<span>☠ ${found} / ${allDeaths.length} death spots found</span>` : ''}`;
+    this.titleEl.innerHTML = `<b>${esc(this.name)}</b>${allDeaths.length ? `<span>☠ ${found} of ${allDeaths.length} deaths found here</span>` : ''}`;
     const rows = (Object.keys(POI_STYLE) as PoiKind[])
       .filter((k) => counts.get(k))
       .map((k) => {
