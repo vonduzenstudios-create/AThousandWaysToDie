@@ -120,7 +120,9 @@ export const PHYSICAL_INFO: Record<Physical, string> = {
   Normal: 'double jump, flips, dive',
   Athlete: 'triple jump, long jump',
 };
-export type Job = (typeof JOBS)[number] | (typeof SPECIAL_JOBS)[number];
+/** Jobs that only exist inside the prison and the asylum. Never rolled for random townsfolk. */
+export const INSTITUTION_JOBS = ['Inmate', 'Prison Guard', 'Warden', 'Visitor', 'Patient', 'Orderly', 'Nurse', 'Psychiatrist'] as const;
+export type Job = (typeof JOBS)[number] | (typeof SPECIAL_JOBS)[number] | (typeof INSTITUTION_JOBS)[number];
 
 const BORING_CAUSES = [
   'choking on a vitamin',
@@ -216,7 +218,7 @@ export interface PersonFile {
   wallet: Wallet;
 }
 
-const ATHLETIC_JOBS: readonly string[] = ['Cop', 'Construction Worker', 'Farmhand', 'Teen', 'Mail Carrier', 'Firefighter', 'EMT'];
+const ATHLETIC_JOBS: readonly string[] = ['Cop', 'Construction Worker', 'Farmhand', 'Teen', 'Mail Carrier', 'Firefighter', 'EMT', 'Prison Guard', 'Inmate', 'Orderly'];
 
 export function physicalFor(rng: Rng, age: number, job: string): Physical {
   if (age >= 72) return rng() < 0.9 ? 'Feeble' : 'Normal';
@@ -233,7 +235,9 @@ export function randomFile(rng: Rng, job?: Job): PersonFile {
   if (chosenJob === 'Teen') age = Math.floor(randRange(rng, 14, 19));
   if (chosenJob === 'Retiree') age = Math.floor(randRange(rng, 66, 95));
   if (['Doctor', 'Surgeon', 'Nurse', 'EMT', 'Firefighter', 'Security Guard'].includes(chosenJob)) age = Math.floor(randRange(rng, 24, 64));
-  if (chosenJob === 'Cop' || chosenJob === 'Construction Worker') age = Math.floor(randRange(rng, 21, 56));
+  if (chosenJob === 'Cop' || chosenJob === 'Construction Worker' || chosenJob === 'Prison Guard' || chosenJob === 'Orderly') age = Math.floor(randRange(rng, 21, 56));
+  if (chosenJob === 'Inmate') age = Math.floor(randRange(rng, 19, 70));
+  if (chosenJob === 'Warden' || chosenJob === 'Psychiatrist') age = Math.floor(randRange(rng, 45, 75));
   const netWorth = Math.floor(Math.pow(rng(), 3) * 2_000_000) - 20000;
   const roll = rng();
   const daysLeft = roll < 0.45 ? Math.floor(randRange(rng, 0, 30)) : roll < 0.7 ? Math.floor(randRange(rng, 30, 900)) : Math.floor(randRange(rng, 3000, 20000));
@@ -249,7 +253,7 @@ export function randomFile(rng: Rng, job?: Job): PersonFile {
     quirk,
     peanutAllergy: quirk.includes('peanut') || rng() < 0.15,
     physical: physicalFor(rng, age, chosenJob),
-    mental: pick(rng, ['Depressed', 'Normal', 'Normal', 'Medicated'] as const),
+    mental: chosenJob === 'Patient' ? pick(rng, ['Depressed', 'Medicated', 'Medicated', 'Normal'] as const) : pick(rng, ['Depressed', 'Normal', 'Normal', 'Medicated'] as const),
     wallet: randomWallet(rng, chosenJob, age, netWorth),
   };
 }

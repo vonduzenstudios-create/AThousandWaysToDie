@@ -35,6 +35,16 @@ export const B = {
   LeavesDark: 28,
   WallPeach: 29,
   RoofBrown: 30,
+  // Prison and asylum blocks (src/maps/institutions). High ids so other maps can add blocks below them.
+  PrisonGrey: 180,
+  CellFloor: 181,
+  Tile: 182,
+  Padding: 183,
+  PoolTile: 184,
+  AsylumWall: 185,
+  Linoleum: 186,
+  OrangePaint: 187,
+  Carpet: 188,
 } as const;
 
 /** Base color and how much per-voxel color noise each block gets. */
@@ -69,6 +79,15 @@ export const PALETTE: Record<number, [number, number]> = {
   [B.LeavesDark]: [0x2f7a2c, 0.2],
   [B.WallPeach]: [0xf2c6a0, 0.05],
   [B.RoofBrown]: [0x6b4330, 0.08],
+  [B.PrisonGrey]: [0x7c8088, 0.08],
+  [B.CellFloor]: [0x5d6168, 0.1],
+  [B.Tile]: [0xdfe8ec, 0.05],
+  [B.Padding]: [0xf1ead2, 0.07],
+  [B.PoolTile]: [0x4aa8d8, 0.06],
+  [B.AsylumWall]: [0xc9d8c2, 0.05],
+  [B.Linoleum]: [0xb9c4a8, 0.12],
+  [B.OrangePaint]: [0xf07a2a, 0.04],
+  [B.Carpet]: [0x7a3a4a, 0.12],
 };
 
 /**
