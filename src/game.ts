@@ -18,6 +18,8 @@ import {
 } from './deaths';
 import { Input } from './input';
 import { Npc } from './npc';
+import type { GameApi, MapRuntime } from './maps/types';
+import { HOSPITAL_DEATHS, setupHospital } from './places/hospital';
 import { LifeSystem } from './life';
 import { deathGossip, smallvilleLife } from './life/maps/smallville';
 import { Particles } from './particles';
@@ -44,7 +46,7 @@ type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing';
 type DeathStyle =
   | { kind: 'ragdoll'; vel: THREE.Vector3; spin?: number; bounce?: number }
   | { kind: 'pancake' }
-  | { kind: 'cube' };
+  | { kind: 'cube'; at?: THREE.Vector3; color?: number };
 
 interface Step {
   at: number;
@@ -105,6 +107,9 @@ export class Game {
   private seq: Step[] = [];
   private seqT = 0;
   private rng: Rng = mulberry32(Date.now() & 0xffff);
+  /** Places stamped into the map (the hospital annex for now): their runtime hooks. */
+  private places: MapRuntime[] = [];
+  private start0 = new THREE.Vector3();
   private ghost: THREE.Group;
   private ghostPos = new THREE.Vector3();
   private ghostTarget: Npc | null = null;
@@ -195,7 +200,12 @@ export class Game {
 
     // Physics and world.
     this.physics = new RAPIER.World({ x: 0, y: -30, z: 0 });
+    // City General Hospital is stamped into Smallville's E3 lot. ?place=hospital starts the ghost at its door.
+    const devPlace = new URLSearchParams(location.search).get('place');
     this.town = buildTown();
+    const hospital = this.town.hospital;
+    this.start0 = this.town.spawn.clone().setY(G + 4);
+    if (devPlace === 'hospital') this.start0 = hospital.entrance.clone().add(new THREE.Vector3(0, 4, -8));
     this.town.world.build(this.scene, this.physics);
     this.props = new Props(this.scene, this.physics, this.town);
     this.atms = new Atms(this.scene, this.physics, this.town.world, this.town.areas.downtown, this.props.interactables);
@@ -289,6 +299,10 @@ export class Game {
     document.getElementById('ui')!.appendChild(this.crosshair);
 
     this.spawnInitialNpcs();
+    {
+      registerMapDeaths(HOSPITAL_DEATHS, 'smallville');
+      this.places.push(setupHospital({ scene: this.scene, physics: this.physics, world: this.town.world, rng: this.rng, game: this.api() }, hospital));
+    }
     this.ui.blip = () => this.sound.blip(0.6);
     this.ui.setHud(this.ledger, null);
 
@@ -336,6 +350,46 @@ export class Game {
     scythe.rotation.z = 0.15;
     g.add(scythe);
     return g;
+  }
+
+  /** The slice of the game that maps and places drive (src/maps/types.ts). */
+  private api(): GameApi {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const g = this;
+    return {
+      get player() { return g.player; },
+      get body() { return g.body; },
+      get character() { return g.character; },
+      get sound() { return g.sound; },
+      get particles() { return g.particles; },
+      kill: (id, style) => g.kill(id, style),
+      runSeq: (steps) => g.runSeq(steps),
+      toast: (t, b, ms) => g.ui.toast(t, b, ms),
+      say: (who, line, ms) => g.ui.say(who, line, ms),
+      shake: (a) => g.cam.shake(a),
+      flash: (c, ms) => g.ui.flash(c, ms),
+      prompt: (html) => g.ui.prompt(html),
+      get input() { return g.input; },
+      get camYaw() { return g.cam.yaw; },
+      get time() { return g.time; },
+      get balance() { return g.ledger.balance; },
+      spend: (amount, label) => {
+        if (g.ledger.balance < amount) {
+          g.ui.toast("CAN'T AFFORD IT", `${label} costs $${amount}.`, 2000);
+          return false;
+        }
+        g.ledger.balance -= amount;
+        g.ledger.save();
+        g.ui.setHud(g.ledger, g.body);
+        return true;
+      },
+      setHueShift: (deg) => g.ui.setHueShift(deg),
+    };
+  }
+
+  /** Bodies scythe vision can target: townsfolk plus people the places post (hospital staff). */
+  private get targetable(): Npc[] {
+    return this.places.length ? [...this.npcs, ...this.places.flatMap((pl) => pl.npcs ?? [])] : this.npcs;
   }
 
   private spawnInitialNpcs() {
@@ -421,7 +475,7 @@ export class Game {
     this.sound.startMusic();
     this.input.requestLock();
     this.cam.autoOrbit = 0;
-    const go = () => this.enterGhost(this.town.spawn.clone().setY(G + 4), true);
+    const go = () => this.enterGhost(this.start0.clone(), true);
     // ?cutscene=<id> replays one scene (e.g. opening, smallville:25) for testing.
     const forced = new URLSearchParams(location.search).get('cutscene');
     if (forced) void this.story.replay(forced).then(go);
@@ -456,6 +510,7 @@ export class Game {
     this.player.floatT = 0;
     this.ui.setSkills(this.skillBar, this.input.padConnected);
     this.ui.setHud(this.ledger, file);
+    for (const pl of this.places) pl.onBody?.(file);
   }
 
   private enterGhost(at: THREE.Vector3, first = false) {
@@ -470,6 +525,7 @@ export class Game {
     this.combat.setBody(null);
     this.ui.setSkills(null);
     this.ui.setHealth(null);
+    for (const pl of this.places) pl.onBody?.(null);
     if (first) this.cam.dist = 8;
     this.cam.autoOrbit = 0;
     this.sound.setStyle('ghost');
@@ -557,12 +613,14 @@ export class Game {
     if (style.kind === 'cube') {
       ch.root.scale.set(ch.baseScale * 1.1, ch.baseScale * 0.45, ch.baseScale * 1.1);
       ch.spinner.rotation.set(0, 0, 0);
-      ch.tint(0xe3c25a, 0.7);
-      ch.root.position.copy(this.town.baler).add(new THREE.Vector3(-1.6, 0, 0));
+      ch.tint(style.color ?? 0xe3c25a, 0.7);
+      ch.root.rotation.set(0, ch.root.rotation.y, 0);
+      if (style.at) ch.root.position.copy(style.at);
+      else ch.root.position.copy(this.town.baler).add(new THREE.Vector3(-1.6, 0, 0));
       this.pancakes.push(ch.root);
       if (this.pancakes.length > 4) this.scene.remove(this.pancakes.shift()!);
       this.sound.stamp();
-      this.particles.burst(ch.root.position.clone().add(new THREE.Vector3(0, 0.5, 0)), 40, 0xe3c25a, 6, { life: 1.4, size: 0.18 });
+      this.particles.burst(ch.root.position.clone().add(new THREE.Vector3(0, 0.5, 0)), 40, style.color ?? 0xe3c25a, 6, { life: 1.4, size: 0.18 });
       this.activeRagdoll = null;
     } else if (style.kind === 'pancake') {
       ch.root.scale.set(ch.baseScale * 1.7, ch.baseScale * 0.08, ch.baseScale * 1.7);
@@ -654,8 +712,8 @@ export class Game {
     this.input.requestLock();
     this.ui.setHud(this.ledger, null);
     const at = this.activeRagdoll ? this.activeRagdoll.position() : this.pendingDeath?.startPos ?? this.town.spawn.clone();
-    at.x = Math.min(Math.max(at.x, 4), SIZE - 4);
-    at.z = Math.min(Math.max(at.z, 4), SIZE - 4);
+    at.x = Math.min(Math.max(at.x, 4), this.town.world.sx - 4);
+    at.z = Math.min(Math.max(at.z, 4), this.town.world.sz - 4);
     at.y = Math.max(at.y, G) + 3;
     this.pendingDeath = null;
     this.enterGhost(at);
@@ -670,6 +728,7 @@ export class Game {
     if (this.mode === 'play' && !this.rides.isRiding && this.hometown.onLand(e)) return;
     if (this.rides.isRiding && this.rides.onLand(e)) return;
     const heavy = Math.min(e.drop / 12, 1);
+    if (this.mode === 'play' && this.places.some((pl) => pl.onLand?.(e))) return;
     if (e.landState === 'groundpound') {
       this.sound.slam();
       this.cam.shake(0.6);
@@ -714,7 +773,7 @@ export class Game {
     const p = this.player.feet();
     let best: { id: string; prompt: string } | null = null;
     let bd = Infinity;
-    for (const it of [...this.props.interactables, ...this.rides.activeInteractables()]) {
+    for (const it of [...this.props.interactables, ...this.rides.activeInteractables(), ...this.places.flatMap((pl) => pl.interactables ?? [])]) {
       if (!it.enabled) continue;
       const d = Math.hypot(it.pos.x - p.x, it.pos.z - p.z);
       if (d < it.radius && Math.abs(it.pos.y - p.y) < 2.5 && d < bd) {
@@ -734,6 +793,7 @@ export class Game {
       return;
     }
     if (this.rides.tryInteract(id)) return;
+    for (const pl of this.places) if (pl.interactables?.some((it) => it.id === id)) return pl.interact?.(id);
     if (id.startsWith('atm:')) {
       const r = withdraw(this.body, this.withdrawn);
       this.ui.toast(r.title, r.sub, 3200);
@@ -1123,6 +1183,10 @@ export class Game {
     if (p.y < -12) {
       this.kill('edge', { kind: 'ragdoll', vel: this.player.vel.clone(), spin: 5 });
       return;
+    }
+    for (const pl of this.places) {
+      pl.checkHazards?.(dt);
+      if (this.mode !== 'play') return;
     }
     const inStation = inBox(p, this.town.station.interior);
     if (inStation && !this.wasInStation && this.body?.job !== 'Cop' && this.player.state !== 'locked') this.ejectFromStation();
@@ -1672,6 +1736,7 @@ export class Game {
       this.props.bale.update(h);
       this.hometown.step(h);
       this.grocery.step(h);
+      for (const pl of this.places) pl.step?.(h);
       this.traffic.step(h, this.obstacles, focus0);
       this.physics.step();
       this.traffic.afterStep();
@@ -1706,6 +1771,7 @@ export class Game {
     this.props.update(dt, this.time);
     this.hometown.update(dt, this.time);
     this.grocery.update(dt, this.time);
+    for (const pl of this.places) pl.update?.(dt, this.time);
     this.particles.update(dt);
 
     // Train smoke.
@@ -1819,7 +1885,7 @@ export class Game {
     this.camera.getWorldDirection(dir);
     let best: Npc | null = null;
     let bestScore = Infinity;
-    for (const n of this.npcs) {
+    for (const n of this.targetable) {
       if (n.away) continue;
       const to = n.pos.clone().add(new THREE.Vector3(0, 1, 0)).sub(camPos);
       const d = to.length();

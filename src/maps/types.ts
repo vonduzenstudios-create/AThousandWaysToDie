@@ -11,6 +11,7 @@ import type { Character } from '../character';
 import type { Sound } from '../audio';
 import type { Particles } from '../particles';
 import type { Input } from '../input';
+import type { Npc } from '../npc';
 
 /**
  * The multi-map interface. Every place in the game (Smallville, the city, the beach,
@@ -58,7 +59,8 @@ export interface NpcSpawn {
 export type DeathStyle =
   | { kind: 'ragdoll'; vel: THREE.Vector3; spin?: number; bounce?: number }
   | { kind: 'pancake' }
-  | { kind: 'cube' };
+  /** Folded into a neat cube (hay baler, laundry press). `at` = where the cube lands, `color` = its tint. */
+  | { kind: 'cube'; at?: THREE.Vector3; color?: number };
 
 /** The slice of the game a map is allowed to drive. Game implements this. */
 export interface GameApi {
@@ -107,6 +109,15 @@ export interface MapRuntime {
   checkHazards?(h: number): void;
   /** Called when the player lands. Return true if the map handled it (e.g. killed the player). */
   onLand?(e: { drop: number; launchPos: THREE.Vector3; launchState: string; landState: string }): boolean;
+  /**
+   * Extra bodies the map owns and positions itself (staff posted on a hospital's upper
+   * floors, where the life system's single-level nav grid can't go). The game lets scythe
+   * vision target and possess them. Once `game.character` is one of these bodies, the map
+   * drops it from the list (it now belongs to Gary).
+   */
+  npcs?: Npc[];
+  /** Called when Gary takes a body (file) or leaves one (null). */
+  onBody?(file: PersonFile | null): void;
   /** Remove everything this map added to the scene and physics world. */
   dispose(): void;
 }

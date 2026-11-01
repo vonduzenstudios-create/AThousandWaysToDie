@@ -32,6 +32,12 @@ export function composeRuntimes(parts: (MapRuntime | null | undefined)[]): MapRu
       for (const r of rts) if (r.onLand?.(e)) return true;
       return false;
     },
+    get npcs() {
+      return rts.flatMap((r) => r.npcs ?? []);
+    },
+    onBody(file) {
+      for (const r of rts) r.onBody?.(file);
+    },
     dispose() {
       for (const r of rts) r.dispose();
     },

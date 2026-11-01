@@ -3,6 +3,7 @@ import { B, VoxelWorld } from './voxel';
 import { mulberry32, pick, type Rng } from './util';
 import { GROCERY } from './places/grocery';
 import type { PlaceBuild } from './places/types';
+import { buildHospital, type HospitalInfo } from './places/hospital';
 import {
   GROUND,
   bench,
@@ -132,6 +133,8 @@ export interface TownInfo {
   zones: Record<string, Box>;
   /** The grocery store stamp (its own deaths, staff and runtime). */
   grocery: PlaceBuild;
+  /** City General Hospital, stamped into the E3 lot; game.ts runs setupHospital on it. */
+  hospital: HospitalInfo;
 }
 
 type TravelStops = TransitStop[];
@@ -250,6 +253,7 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
   const zones: Record<string, Box> = {};
   const roads: RoadLine[] = [];
   let grocery!: PlaceBuild;
+  let hospital!: HospitalInfo;
 
   const place = (p: Place) => places.push(p);
   const sign = (lines: string[], x: number, y: number, z: number, rotY: number, bg: string, fg: string, wd = 6, h = 1.5) =>
@@ -914,37 +918,16 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
 
   // ================================================================ E3: Smallville General Hospital (x 446..505, z 246..324)
   {
-    // Placeholder for the hospital stamp: reserved lot x 446..511, z 250..301 (64 x 48 building at origin 446, G, 250).
+    // City General Hospital stamp (src/places/hospital): 64 x 48, entrance on the north side facing Main St.
     const hx0 = 446, hz0 = 250, hx1 = 509, hz1 = 297;
-    building(w, { x0: hx0, z0: hz0, x1: hx1, z1: hz1, floors: 3, floorH: 6, wall: B.White, trim: B.WallBlue, floor: B.Tile, roof: 'flat', roofMat: B.Concrete, winEvery: 2, doors: [{ side: 'n', at: 476, width: 4, height: 4 }] });
+    hospital = buildHospital(w, { x: hx0, y: G, z: hz0 }, rng);
     zones.hospitalLot = box(446, G, 247, 511.99, G + 42, 301.99);
-    // Reception, waiting room, ward beds with IV stands and heart monitors on every floor.
-    w.fill(468, G, 256, 482, G, 257, B.White);
-    for (let z = 260; z <= 268; z += 4) w.fill(454, G, z, 464, G, z, B.WallBlue);
-    for (let f = 0; f < 3; f++) {
-      const y = G + f * 6;
-      for (let x = 486; x <= 498; x += 4) {
-        w.fill(x, y, 280, x + 1, y, 284, B.White);
-        w.set(x + 2, y, 283, B.Metal);
-        w.set(x + 2, y + 1, 283, B.Metal);
-        w.set(x - 1, y + 1, 280, B.Black); // monitor
-      }
-      stairs(w, 452, 290, 'e', 6, y, B.Linoleum);
-    }
-    spots.hospitalBed = v(490.5, G, 286);
-    spots.stairsTop = v(455.5, G + 12, 291);
-    // Helipad on the roof.
-    w.fill(468, G + 18, 266, 484, G + 18, 282, B.Concrete);
-    w.fill(472, G + 18, 270, 472, G + 18, 278, B.Yellow);
-    w.fill(480, G + 18, 270, 480, G + 18, 278, B.Yellow);
-    w.fill(472, G + 18, 274, 480, G + 18, 274, B.Yellow);
     // Ambulance bay and parking.
     parkingLot(w, 446, 302, 506, 324);
     w.fill(452, G, 304, 456, G + 2, 311, B.White);
     w.fill(452, G + 2, 304, 456, G + 2, 304, B.RedPaint);
-    sign(['SMALLVILLE GENERAL', 'EMERGENCY'], 478, G + 14, hz0 - 0.6, Math.PI, '#ffffff', '#c01818', 10, 2);
     spots.ambulance = v(458, G, 307);
-    place({ id: 'hospital', name: 'Smallville General Hospital', kind: 'civic', door: v(478, G, 247.5), inside: inner(hx0, hz0, hx1, hz1), staffSpots: [v(472, G, 258), v(478, G, 258), v(492, G, 278)], jobs: ['Nurse', 'Doctor', 'EMT'], tags: ['hospital'] });
+    place({ id: 'hospital', name: 'Smallville General Hospital', kind: 'civic', door: hospital.entrance.clone(), inside: inner(hx0, hz0, hx1, hz1), staffSpots: [v(472, G, 258), v(478, G, 258), v(492, G, 278)], jobs: ['Nurse', 'Doctor', 'EMT'], tags: ['hospital'] });
   }
 
   // ================================================================ B4: school (x 156..244, z 336..414)
@@ -1180,6 +1163,7 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
     spots,
     zones,
     grocery,
+    hospital,
   };
 }
 

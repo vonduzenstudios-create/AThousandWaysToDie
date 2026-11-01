@@ -65,6 +65,7 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 - GTA-style radar in the top right that rotates with the camera, draws itself from the voxels on any map, shows cars and landmarks, a speedometer while driving, and in ghost mode every soul colored by whether they're due.
 - Anime-style story cutscenes drawn in code: the opening (Gary's turkey-fryer death, the DENIED stamp, and Death's "Fine. You do it then!"), plus a scene from Death on his day off each time 25 deaths in an area opens the next route (bus to downtown, the harbor boats, the airport). Click, Space, E or A advances; Esc or Start twice skips. Add `?cutscene=opening` (or `smallville:25`, `city:25`, `city:50`) to the URL to replay one.
 - Ragdoll physics, insurance claim cards with payouts, a 1,000-slot death ledger saved in the browser.
+- City General Hospital (in the city's hospital lot): four floors and a roof helipad. Anyone can walk into the lobby, but only doctors, surgeons, nurses, EMTs, firefighters, janitors and security get past the badge door; patients stay on the ward and in pre-op, and only surgeons and doctors go in the ORs. Stairs and an elevator connect the floors. 12 deaths: Snack Attack, Code Grey, Clear!, Cold Storage, Fresh Linens, Going Down, Laughing Gas, Physician Heal Thyself, Wrong Surgery, Unplug Yourself, Magnet Personality, Chopper Haircut. Until the game loads the city, play it with `?place=hospital` (Smallville plus an annex south of the tracks). See `docs/hospital.md`.
 
 ## Tech
 
@@ -86,6 +87,8 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/economy.ts`: ATMs and card withdrawals
 - `src/combat.ts`: punching, angry NPCs, player health
 - `src/maps/city/`: Big Apple City, a 512 x 640 New York style map (see `docs/city.md`); `src/maps/compose.ts` merges sub-places like the airport and hospital into a map
+- `src/maps/wilderness/`: The Wilds, a 640 x 640 forest, savanna and desert map with animals and 19 deaths (see `docs/wilderness.md`)
+- `src/places/hospital/`: City General Hospital, a drop-in place for any map (`buildHospital`, `setupHospital`, `HOSPITAL_DEATHS`)
 - `src/audio.ts`: synthesized sound effects and the chiptune sequencer
 - `src/story/`: cutscene player (`cutscene.ts`), canvas anime art (`art.ts`), synth stings and voices (`sfx.ts`), scripts (`scenes.ts`) and the director that picks and saves scenes (`director.ts`)
 - `src/ui.ts`: HUD, scythe vision panel, claim card, ledger
