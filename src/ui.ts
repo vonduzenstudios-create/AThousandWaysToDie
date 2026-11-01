@@ -1,5 +1,6 @@
 import { CATEGORIES, DEATHS, PHYSICAL_INFO, TOTAL_SLOTS, isDeserving, timeLeftLabel, type Ledger, type PersonFile } from './deaths';
 import { money } from './util';
+import type { SkillBar } from './skills';
 
 const el = (html: string) => {
   const d = document.createElement('div');
@@ -35,6 +36,11 @@ export class UI {
   private dialog: HTMLElement;
   private flashEl: HTMLElement;
   private titleEl: HTMLElement;
+  private skillEl: HTMLElement;
+  private tipEl: HTMLElement;
+  private healthEl: HTMLElement;
+  private skillKey = '';
+  onSkillClick: ((i: number) => void) | null = null;
   private toastTimer = 0;
   private dialogTimer: number | null = null;
   ledgerOpen = false;
@@ -45,6 +51,9 @@ export class UI {
     this.flashEl = this.add('<div class="flash"></div>');
     this.hud = this.add('<div class="hud"></div>');
     this.promptEl = this.add('<div class="prompt hidden"></div>');
+    this.healthEl = this.add('<div class="health hidden"><div class="hfill"></div><div class="htext"></div></div>');
+    this.skillEl = this.add('<div class="skills hidden"></div>');
+    this.tipEl = this.add('<div class="skilltip hidden"></div>');
     this.toastEl = this.add('<div class="toast hidden"></div>');
     this.banner = this.add('<div class="banner hidden"></div>');
     this.fileEl = this.add('<div class="file hidden"></div>');
@@ -67,9 +76,14 @@ export class UI {
         <tr><td>Backflip</td><td>Shift + Space standing</td><td>B + A standing</td></tr>
         <tr><td>Side flip</td><td>Reverse + Space</td><td>Reverse + A</td></tr>
         <tr><td>Wall kick</td><td>Space on a wall</td><td>A on a wall</td></tr>
-        <tr><td>Dive</td><td>F</td><td>X or RT</td></tr>
+        <tr><td>Punch</td><td>F</td><td>X</td></tr>
+        <tr><td>Dive</td><td>G</td><td>RT</td></tr>
+        <tr><td>Skills</td><td>1 – 5 (or click)</td><td>D-pad up/down pick, right use</td></tr>
         <tr><td>Interact / possess</td><td>E</td><td>Y</td></tr>
         <tr><td>Scream for help</td><td>T</td><td>LB</td></tr>
+        <tr><td>Hijack car / get out</td><td>E</td><td>Y</td></tr>
+        <tr><td>Drive · steer</td><td>W / S · A / D</td><td>Stick or RT / LT · stick</td></tr>
+        <tr><td>Handbrake · horn</td><td>Space · T</td><td>A · LB</td></tr>
         <tr><td>Pee</td><td>Q</td><td>RB</td></tr>
         <tr><td>Ghost rise / sink</td><td>Space / Shift</td><td>A / B</td></tr>
         <tr><td>Ledger · music</td><td>Tab · M</td><td>View · D-pad left</td></tr>
@@ -279,6 +293,79 @@ export class UI {
       <div class="cats">${cats}</div>
       <div class="lfoot">Tab to close</div>`;
     this.ledgerEl.classList.remove('hidden');
+  }
+
+  /** Rebuild the skill bar for a new body (or hide it for the ghost). */
+  setSkills(bar: SkillBar | null, pad = false) {
+    const key = bar ? bar.slots.map((s) => s.skill?.id ?? '-').join(',') + pad : '';
+    if (key === this.skillKey) return;
+    this.skillKey = key;
+    if (!bar || !bar.slots.length) {
+      this.skillEl.classList.add('hidden');
+      this.tipEl.classList.add('hidden');
+      return;
+    }
+    this.skillEl.innerHTML = bar.slots
+      .map((s, i) => {
+        const sk = s.skill;
+        const cls = !sk ? 'locked' : sk.passive ? 'passive' : '';
+        return `<div class="slot ${cls}" data-i="${i}">
+          <div class="k">${i + 1}</div>
+          <div class="ic">${sk ? sk.icon : '🔒'}</div>
+          <div class="nm">${sk ? sk.name : 'Locked'}</div>
+          <div class="cd"></div>
+        </div>`;
+      })
+      .join('');
+    this.skillEl.querySelectorAll<HTMLElement>('.slot').forEach((slot) => {
+      const i = Number(slot.dataset.i);
+      const s = bar.slots[i];
+      slot.addEventListener('mouseenter', () => this.showTip(s.skill ? `<b>${s.skill.name}</b> <span class="src">${s.skill.source}${s.skill.passive ? ' · passive' : s.skill.once ? ' · once per body' : s.skill.cooldown ? ` · ${s.skill.cooldown}s cooldown` : ''}</span><br>${s.skill.desc}` : `<b>Locked</b><br>${s.locked}`));
+      slot.addEventListener('mouseleave', () => this.tipEl.classList.add('hidden'));
+      slot.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        if (e.button === 0) this.onSkillClick?.(i);
+      });
+    });
+    this.skillEl.classList.remove('hidden');
+  }
+
+  private showTip(html: string) {
+    this.tipEl.innerHTML = html;
+    this.tipEl.classList.remove('hidden');
+  }
+
+  /** Per-frame: cooldown sweeps, used-up slots, gamepad selection. */
+  updateSkills(bar: SkillBar, now: number, pad: boolean) {
+    this.skillEl.querySelectorAll<HTMLElement>('.slot').forEach((slot, i) => {
+      const f = bar.cooldownFrac(i, now);
+      (slot.querySelector('.cd') as HTMLElement).style.height = `${f * 100}%`;
+      const s = bar.slots[i]?.skill;
+      slot.classList.toggle('spent', !!(s?.once && bar.used[i]));
+      slot.classList.toggle('sel', pad && bar.selected === i);
+    });
+  }
+
+  /** Flash a slot when pressed, red if it refused. */
+  pulseSkill(i: number, ok: boolean) {
+    const slot = this.skillEl.querySelector<HTMLElement>(`.slot[data-i="${i}"]`);
+    if (!slot) return;
+    slot.classList.remove('pulse', 'nope');
+    void slot.offsetWidth;
+    slot.classList.add(ok ? 'pulse' : 'nope');
+  }
+
+  setHealth(hp: number | null, max = 100) {
+    if (hp === null) {
+      this.healthEl.classList.add('hidden');
+      return;
+    }
+    this.healthEl.classList.remove('hidden');
+    const f = Math.max(0, Math.min(1, hp / max));
+    const fill = this.healthEl.querySelector('.hfill') as HTMLElement;
+    fill.style.width = `${f * 100}%`;
+    fill.style.background = f > 0.5 ? '#4ccf5a' : f > 0.25 ? '#e8b730' : '#e04040';
+    (this.healthEl.querySelector('.htext') as HTMLElement).textContent = `${Math.ceil(hp)} / ${max} HP`;
   }
 
   hideHelp() {

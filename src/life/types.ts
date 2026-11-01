@@ -53,6 +53,8 @@ export interface LifePlace {
   inside?: BoxLike;
   /** Exact spots to stand or sit: counter stools, bench seats, beach towels. Preferred over `inside`. */
   spots?: V3[];
+  /** Where customers stand to order or pay. Default: a point between the door and the first staff spot. */
+  counter?: V3;
   /** Where workers stand (behind the counter, at the desk). */
   staffSpots?: V3[];
   /** Jobs employed here. A resident with one of these jobs works here. */
@@ -133,6 +135,12 @@ export interface ResidentSpec {
   /** Fixed name, e.g. 'Duke'. */
   name?: string;
   age?: number;
+  /** A guaranteed lunch break on a 24h clock, e.g. [12, 13]. They eat at `lunchAt` or the nearest food/shop place. */
+  lunch?: [number, number];
+  /** Place id for the guaranteed lunch break. */
+  lunchAt?: string;
+  /** Override the job profile's shift, e.g. [6, 14]. */
+  shift?: [number, number];
 }
 
 export interface LifeMap {

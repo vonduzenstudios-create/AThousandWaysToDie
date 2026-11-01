@@ -83,6 +83,11 @@ export class Player {
   facing = 0;
   /** True while running at sprint speed. */
   sprinting = false;
+  /** Temporary run-speed multiplier from a skill, active while boostT > 0. */
+  boostMul = 1;
+  boostT = 0;
+  /** Seconds of reduced gravity left (floaty skills). */
+  floatT = 0;
   state: MoveState = 'ground';
   grounded = false;
   stateTime = 0;
@@ -239,6 +244,9 @@ export class Player {
     else this.crouchBuf -= dt;
     this.skidTimer -= dt;
     this.sprinting = false;
+    this.boostT -= dt;
+    this.floatT -= dt;
+    const boost = this.boostT > 0 ? this.boostMul : 1;
     this.wallTimer -= dt;
 
     // Camera-relative wish direction.
@@ -285,7 +293,7 @@ export class Player {
           const feeble = this.tier === 'Feeble';
           const sprintMul = inp.sprint && this.state === 'ground' ? (feeble ? 1.2 : 1.5) : 1;
           this.sprinting = sprintMul > 1 && wishLen > 0.5;
-          const target = wishLen * (this.state === 'crouch' ? 2.5 : RUN_SPEED * (feeble ? 0.5 : 1) * sprintMul);
+          const target = wishLen * (this.state === 'crouch' ? 2.5 : RUN_SPEED * (feeble ? 0.5 : 1) * sprintMul * boost);
           if (wishLen > 0.1) {
             const dot = hs > 0.01 ? (v.x * wx + v.z * wz) / hs : 1;
             if (hs > 5 && dot < -0.4) this.skidTimer = 0.22;
@@ -381,7 +389,7 @@ export class Player {
         v.z = 0;
         v.y = -38;
       } else {
-        let g = GRAVITY;
+        let g = GRAVITY * (this.floatT > 0 && v.y < 0 ? 0.3 : 1);
         if (st === 'jump' && !inp.jumpHeld && v.y > 0) g *= 2.2; // variable jump height
         v.y -= g * dt;
         v.y = Math.max(v.y, -55);

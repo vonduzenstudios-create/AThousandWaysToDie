@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import { RAPIER } from './physics';
 import { Sound } from './audio';
 import { FollowCam } from './camera';
+import { Atms, withdraw } from './economy';
+import { SkillBar, hasPassive, type SkillHost } from './skills';
+import { Combat } from './combat';
 import { Character } from './character';
 import {
   ADJUSTER_NOTES,
   DEATH_BY_ID,
   DENIAL_REASONS,
-  JOBS,
   Ledger,
   UNINSURED_LINES,
   isDeserving,
@@ -15,13 +17,22 @@ import {
 } from './deaths';
 import { Input } from './input';
 import { Npc } from './npc';
+import { LifeSystem } from './life';
+import { deathGossip, smallvilleLife } from './life/maps/smallville';
 import { Particles } from './particles';
 import { Player, PLAYER_CENTER, type LandEvent } from './player';
 import { Props } from './props';
 import { Ragdoll } from './ragdoll';
 import { G, SIZE, buildTown, inBox, type TownInfo } from './town';
 import { UI } from './ui';
-import { mulberry32, pick, type Rng } from './util';
+import { mulberry32, pick, turnToward, type Rng } from './util';
+import { Minimap, type Blip } from './minimap';
+import { Traffic, type Obstacle } from './vehicles/traffic';
+import { Car, sit } from './vehicles/car';
+import { DOOR_OUT, HALF, RIDE } from './vehicles/carModel';
+import { carSfx, EngineSound } from './vehicles/carSound';
+import { smallvillePois, smallvilleTraffic } from './vehicles/smallville';
+import { StoryDirector } from './story/director';
 
 type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing';
 
@@ -65,7 +76,11 @@ export class Game {
   private player: Player;
   private character: Character | null = null;
   private body: PersonFile | null = null;
-  private npcs: Npc[] = [];
+  private life!: LifeSystem;
+  /** Townsfolk bodies (owned by the life system). */
+  private get npcs(): Npc[] {
+    return this.life.npcs;
+  }
   private ragdolls: Ragdoll[] = [];
   private pancakes: THREE.Object3D[] = [];
   private activeRagdoll: Ragdoll | null = null;
@@ -93,7 +108,36 @@ export class Game {
   private pendingDeath: { id: string; victim: PersonFile; startPos: THREE.Vector3 } | null = null;
   private crosshair: HTMLElement;
   private hornCooldown = 0;
-  private npcRespawnT = 0;
+  private atms!: Atms;
+  private skillBar = new SkillBar();
+  private combat!: Combat;
+  private skillHost!: SkillHost;
+  /** Effect timers (real seconds) from skills. */
+  private slowmoT = 0;
+  private slowmoScale = 1;
+  private hueT = 0;
+  private numbT = 0;
+  private trainHold = 0;
+  private payoutMul = 1;
+  private payoutWhy = '';
+  private withdrawn = 0;
+  private beam: THREE.Mesh | null = null;
+  private beamT = 0;
+  // Vehicles and the radar.
+  private traffic: Traffic;
+  private minimap: Minimap;
+  private pois: Blip[];
+  /** The car Gary is driving, if any. */
+  driving: Car | null = null;
+  private engine: EngineSound;
+  private carIn = { throttle: 0, steer: 0, handbrake: false };
+  private carPrevVel = new THREE.Vector3();
+  private obstacles: Obstacle[] = [];
+  private shoutT = 0;
+  private burning: { car: Car; t: number }[] = [];
+  private drivenOnce = false;
+  /** Anime story cutscenes. The game loop pauses while one plays. */
+  readonly story = new StoryDirector(() => this.sound.ctx);
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -146,7 +190,28 @@ export class Game {
     this.town = buildTown();
     this.town.world.build(this.scene, this.physics);
     this.props = new Props(this.scene, this.physics, this.town);
+    this.atms = new Atms(this.scene, this.physics, this.town.world, this.town.areas.downtown, this.props.interactables);
+    this.combat = this.makeCombat();
+    this.skillHost = this.makeSkillHost();
+    this.ui.onSkillClick = (i) => this.useSkill(i);
     this.particles = new Particles(this.scene);
+    this.traffic = new Traffic(this.scene, this.physics, smallvilleTraffic());
+    this.traffic.onHonk = (car, tag) => this.onHonk(car, tag);
+    this.traffic.onShoo = (car, tag) => {
+      // The honked-at townsperson hops out of the lane.
+      const n = this.npcs[Number(tag?.split(':')[1])];
+      if (!n) return;
+      const r = car.toWorld(new THREE.Vector3(-1, 0, 0)).sub(car.pos).setY(0).normalize();
+      const lat = r.dot(n.pos.clone().sub(car.pos));
+      const side = lat >= 0 ? 1 : -1;
+      n.pos.addScaledVector(r, side * 3 - lat);
+      n.character.kick(0.6);
+    };
+    this.minimap = new Minimap(document.getElementById('ui')!);
+    this.minimap.setWorld(this.town.world, 'Smallville', G);
+    this.minimap.setVisible(false);
+    this.pois = smallvillePois(this.town);
+    this.engine = new EngineSound(this.sound);
 
     this.input = new Input(canvas);
     this.input.onAnyGesture = () => this.sound.init();
@@ -175,6 +240,7 @@ export class Game {
     this.cam.autoOrbit = 0.08;
     this.cam.snap(new THREE.Vector3(90, G + 6, 80));
 
+    this.story.onPause = (p) => this.sound.duck(p);
     this.ui.showTitle(() => this.start());
     this.renderer.setAnimationLoop(() => this.frame());
   }
@@ -213,45 +279,28 @@ export class Game {
   }
 
   private spawnInitialNpcs() {
-    const a = this.town.areas;
-    const plan: [keyof typeof a, (typeof JOBS)[number] | undefined][] = [
-      ['downtown', undefined],
-      ['downtown', 'Diner Cook'],
-      ['downtown', undefined],
-      ['park', undefined],
-      ['park', 'Retiree'],
-      ['farm', 'Farmhand'],
-      ['farm', 'Farmhand'],
-      ['woods', undefined],
-      ['tower', 'Construction Worker'],
-      ['garage', 'Mechanic'],
-      ['downtown', undefined],
-      ['station', 'Cop'],
-      ['station', 'Cop'],
-      ['construction', 'Construction Worker'],
-    ];
-    plan.forEach(([area, job], i) => {
-      const n = new Npc(this.scene, this.town.world, a[area], mulberry32(500 + i * 77 + (Date.now() % 1000)), job);
-      if (i === 1) {
-        n.file.peanutAllergy = true;
-        n.file.quirk = 'Has a peanut allergy. Like, a bad one.';
-      }
-      if (i === 2) n.file.daysLeft = 2; // always at least one fair mark nearby
-      if (i === 8) {
-        n.file.physical = 'Athlete'; // someone who can do the water tower long jump
-        n.file.age = 27;
-        n.file.daysLeft = 12;
-      }
-      if (i === 4) n.file.physical = 'Feeble';
-      this.npcs.push(n);
+    this.life = new LifeSystem(this.scene, smallvilleLife(this.town), {
+      seed: 500 + (Date.now() % 1000),
+      blip: () => this.sound.blip(0.6),
     });
-  }
-
-  private spawnRandomNpc() {
-    const keys = Object.keys(this.town.areas);
-    const key = pick(this.rng, keys);
-    const area = this.town.areas[key];
-    this.npcs.push(new Npc(this.scene, this.town.world, area, mulberry32(Math.floor(this.rng() * 1e9)), key === 'station' ? 'Cop' : undefined));
+    this.life.populate();
+    // Guarantee a few marks for the demo's deaths.
+    const byJob = (job: string) => this.npcs.filter((n) => n.file.job === job);
+    const cook = byJob('Diner Cook')[0];
+    if (cook) {
+      cook.file.peanutAllergy = true;
+      cook.file.quirk = 'Has a peanut allergy. Like, a bad one.';
+    }
+    const due = this.npcs[2];
+    if (due) due.file.daysLeft = 2; // always at least one fair mark nearby
+    const worker = byJob('Construction Worker')[0];
+    if (worker) {
+      worker.file.physical = 'Athlete'; // someone who can do the water tower long jump
+      worker.file.age = 27;
+      worker.file.daysLeft = 12;
+    }
+    const old = byJob('Retiree')[0];
+    if (old) old.file.physical = 'Feeble';
   }
 
   private wirePlayerHooks() {
@@ -282,7 +331,12 @@ export class Game {
     this.sound.startMusic();
     this.input.requestLock();
     this.cam.autoOrbit = 0;
-    this.enterGhost(new THREE.Vector3(80.5, G + 4, 86), true);
+    const go = () => this.enterGhost(new THREE.Vector3(80.5, G + 4, 86), true);
+    // ?cutscene=<id> replays one scene (e.g. opening, smallville:25) for testing.
+    const forced = new URLSearchParams(location.search).get('cutscene');
+    if (forced) void this.story.replay(forced).then(go);
+    else if (this.story.hasSeen('opening')) go();
+    else void this.story.opening().then(go);
   }
 
   // ---------------------------------------------------------------- bodies
@@ -301,6 +355,14 @@ export class Game {
     this.props.setBarnOpen(file.job === 'Farmhand');
     this.barnTries = 0;
     this.stationVisits = 0;
+    this.skillBar.setBody(file);
+    this.combat.setBody(file);
+    this.withdrawn = 0;
+    this.payoutMul = 1;
+    this.payoutWhy = '';
+    this.player.boostT = 0;
+    this.player.floatT = 0;
+    this.ui.setSkills(this.skillBar, this.input.padConnected);
     this.ui.setHud(this.ledger, file);
   }
 
@@ -311,6 +373,10 @@ export class Game {
     this.player.setEnabled(false);
     this.body = null;
     this.character = null;
+    this.skillBar.setBody(null);
+    this.combat.setBody(null);
+    this.ui.setSkills(null);
+    this.ui.setHealth(null);
     if (first) this.cam.dist = 8;
     this.cam.autoOrbit = 0;
     this.sound.setStyle('ghost');
@@ -348,14 +414,12 @@ export class Game {
           this.ghost.visible = false;
           this.ghost.scale.setScalar(1);
           this.ui.flash('#c9b8ff', 400);
-          const idx = this.npcs.indexOf(n);
-          if (idx >= 0) this.npcs.splice(idx, 1);
+          this.life.take(n);
           this.scene.remove(n.character.root);
           const facing = n.character.root.rotation.y;
           this.setBody(n.file, n.character, n.pos.clone(), facing);
           this.sound.setStyle('town');
           this.mode = 'play';
-          this.npcRespawnT = 4;
           if (!this.helpShown) {
             this.helpShown = true;
             this.ui.toggleHelp();
@@ -379,6 +443,7 @@ export class Game {
   // ---------------------------------------------------------------- death
   private kill(id: string, style: DeathStyle) {
     if (this.mode !== 'play' || !this.character || !this.body) return;
+    if (this.driving) this.leaveCar();
     const def = DEATH_BY_ID[id];
     this.mode = 'dying';
     this.peeTime = 0;
@@ -386,12 +451,17 @@ export class Game {
     this.ui.setHueShift(0);
     const victim = this.body;
     const ch = this.character;
+    ch.setExpression('dead');
     this.player.setEnabled(false);
     this.pendingDeath = { id, victim, startPos: this.player.position() };
     this.timeScale = 0.35;
+    this.slowmoT = 0;
+    this.hueT = 0;
+    this.combat.releaseAll();
+    this.ui.setHealth(null);
 
     if (style.kind === 'cube') {
-      ch.root.scale.set(ch.app.height * 1.1, ch.app.height * 0.45, ch.app.height * 1.1);
+      ch.root.scale.set(ch.baseScale * 1.1, ch.baseScale * 0.45, ch.baseScale * 1.1);
       ch.spinner.rotation.set(0, 0, 0);
       ch.tint(0xe3c25a, 0.7);
       ch.root.position.copy(this.town.baler).add(new THREE.Vector3(-1.6, 0, 0));
@@ -401,7 +471,7 @@ export class Game {
       this.particles.burst(ch.root.position.clone().add(new THREE.Vector3(0, 0.5, 0)), 40, 0xe3c25a, 6, { life: 1.4, size: 0.18 });
       this.activeRagdoll = null;
     } else if (style.kind === 'pancake') {
-      ch.root.scale.set(ch.app.height * 1.7, ch.app.height * 0.08, ch.app.height * 1.7);
+      ch.root.scale.set(ch.baseScale * 1.7, ch.baseScale * 0.08, ch.baseScale * 1.7);
       ch.root.position.y = this.player.feet().y + 0.02;
       ch.spinner.rotation.set(0, 0, 0);
       this.pancakes.push(ch.root);
@@ -419,6 +489,8 @@ export class Game {
       if (this.ragdolls.length > 6) this.ragdolls.shift()!.dispose();
     }
     this.character = null;
+    this.life.closeTalk();
+    this.life.event({ kind: 'death', at: this.player.position(), victim, what: deathGossip(id, def.name), where: def.location });
     this.ui.toast(def.name.toUpperCase(), def.category, 2600);
     this.runSeq([
       { at: 1.4, fn: () => (this.timeScale = 1) },
@@ -446,8 +518,9 @@ export class Game {
     } else if (!mult) {
       note = pick(this.rng, UNINSURED_LINES);
     } else {
-      total = Math.round((def.payout + bonus) * mult);
+      total = Math.round((def.payout + bonus) * mult * this.payoutMul);
       note = pick(this.rng, ADJUSTER_NOTES);
+      if (this.payoutMul > 1) note += ` (${this.payoutWhy}: paid x${this.payoutMul}.)`;
     }
     const isNew = !already;
     this.ledger.claimNo++;
@@ -492,6 +565,7 @@ export class Game {
     at.y = Math.max(at.y, G) + 3;
     this.pendingDeath = null;
     this.enterGhost(at);
+    this.story.checkLedger(this.ledger.found);
     if (Math.random() < 0.5) setTimeout(() => this.ui.say('Death', pick(this.rng, DEATH_QUIPS), 3000), 3800);
   }
 
@@ -510,7 +584,12 @@ export class Game {
       ch.kick(0.15 + heavy * 0.4);
       if (e.drop > 3) this.particles.burst(this.player.feet(), 8, 0xcdbf9a, 3, { life: 0.5, size: 0.2, gravity: 6 });
     }
-    const [breakH, fatalH] = this.player.tier === 'Feeble' ? [3.5, 7] : this.player.tier === 'Athlete' ? [6, 11] : [5, 9];
+    let [breakH, fatalH] = this.player.tier === 'Feeble' ? [3.5, 7] : this.player.tier === 'Athlete' ? [6, 11] : [5, 9];
+    if (this.body && hasPassive(this.body, 'hardhat')) fatalH += 2;
+    if (this.numbT > 0) {
+      breakH += 3;
+      fatalH += 3;
+    }
     if (e.drop >= breakH && e.drop < fatalH && this.mode === 'play' && !this.player.legsBroken && e.landState !== 'groundpound') {
       this.player.breakLegs();
       this.sound.crunch();
@@ -552,6 +631,19 @@ export class Game {
   private interact(id: string) {
     const ch = this.character;
     if (!ch || !this.body) return;
+    if (id.startsWith('atm:')) {
+      const r = withdraw(this.body, this.withdrawn);
+      this.ui.toast(r.title, r.sub, 3200);
+      if (r.ok) {
+        this.withdrawn += r.amount;
+        this.addMoney(r.amount);
+        this.sound.cash();
+        const it = this.props.interactables.find((x) => x.id === id);
+        if (it) this.particles.burst(it.pos.clone().add(new THREE.Vector3(0, 1.2, 0)), 14, 0x55d16a, 3, { life: 0.9, size: 0.16 });
+        if (this.rng() < 0.25) setTimeout(() => this.ui.say('Death', "You know you can't take it with you. Oh wait. You literally can.", 3200), 600);
+      } else this.sound.denied();
+      return;
+    }
     if (id === 'barndoor') {
       if (this.body.job === 'Farmhand') {
         this.ui.toast('Door is open', "You're the farmer. Walk right in.", 1600);
@@ -699,6 +791,176 @@ export class Game {
     ]);
   }
 
+  // ---------------------------------------------------------------- money, skills, fighting
+  private addMoney(n: number) {
+    this.ledger.balance += n;
+    this.ledger.total += n;
+    this.ledger.save();
+    this.ui.setHud(this.ledger, this.body);
+  }
+
+  private useSkill(i: number) {
+    if (this.mode !== 'play' || !this.body || this.player.state === 'locked') return;
+    this.skillBar.selected = i;
+    const r = this.skillBar.use(i, this.skillHost, performance.now());
+    this.ui.pulseSkill(i, r.ok);
+    if (!r.ok && r.reason) {
+      this.ui.toast(this.skillBar.slots[i]?.skill?.name ?? 'Locked', r.reason, 1600);
+      this.sound.denied();
+    }
+  }
+
+  private updateEffects(realDt: number) {
+    if (this.slowmoT > 0) {
+      this.slowmoT -= realDt;
+      if (this.mode === 'play') this.timeScale = this.slowmoT > 0 ? this.slowmoScale : 1;
+    }
+    if (this.hueT > 0) {
+      this.hueT -= realDt;
+      if (this.mode === 'play') this.ui.setHueShift(this.hueT > 0 ? (this.time * 120) % 360 : 0);
+    }
+    this.numbT -= realDt;
+    this.trainHold -= realDt;
+    if (this.beam) {
+      this.beamT -= realDt;
+      const m = this.beam.material as THREE.MeshBasicMaterial;
+      m.opacity = Math.max(0, Math.min(0.45, this.beamT * 0.4)) * (0.8 + Math.sin(this.time * 8) * 0.2);
+      if (this.beamT <= 0) {
+        this.scene.remove(this.beam);
+        this.beam.geometry.dispose();
+        m.dispose();
+        this.beam = null;
+      }
+    }
+  }
+
+  private revealNearestHazard(seconds: number) {
+    const p = this.player.feet();
+    let best: THREE.Vector3 | null = null;
+    let bd = Infinity;
+    const cands = this.props.interactables.filter((it) => it.enabled && !it.id.startsWith('atm')).map((it) => it.pos);
+    const t = this.town;
+    const center = (b: { min: THREE.Vector3; max: THREE.Vector3 }) => b.min.clone().add(b.max).multiplyScalar(0.5);
+    cands.push(center(t.treeZone), center(t.towerZone), new THREE.Vector3(p.x, G, t.trackZ + 0.5));
+    for (const c of cands) {
+      const d = Math.hypot(c.x - p.x, c.z - p.z);
+      if (d > 2.5 && d < bd) {
+        bd = d;
+        best = c;
+      }
+    }
+    if (!best) return false;
+    if (this.beam) this.scene.remove(this.beam);
+    this.beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.9, 0.9, 80, 12, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0x9a7cff, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    this.beam.position.set(best.x, G + 40, best.z);
+    this.scene.add(this.beam);
+    this.beamT = seconds;
+    return true;
+  }
+
+  private makeSkillHost(): SkillHost {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const g = this;
+    return {
+      get body() {
+        return g.body!;
+      },
+      get player() {
+        return g.player;
+      },
+      feet: () => this.player.feet(),
+      toast: (a, b, ms) => this.ui.toast(a, b, ms),
+      say: (who, line, ms) => this.ui.say(who, line, ms),
+      addMoney: (n) => this.addMoney(n),
+      burst: (pos, n, color, speed, opts) => this.particles.burst(pos, n, color, speed, opts),
+      sfx: (name) => {
+        if (name === 'scream') this.sound.scream(1.1);
+        else this.sound[name]();
+      },
+      slowmo: (sec, scale) => {
+        this.slowmoT = sec;
+        this.slowmoScale = scale;
+        this.timeScale = scale;
+      },
+      hueTrip: (sec) => (this.hueT = sec),
+      gather: (n, radius, onArrive) => {
+        const p = this.player.feet();
+        const near = this.npcs
+          .filter((x) => !x.helping && !x.controlled && !x.away && x.pos.distanceTo(p) < radius)
+          .sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p))
+          .slice(0, n);
+        let first = true;
+        for (const x of near)
+          x.summon(this.player.feet(), () => {
+            if (first && this.mode === 'play') onArrive(x.file.name);
+            first = false;
+          });
+        return near.length;
+      },
+      nearbyCount: (r) => this.npcs.filter((x) => x.pos.distanceTo(this.player.feet()) < r).length,
+      pauseTrain: (sec) => {
+        if (!this.props.train.moving) return false;
+        this.trainHold = sec;
+        this.sound.horn();
+        return true;
+      },
+      revealNearestHazard: (sec) => this.revealNearestHazard(sec),
+      numb: (sec) => (this.numbT = sec),
+      payoutBonus: (mult, why) => {
+        this.payoutMul = Math.max(this.payoutMul, mult);
+        this.payoutWhy = why;
+      },
+      heal: (hp) => this.combat.heal(hp),
+      godAnger: (d) => {
+        this.ledger.godAnger = Math.max(0, this.ledger.godAnger + d);
+        this.ledger.save();
+        this.ui.setHud(this.ledger, this.body);
+      },
+      godAngerLevel: () => this.ledger.godAnger,
+      trigger: (id) => this.interact(id),
+    };
+  }
+
+  private makeCombat() {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const g = this;
+    return new Combat({
+      npcs: () => this.life.visibleNpcs(),
+      get player() {
+        return g.player;
+      },
+      character: () => this.character,
+      body: () => this.body,
+      playing: () => this.mode === 'play' && !!this.body,
+      hit: (kind) => {
+        if (kind === 'whiff') this.sound.whoosh();
+        else if (kind === 'punch') {
+          this.sound.noise({ dur: 0.09, vol: 0.7, freq: 500, type: 'lowpass', q: 1 });
+          this.sound.tone({ f: 140, f2: 60, dur: 0.1, type: 'square', vol: 0.25 });
+        } else if (kind === 'hurt') {
+          this.sound.noise({ dur: 0.12, vol: 0.8, freq: 350, type: 'lowpass', q: 1 });
+          this.sound.tone({ f: 220, f2: 90, dur: 0.15, type: 'sawtooth', vol: 0.2 });
+        } else {
+          this.sound.tone({ f: 900, f2: 300, dur: 0.5, type: 'triangle', vol: 0.3 });
+          this.sound.crunch();
+        }
+      },
+      shake: (a) => this.cam.shake(a),
+      burst: (pos, n, color, speed, opts) => this.particles.burst(pos, n, color, speed, opts),
+      say: (who, line, ms) => this.ui.say(who, line, ms),
+      hurtFlash: () => this.ui.flash('#ff2020', 260),
+      died: (by) => {
+        const frail = by.file.physical === 'Feeble' || by.file.job === 'Retiree';
+        const away = this.player.feet().sub(by.pos).setY(0).normalize();
+        this.kill(frail ? 'grandma' : 'brawl', { kind: 'ragdoll', vel: new THREE.Vector3(away.x * 10, 9, away.z * 10), spin: 12, bounce: 0.5 });
+        if (frail) setTimeout(() => this.ui.say('Death', `Beaten to death by ${by.file.name}, age ${by.file.age}. I'm putting this one on the fridge.`, 4000), 1500);
+      },
+    });
+  }
+
   private scream() {
     if (!this.character || performance.now() < this.screamCooldown) return;
     this.screamCooldown = performance.now() + 1500;
@@ -706,7 +968,7 @@ export class Game {
     this.character.kick(-0.3);
     const p = this.player.feet();
     const near = this.npcs
-      .filter((n) => !n.helping && n.pos.distanceTo(p) < 28)
+      .filter((n) => !n.helping && !n.away && !n.controlled && n.pos.distanceTo(p) < 28)
       .sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p))
       .slice(0, 2);
     if (!near.length) {
@@ -746,6 +1008,15 @@ export class Game {
   private checkHazards(dt: number) {
     if (this.mode !== 'play' || !this.character) return;
     const p = this.player.position();
+    const hit = this.traffic.hitTest(p, 0.8, 4); // the capsule gets shoved ahead of the bumper, so reach a little past it
+    if (hit) {
+      this.sound.splat();
+      carSfx.horn(this.sound);
+      this.cam.shake(1.2);
+      const sp = hit.vel.length();
+      this.kill('roadkill', { kind: 'ragdoll', vel: hit.vel.clone().multiplyScalar(1.4).add(new THREE.Vector3(0, 8 + sp * 0.6, 0)), spin: 16, bounce: 0.65 });
+      return;
+    }
     if (p.y < -12) {
       this.kill('edge', { kind: 'ragdoll', vel: this.player.vel.clone(), spin: 5 });
       return;
@@ -780,6 +1051,7 @@ export class Game {
     // Peeing.
     if (this.input.held('pee') && this.player.grounded && (this.player.state === 'ground' || this.player.state === 'locked')) {
       this.peeTime += dt;
+      if (this.peeTime >= 0.4 && this.peeTime - dt < 0.4) this.life.event({ kind: 'pee', at: this.player.feet(), radius: 12 });
       const fd = new THREE.Vector3(Math.sin(this.player.facing), 0, Math.cos(this.player.facing));
       const origin = this.player.feet().add(new THREE.Vector3(0, 0.75, 0)).addScaledVector(fd, 0.3);
       for (let i = 0; i < 2; i++)
@@ -820,6 +1092,405 @@ export class Game {
     } else this.peeTime = 0;
   }
 
+  // ---------------------------------------------------------------- vehicles
+  /** Where the action is: the player, their car, the ghost or the death cam. */
+  private focusPos() {
+    if (this.driving) return this.driving.pos.clone();
+    if (this.mode === 'play') return this.player.position();
+    if ((this.mode === 'dying' || this.mode === 'claim') && this.activeRagdoll) return this.activeRagdoll.position();
+    return this.ghostPos.clone();
+  }
+
+  /** People and trains that traffic brakes for, gathered once per frame. */
+  private buildObstacles() {
+    const o = this.obstacles;
+    o.length = 0;
+    this.npcs.forEach((n, i) => {
+      if (!n.away) o.push({ pos: n.pos, person: true, tag: `npc:${i}` });
+    });
+    if (this.mode === 'play' && !this.driving && this.character) o.push({ pos: this.player.feet(), person: true, tag: 'player' });
+    const tr = this.props.train;
+    // The train and where it will be in the next couple of seconds, like a crossing gate.
+    if (tr.moving) for (let dx = -20; dx <= 80; dx += 3) o.push({ pos: new THREE.Vector3(tr.x + dx, G, tr.z) });
+  }
+
+  private readCarInput() {
+    const inp = this.input;
+    const busy = this.ui.ledgerOpen || this.player.state === 'locked';
+    let thr = inp.moveY;
+    if (inp.held('dive')) thr += 1; // RT
+    if (inp.held('crouch')) thr -= 1; // LT / Shift
+    this.carIn.throttle = busy ? 0 : Math.max(-1, Math.min(1, thr));
+    this.carIn.steer = busy ? 0 : inp.moveX;
+    this.carIn.handbrake = !busy && inp.held('jump');
+  }
+
+  private carToSteal() {
+    return this.traffic.nearest(this.player.feet(), 4.4, (c) => c.mode !== 'driven' && !c.burnt);
+  }
+
+  private static readonly YANK_LINES = [
+    'MY CAR! I just got it detailed!',
+    "Hey! HEY! That's a lease!",
+    'Not again. That is the third time this week.',
+    'Ow. My everything.',
+    'At least take the parking tickets too!',
+    "I'm calling my insurance! ...Oh no. It's Mortalis.",
+  ];
+
+  /** Yank the driver out (if any) and take the wheel. */
+  private hijack(car: Car) {
+    const ch = this.character;
+    if (!ch) return;
+    this.ui.prompt(null);
+    this.player.lock(true);
+    const moving = car.velocity().length() > 2;
+    if (!car.vc) car.makeDynamic('wreck', new THREE.Vector3());
+    else car.mode = 'wreck';
+    if (car.upsideDown) car.flipUpright();
+    car.body.setLinvel({ x: 0, y: car.body.linvel().y, z: 0 }, true);
+    car.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    car.readBack();
+    const door = car.toWorld(DOOR_OUT);
+    door.y = Math.max(door.y, this.player.feet().y - 0.5);
+    this.player.teleport(door, car.facing - Math.PI / 2);
+    if (moving) carSfx.screech(this.sound);
+    car.openDoor(true);
+    carSfx.door(this.sound);
+    const hadDriver = !!car.driver;
+    this.runSeq([
+      {
+        at: 0.3,
+        fn: () => {
+          if (!car.driver) return;
+          const side = car.toWorld(new THREE.Vector3(1, 0, 0)).sub(car.pos).setY(0).normalize();
+          this.ejectDriver(car, side.multiplyScalar(11).add(car.forward().multiplyScalar(2)).add(new THREE.Vector3(0, 8, 0)));
+          this.sound.whoosh();
+          this.cam.shake(0.3);
+          setTimeout(() => this.ui.say('Driver', pick(this.rng, Game.YANK_LINES), 2600), 500);
+        },
+      },
+      { at: hadDriver ? 0.8 : 0.35, fn: () => this.enterCar(car) },
+    ]);
+  }
+
+  private enterCar(car: Car) {
+    const ch = this.character;
+    if (!ch || this.mode !== 'play') return;
+    this.player.lock(false);
+    this.player.setEnabled(false);
+    this.driving = car;
+    car.mode = 'driven';
+    car.airborne = false;
+    car.openDoor(false);
+    carSfx.door(this.sound);
+    car.model.root.add(ch.root);
+    sit(ch);
+    this.carPrevVel.copy(car.velocity());
+    this.cam.yaw = car.facing + Math.PI;
+    if (!this.drivenOnce) {
+      this.drivenOnce = true;
+      this.ui.toast('NICE CAR', 'W / S drive · A / D steer · Space handbrake · T horn · E get out', 4200);
+    }
+  }
+
+  /** Step out normally, or bail out if the car is going fast. */
+  private exitCar() {
+    const car = this.driving;
+    const ch = this.character;
+    if (!car || !ch) return;
+    const vel = car.velocity();
+    const fast = vel.length() > 13;
+    this.leaveCar();
+    car.openDoor(true);
+    carSfx.door(this.sound);
+    setTimeout(() => car.openDoor(false), 900);
+    if (fast) {
+      ch.root.position.copy(car.toWorld(new THREE.Vector3(HALF.x + 0.9, -0.4, 0)));
+      const side = car.toWorld(new THREE.Vector3(1, 0, 0)).sub(car.pos).setY(0).normalize();
+      this.ui.say('Death', pick(this.rng, ['Like in the movies! Except not at all.', 'You were supposed to tuck.']), 2600);
+      this.kill('bailout', { kind: 'ragdoll', vel: vel.multiplyScalar(0.95).add(side.multiplyScalar(5)).add(new THREE.Vector3(0, 4, 0)), spin: 10, bounce: 0.55 });
+      return;
+    }
+    const out = car.upsideDown ? car.pos.clone().add(new THREE.Vector3(0, 2, 0)) : car.toWorld(DOOR_OUT);
+    this.player.setEnabled(true);
+    this.player.teleport(out, car.facing + Math.PI / 2);
+  }
+
+  /** Take Gary's body out of the car (for getting out, or dying). The car is left as an empty wreck. */
+  private leaveCar() {
+    const car = this.driving;
+    if (!car) return;
+    this.driving = null;
+    car.mode = 'wreck';
+    car.braking = false;
+    const ch = this.character;
+    if (ch) {
+      this.scene.attach(ch.root);
+      ch.root.rotation.set(0, car.facing, 0);
+      ch.root.scale.setScalar(ch.app.height);
+    }
+  }
+
+  private updateDrivingFrame(dt: number, lookDX: number, lookDY: number) {
+    const car = this.driving!;
+    const inp = this.input;
+    if (inp.pressed('interact') && this.player.state !== 'locked') {
+      this.exitCar();
+      return;
+    }
+    if (inp.pressed('scream')) {
+      carSfx.horn(this.sound, 1.4);
+      for (const n of this.npcs) if (n.pos.distanceTo(car.pos) < 14) n.character.kick(0.5);
+    }
+    this.ui.prompt(car.upsideDown && Math.abs(car.speed) < 2 ? '<span class="key">E</span>Climb out of the wreck' : null);
+    // Chase camera swings in behind the car unless you're orbiting it.
+    const behind = car.facing + Math.PI;
+    if (!inp.lmb && !inp.rmb && Math.abs(inp.lookX) < 0.05) {
+      const rate = 0.5 + Math.min(Math.abs(car.speed), 24) * 0.12;
+      this.cam.yaw = turnToward(this.cam.yaw, behind, dt * rate);
+    }
+    this.cam.minDist = 8;
+    this.cam.update(dt, car.pos.clone().add(new THREE.Vector3(0, 1.4, 0)), lookDX, lookDY);
+    if (this.character) this.character.root.visible = true;
+    this.engine.set(true, car.speed, this.carIn.throttle);
+    // Handbrake turns squeal.
+    if (this.carIn.handbrake && Math.abs(car.speed) > 9 && car.wheelsOnGround > 2) {
+      car.screechT -= dt;
+      if (car.screechT <= 0) {
+        car.screechT = 0.6;
+        carSfx.screech(this.sound);
+      }
+      this.particles.emit(car.toWorld(new THREE.Vector3(0, -RIDE + 0.2, -2.2)), new THREE.Vector3(0, 1.5, 0), 0xd8d8d8, { life: 0.8, size: 0.5, gravity: -1, spread: 1 });
+    }
+  }
+
+  /** Car on car, car on train and car on pedestrian. Runs after each physics step. */
+  private carCollisions() {
+    const tr = this.props.train;
+    const focus = this.focusPos();
+    for (const car of this.traffic.cars) {
+      if (car === this.driving) continue;
+      if (tr.moving && tr.contains(car.ground(), 1.4) && car.velocity().x < tr.speed * 0.8) {
+        const side = car.pos.z < tr.z ? -1 : 1;
+        const v = new THREE.Vector3(tr.speed * 1.3, 13, side * 7);
+        this.ejectDriver(car, v.clone().add(new THREE.Vector3(0, 6, side * 4)));
+        if (!car.vc) car.makeDynamic('wreck', v);
+        else car.body.setLinvel(v, true);
+        car.mode = 'wreck';
+        car.body.setAngvel({ x: (Math.random() - 0.5) * 8, y: (Math.random() - 0.5) * 6, z: (Math.random() - 0.5) * 8 }, true);
+        if (car.pos.distanceTo(focus) < 70) {
+          carSfx.crash(this.sound, 1.6);
+          this.cam.shake(0.4);
+        }
+      }
+    }
+    // People in the way.
+    for (const n of this.npcs.slice()) {
+      if (n.away || n.controlled) continue;
+      const hit = this.traffic.hitTest(n.pos.clone().add(new THREE.Vector3(0, 0.9, 0)), 0.2, 4);
+      if (hit) this.ragdollNpc(n, hit.vel, hit.car === this.driving);
+    }
+    // Ramming traffic knocks it out of its lane.
+    const d = this.driving;
+    if (d) {
+      for (const o of this.traffic.cars) {
+        if (o === d || (o.mode !== 'traffic' && o.mode !== 'parked')) continue;
+        if (o.pos.distanceTo(d.pos) > 8) continue;
+        let touching = false;
+        this.physics.contactPair(d.collider, o.collider, (m) => {
+          if (m.numContacts() > 0) touching = true;
+        });
+        if (!touching) continue;
+        const rel = d.velocity().sub(o.velocity()).length();
+        if (rel < 6) continue;
+        o.makeDynamic('wreck', o.velocity().add(this.carPrevVel.clone().multiplyScalar(0.7)).add(new THREE.Vector3(0, 2, 0)));
+        o.body.setAngvel({ x: 0, y: (Math.random() - 0.5) * rel * 0.2, z: 0 }, true);
+        carSfx.crash(this.sound, Math.min(2, rel / 14));
+        this.cam.shake(Math.min(1, rel / 25));
+        if (o.driver && Math.random() < 0.5) setTimeout(() => this.ui.say('Driver', pick(this.rng, ['LEARN TO DRIVE!', 'My neck! My back!', "That's coming out of your insurance!"]), 2200), 400);
+      }
+    }
+  }
+
+  /** Death checks while driving. */
+  private carHazards() {
+    const car = this.driving;
+    if (!car || this.mode !== 'play') return;
+    const v = car.velocity();
+    const dv = v.distanceTo(this.carPrevVel);
+    const prevSpeed = this.carPrevVel.length();
+    this.carPrevVel.copy(v);
+    const tr = this.props.train;
+    if (tr.moving && tr.contains(car.ground(), 1.8)) {
+      const side = car.pos.z < tr.z ? -1 : 1;
+      this.carDeath('traincar', new THREE.Vector3(tr.speed * 1.5, 20, side * 9), true);
+      this.sound.horn();
+      return;
+    }
+    if (car.pos.y < -14) {
+      this.carDeath('cliff', v.clone().add(new THREE.Vector3(0, 4, 0)), false);
+      return;
+    }
+    if (car.wheelsOnGround === 0) {
+      if (!car.airborne) {
+        car.airborne = true;
+        car.airPeakY = car.pos.y;
+      } else car.airPeakY = Math.max(car.airPeakY, car.pos.y);
+    }
+    const drop = car.airPeakY - car.pos.y;
+    const landed = car.airborne && (car.wheelsOnGround > 0 || dv > 10);
+    if (landed) {
+      car.airborne = false;
+      if (drop > 8) {
+        this.carDeath('cliff', v.clone().multiplyScalar(0.5).add(new THREE.Vector3(0, 14, 0)), true);
+        return;
+      }
+      if (drop > 1.5) {
+        this.sound.land(Math.min(1, drop / 6));
+        this.cam.shake(Math.min(0.6, drop / 8));
+      }
+    }
+    if (dv > 12 && !car.airborne) {
+      if (dv > 22 && prevSpeed > 20) {
+        const fwd = car.forward().setY(0).normalize();
+        this.carDeath('windshield', fwd.multiplyScalar(prevSpeed * 0.9).add(new THREE.Vector3(0, 7, 0)), false, true);
+        return;
+      }
+      carSfx.crash(this.sound, Math.min(1.5, dv / 15));
+      this.cam.shake(Math.min(0.8, dv / 25));
+      this.character?.kick(0.5);
+    }
+  }
+
+  /** Kill Gary in his car: fling him out (through the windshield, if it comes to that). */
+  private carDeath(id: string, vel: THREE.Vector3, explode: boolean, throughWindshield = false) {
+    const car = this.driving;
+    const ch = this.character;
+    if (!car || !ch) return;
+    this.leaveCar();
+    const at = throughWindshield ? new THREE.Vector3(0, 0.45, HALF.z + 0.9) : new THREE.Vector3(0, 1.6, 0);
+    ch.root.position.copy(car.toWorld(at));
+    if (throughWindshield) {
+      carSfx.crash(this.sound, 2);
+      this.particles.burst(car.toWorld(new THREE.Vector3(0, 0.8, HALF.z - 0.6)), 30, 0xbfe6ff, 7, { life: 0.9, size: 0.15 });
+    }
+    if (explode) this.explode(car);
+    this.cam.shake(1.2);
+    this.sound.scream(1.3);
+    this.kill(id, { kind: 'ragdoll', vel, spin: 14, bounce: 0.6 });
+  }
+
+  private explode(car: Car) {
+    carSfx.boom(this.sound);
+    const c = car.pos.clone().add(new THREE.Vector3(0, 0.8, 0));
+    this.particles.burst(c, 70, 0xff8a1a, 12, { life: 1.1, size: 0.45, gravity: 2 });
+    this.particles.burst(c, 40, 0xffe24a, 8, { life: 0.7, size: 0.3, gravity: 0 });
+    this.particles.burst(c, 30, 0x2a2a2a, 5, { life: 2.2, size: 0.7, gravity: -2 });
+    this.ui.flash('#ffb060', 250);
+    this.ejectDriver(car, new THREE.Vector3(0, 16, 0));
+    if (!car.vc) car.makeDynamic('wreck', new THREE.Vector3());
+    car.mode = 'wreck';
+    const m = car.body.mass();
+    car.body.applyImpulse({ x: 0, y: m * 9, z: 0 }, true);
+    car.body.applyTorqueImpulse({ x: m * (Math.random() - 0.5) * 6, y: 0, z: m * (Math.random() - 0.5) * 6 }, true);
+    car.burnt = true;
+    car.model.paintMat.color.multiplyScalar(0.22);
+    this.burning.push({ car, t: 14 });
+  }
+
+  private updateBurning(dt: number) {
+    for (const b of this.burning) {
+      b.t -= dt;
+      if (Math.random() < dt * 30) {
+        const p = b.car.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2, 1, (Math.random() - 0.5) * 3));
+        this.particles.emit(p, new THREE.Vector3(0, 3, 0), Math.random() < 0.4 ? 0xff7a1a : 0x333333, { life: 1.4, size: 0.6, gravity: -2, spread: 0.8 });
+      }
+    }
+    this.burning = this.burning.filter((b) => b.t > 0 && this.traffic.cars.includes(b.car));
+  }
+
+  /** Throw an NPC driver out of their car as a ragdoll. */
+  private ejectDriver(car: Car, vel: THREE.Vector3) {
+    const drv = car.unseat();
+    if (!drv) return;
+    drv.root.position.copy(car.toWorld(new THREE.Vector3(HALF.x + 0.8, -0.3, 0)));
+    drv.root.rotation.set(0, car.facing, 0);
+    const rd = new Ragdoll(this.physics, this.scene, drv, vel, 15, 0.6);
+    this.scene.remove(drv.root);
+    this.pushRagdoll(rd);
+    this.sound.scream(1.2 + Math.random() * 0.4);
+  }
+
+  /** A townsperson gets hit by a car. Taking someone who wasn't due still counts against you. */
+  private ragdollNpc(n: Npc, vel: THREE.Vector3, byPlayer: boolean) {
+    if (!this.npcs.includes(n)) return;
+    this.life.take(n);
+    this.life.event({ kind: 'death', at: n.pos.clone(), victim: n.file, what: byPlayer ? 'got run over by a maniac in a stolen car' : 'got hit by a car', where: 'the road' });
+    if (this.ghostTarget === n) {
+      this.ghostTarget = null;
+      this.ui.showFile(null);
+    }
+    const sp = vel.length();
+    const rd = new Ragdoll(this.physics, this.scene, n.character, vel.clone().multiplyScalar(1.3).add(new THREE.Vector3(0, 6 + sp * 0.5, 0)), 14, 0.6);
+    this.scene.remove(n.character.root);
+    this.pushRagdoll(rd);
+    if (n.pos.distanceTo(this.focusPos()) < 60) {
+      this.sound.splat();
+      this.sound.scream(1 + Math.random() * 0.5);
+    }
+    if (!byPlayer) return;
+    if (isDeserving(n.file)) {
+      this.ui.say('Death', pick(this.rng, ['Oh, they were due anyway. Saved me a trip.', 'Efficient. I hate that I respect it.']), 3000);
+    } else {
+      this.ledger.godAnger++;
+      this.ledger.save();
+      this.ui.setHud(this.ledger, this.body);
+      this.sound.thunder();
+      this.ui.toast('THE TIMELINE TREMBLES', `${n.file.name} wasn't due yet. God saw that.`, 2600);
+    }
+  }
+
+  private pushRagdoll(rd: Ragdoll) {
+    this.ragdolls.push(rd);
+    while (this.ragdolls.length > 8) {
+      const i = this.ragdolls.findIndex((r) => r !== this.activeRagdoll);
+      this.ragdolls.splice(i, 1)[0].dispose();
+    }
+  }
+
+  private onHonk(car: Car, tag: string | undefined) {
+    const d = car.pos.distanceTo(this.focusPos());
+    if (d > 50) return;
+    carSfx.horn(this.sound, Math.max(0.2, 1 - d / 50));
+    if (tag === 'player' && this.mode === 'play' && performance.now() > this.shoutT && d < 25) {
+      this.shoutT = performance.now() + 7000;
+      this.ui.say('Driver', pick(this.rng, ['Get out of the road!', 'MOVE, genius!', 'Are you trying to die? ...Oh. Carry on.', 'I have a meeting!', 'Sidewalk! It is RIGHT THERE!']), 2400);
+    }
+  }
+
+  private drawMinimap(dt: number) {
+    if (this.mode === 'title') {
+      this.minimap.setVisible(false);
+      return;
+    }
+    this.minimap.setVisible(true);
+    const ghost = this.mode === 'ghost' || this.mode === 'possessing';
+    const c = this.focusPos();
+    const facing = this.driving ? this.driving.facing : this.mode === 'play' ? this.player.facing : this.cam.forwardFacing;
+    const blips: Blip[] = [...this.pois];
+    for (const car of this.traffic.cars) {
+      if (car === this.driving) continue;
+      const color = car.burnt ? '#ff7a2a' : car.mode === 'traffic' ? '#e8e8e8' : car.mode === 'parked' ? '#8fd0ff' : '#7a7a7a';
+      blips.push({ x: car.pos.x, z: car.pos.z, kind: 'car', facing: car.facing, color });
+    }
+    // Scythe vision shows souls on the radar: green if they're due, red if they aren't.
+    if (ghost) for (const n of this.npcs) if (!n.away) blips.push({ x: n.pos.x, z: n.pos.z, kind: 'person', color: isDeserving(n.file) ? '#7dff7a' : '#ff6a5a' });
+    const zoom = this.driving ? Math.max(1.0, 2.2 - Math.abs(this.driving.speed) * 0.035) : ghost ? 1.7 : 2.2;
+    this.minimap.draw(c.x, c.z, this.cam.yaw, facing, blips, zoom, dt);
+    this.minimap.setSpeed(this.driving ? Math.abs(this.driving.speed) * 2.237 : null);
+  }
+
   // ---------------------------------------------------------------- sequencing
   private runSeq(steps: Step[]) {
     this.seqT = 0;
@@ -838,6 +1509,8 @@ export class Game {
     const realDt = Math.min((now - this.lastT) / 1000, 0.1);
     this.lastT = now;
     this.input.poll();
+    // A story cutscene covers the screen: freeze the game underneath it.
+    if (this.story.active) return;
     const inp = this.input;
 
     if (inp.pressed('music')) this.sound.toggleMusic();
@@ -869,15 +1542,20 @@ export class Game {
     if (inp.pressed('dive')) this.latched.dive = true;
     let first = true;
     let steps = 0;
+    const focus0 = this.focusPos();
+    this.buildObstacles();
+    if (this.driving && this.mode === 'play') this.readCarInput();
     while (this.acc >= h && steps < 5) {
       if (this.mode === 'play' || this.mode === 'dying') {
-        if (this.mode === 'play' && this.character) {
-          const peeing = inp.held('pee') && this.player.grounded;
+        if (this.mode === 'play' && this.character && this.driving) {
+          this.driving.drive(this.carIn.throttle, this.carIn.steer, this.carIn.handbrake);
+        } else if (this.mode === 'play' && this.character) {
+          const peeing = (inp.held('pee') && this.player.grounded) || this.life.isTalking;
           this.player.update(h, {
             moveX: peeing || this.ui.ledgerOpen ? 0 : inp.moveX,
             moveY: peeing || this.ui.ledgerOpen ? 0 : inp.moveY,
             camYaw: this.cam.yaw,
-            jumpPressed: first && this.latched.jump,
+            jumpPressed: first && this.latched.jump && !this.life.isTalking,
             jumpHeld: inp.held('jump'),
             crouchHeld: inp.held('crouch'),
             crouchPressed: first && this.latched.crouch,
@@ -887,10 +1565,17 @@ export class Game {
           });
         }
       }
-      this.props.train.update(h);
+      if (this.trainHold <= 0) this.props.train.update(h);
       this.props.bale.update(h);
+      this.traffic.step(h, this.obstacles, focus0);
       this.physics.step();
-      if (this.mode === 'play') this.checkHazards(h);
+      this.traffic.afterStep();
+      this.carCollisions();
+      if (this.driving) this.player.body.setTranslation(this.driving.ground().add(new THREE.Vector3(0, PLAYER_CENTER, 0)), true);
+      if (this.mode === 'play') {
+        if (this.driving) this.carHazards();
+        else this.checkHazards(h);
+      }
       this.acc -= h;
       if (first) this.latched = { jump: false, crouch: false, dive: false };
       first = false;
@@ -899,7 +1584,15 @@ export class Game {
     if (steps === 5) this.acc = 0;
 
     for (const r of this.ragdolls) r.update();
-    for (const n of this.npcs) n.update(dt);
+    this.life.update(dt, {
+      camera: this.camera,
+      player: this.mode === 'play' && this.body ? { pos: this.player.feet(), file: this.body } : null,
+      menu: { up: inp.pressed('up'), down: inp.pressed('down'), confirm: inp.pressed('confirm'), back: inp.pressed('crouch') },
+    });
+    this.combat.update(dt);
+    this.updateEffects(realDt);
+    this.traffic.update(dt, this.focusPos());
+    this.updateBurning(dt);
     this.props.update(dt, this.time);
     this.particles.update(dt);
 
@@ -912,14 +1605,10 @@ export class Game {
       }
     }
 
-    // Keep the town populated.
-    if (this.npcRespawnT > 0) {
-      this.npcRespawnT -= dt;
-      if (this.npcRespawnT <= 0 && this.npcs.length < 14) this.spawnRandomNpc();
-    }
-
     // Mode-specific per-frame logic and camera.
-    if (this.mode === 'play' && this.character) {
+    if (this.mode === 'play' && this.character && this.driving) {
+      this.updateDrivingFrame(realDt, lookDX, lookDY);
+    } else if (this.mode === 'play' && this.character) {
       const ch = this.character;
       const feet = this.player.feet();
       ch.root.position.copy(feet);
@@ -931,10 +1620,29 @@ export class Game {
         stateTime: this.player.stateTime,
         airTime: this.player.airTime,
       });
-      const it = this.player.state !== 'locked' ? this.nearestInteractable() : null;
-      this.ui.prompt(it ? `<span class="key">E</span>${it.prompt}` : null);
+      const free = this.player.state !== 'locked' && !this.life.isTalking;
+      const it = free ? this.nearestInteractable() : null;
+      const car = free && !it ? this.carToSteal() : null;
+      const who = free && !it && !car && this.player.grounded ? this.life.talkable(feet) : null;
+      this.ui.prompt(
+        it ? `<span class="key">E</span>${it.prompt}`
+        : car ? `<span class="key">E</span>${car.mode === 'traffic' ? 'Hijack car' : 'Get in'}`
+        : who ? `<span class="key">E</span>Talk to ${who.file.name.split(' ')[0]}` : null,
+      );
       if (it && inp.pressed('interact')) this.interact(it.id);
+      else if (car && inp.pressed('interact')) this.hijack(car);
+      else if (who && inp.pressed('interact') && this.body) this.life.talkTo(who, this.body, feet);
       if (inp.pressed('scream') && this.player.state !== 'locked') this.scream();
+      if (inp.pressed('punch') && !this.ui.ledgerOpen) this.combat.punch();
+      (['skill1', 'skill2', 'skill3', 'skill4', 'skill5'] as const).forEach((b, i) => {
+        if (inp.pressed(b)) this.useSkill(i);
+      });
+      if (inp.pressed('up')) this.skillBar.selected = (this.skillBar.selected + 4) % 5;
+      if (inp.pressed('down')) this.skillBar.selected = (this.skillBar.selected + 1) % 5;
+      if (inp.pressed('skillUse')) this.useSkill(this.skillBar.selected);
+      this.ui.setSkills(this.skillBar, inp.padConnected);
+      this.ui.updateSkills(this.skillBar, performance.now(), inp.padConnected);
+      this.ui.setHealth(this.combat.hp, this.combat.maxHp);
       const eyeH = this.player.state === 'crawl' ? 0.6 : this.player.state === 'crouch' ? 1.1 : 1.65;
       this.cam.update(realDt, feet.clone().add(new THREE.Vector3(0, 1.6, 0)), lookDX, lookDY, feet.clone().add(new THREE.Vector3(0, eyeH, 0)));
       ch.root.visible = !this.cam.firstPerson;
@@ -960,7 +1668,9 @@ export class Game {
     const focus = this.mode === 'play' ? this.player.position() : this.mode === 'ghost' ? this.ghostPos : this.activeRagdoll?.position() ?? this.ghostPos;
     this.sun.position.set(focus.x + 30, focus.y + 60, focus.z + 20);
     this.sun.target.position.copy(focus);
+    this.drawMinimap(realDt);
 
+    if (!this.driving) this.engine.set(false, 0, 0);
     this.renderer.render(this.scene, this.camera);
     this.input.endFrame();
   }
@@ -990,6 +1700,7 @@ export class Game {
     let best: Npc | null = null;
     let bestScore = Infinity;
     for (const n of this.npcs) {
+      if (n.away) continue;
       const to = n.pos.clone().add(new THREE.Vector3(0, 1, 0)).sub(camPos);
       const d = to.length();
       if (d > 45) continue;

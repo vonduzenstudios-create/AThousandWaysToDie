@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { buildVoxelBody, type VoxelBody } from './chars/build';
+import { specFromFile } from './chars/spec';
+import type { Expression } from './chars/spec';
 import { canvasTexture, hexToCss, noiseTexture, pick, randRange, shadeHex, type Rng } from './util';
 
 export type PartName = 'head' | 'torso' | 'armL' | 'armR' | 'legL' | 'legR';
@@ -105,6 +108,8 @@ export interface AnimState {
   state: string;
   stateTime: number;
   airTime: number;
+  /** Knocked out flat on their back. */
+  ko?: boolean;
 }
 
 /** A voxel-style person built entirely from boxes and generated textures. */
@@ -118,9 +123,43 @@ export class Character {
   private squash = 0;
   private squashVel = 0;
   private spin = 0;
+  /** Seconds left in a punch swing, and which arm throws it. */
+  private punchT = 0;
+  private punchLeft = false;
   tintColor = new THREE.Color(1, 1, 1);
+  /** Hip height: the spinner pivots here for flips and dives. */
+  readonly hip: number = 0.9;
+  /** Uniform scale of root at rest (pancake/cube deaths scale relative to it). */
+  readonly baseScale: number = 1;
+  /** The detailed voxel model from src/chars, when built from a person's file. */
+  readonly voxel: VoxelBody | null = null;
 
-  constructor(readonly app: Appearance) {
+  /** Build a person whose look matches their scythe-vision file (job, age, health). */
+  static fromFile(file: { job: string; age: number; physical?: string; mental?: string; name?: string }, seed?: number) {
+    const vb = buildVoxelBody(specFromFile(file, seed));
+    return new Character(null, vb);
+  }
+
+  readonly app: Appearance;
+
+  constructor(app: Appearance | null, vb?: VoxelBody) {
+    if (vb) {
+      // Stand-in appearance so older code that reads app.height (head position etc.) still works.
+      this.app = { ...randomAppearance(Math.random), height: vb.headTop / 1.96 };
+      this.voxel = vb;
+      this.parts = vb.parts as Record<PartName, Part>;
+      this.mats.push(vb.material);
+      this.body.add(vb.body);
+      this.hip = vb.headTop * 0.46;
+      this.body.position.y = -this.hip;
+      this.spinner.position.y = this.hip;
+      this.spinner.add(this.body);
+      this.root.add(this.spinner);
+      return;
+    }
+    app ??= randomAppearance(Math.random);
+    this.app = app;
+    this.baseScale = app.height;
     const noise = noiseTexture();
     const mat = (c: number) => {
       const m = new THREE.MeshLambertMaterial({ color: c, map: noise });
@@ -207,6 +246,11 @@ export class Character {
     this.root.scale.setScalar(app.height);
   }
 
+  /** Change the face (only on the detailed models). */
+  setExpression(e: Expression) {
+    this.voxel?.setExpression(e);
+  }
+
   /** Bounce the character with squash and stretch (positive = squash). */
   kick(amount: number) {
     this.squashVel += amount * 20;
@@ -219,6 +263,12 @@ export class Character {
       if (!m.userData.base) m.userData.base = m.color.clone();
       m.color.copy(m.userData.base as THREE.Color).lerp(c, amount);
     }
+  }
+
+  /** Throw a punch (arm snaps forward, alternating arms). */
+  punch() {
+    this.punchT = 0.22;
+    this.punchLeft = !this.punchLeft;
   }
 
   flash(on: boolean) {
@@ -234,6 +284,7 @@ export class Character {
 
     let legL = 0, legR = 0, armL = 0, armR = 0, armSpread = 0;
     let pitch = 0, roll = 0, spinnerY = 0.9, crouch = 1;
+    const hipK = this.hip / 0.9;
 
     if (s.grounded && (st === 'ground' || st === 'locked')) {
       legL = swing;
@@ -298,6 +349,23 @@ export class Character {
       legR = -0.3;
     }
 
+    if (s.ko) {
+      pitch = -1.5;
+      spinnerY = 0.3;
+      armL = armR = -2.9;
+      armSpread = 0.6;
+      legL = legR = 0;
+    }
+
+    let punchArm: 'armL' | 'armR' | null = null;
+    if (this.punchT > 0) {
+      this.punchT -= dt;
+      punchArm = this.punchLeft ? 'armL' : 'armR';
+      if (this.punchLeft) armL = -1.6;
+      else armR = -1.6;
+      roll = 0;
+    }
+
     // Flip spins replace the pose pitch.
     const flipDur = 0.75;
     if (st === 'backflip') this.spin = -Math.min(s.airTime / flipDur, 1) * Math.PI * 2;
@@ -312,6 +380,7 @@ export class Character {
     p.armR.pivot.rotation.x += (armR - p.armR.pivot.rotation.x) * k;
     p.armL.pivot.rotation.z += (armSpread - p.armL.pivot.rotation.z) * k;
     p.armR.pivot.rotation.z += (-armSpread - p.armR.pivot.rotation.z) * k;
+    if (punchArm) p[punchArm].pivot.rotation.x = punchArm === 'armL' ? armL : armR;
 
     if (st === 'sideflip') {
       roll = Math.min(s.airTime / flipDur, 1) * Math.PI * 2;
@@ -320,7 +389,7 @@ export class Character {
 
     if (this.spin !== 0) this.spinner.rotation.x = this.spin;
     else this.spinner.rotation.x += (pitch - this.spinner.rotation.x) * k;
-    this.spinner.position.y += (spinnerY - this.spinner.position.y) * k;
+    this.spinner.position.y += (spinnerY * hipK - this.spinner.position.y) * k;
 
     // Squash spring.
     this.squashVel += (-this.squash * 220 - this.squashVel * 14) * dt;
@@ -330,6 +399,10 @@ export class Character {
   }
 
   dispose() {
+    if (this.voxel) {
+      this.voxel.dispose();
+      return;
+    }
     this.root.traverse((o) => {
       if (o instanceof THREE.Mesh) o.geometry.dispose();
     });
