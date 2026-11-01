@@ -240,6 +240,24 @@ export class Character {
       legR = -swing;
       armL = -swing * 0.8;
       armR = swing * 0.8;
+    } else if (st === 'swim') {
+      // Front crawl with a flutter kick.
+      pitch = s.speed > 0.8 ? 1.15 : 0.25;
+      const c = this.phase * 0.55;
+      armL = -1.6 + Math.sin(c) * 1.5;
+      armR = -1.6 - Math.sin(c) * 1.5;
+      armSpread = s.speed > 0.8 ? 0 : 0.7;
+      legL = Math.sin(this.phase * 1.4) * 0.35;
+      legR = -legL;
+    } else if (st === 'tube') {
+      // Sitting in an inner tube, paddling with both hands.
+      pitch = -0.35;
+      legL = legR = -1.3;
+      const c = Math.sin(this.phase * 0.7) * 0.5 * Math.min(1, s.speed / 3);
+      armL = -0.6 + c;
+      armR = -0.6 - c;
+      armSpread = 0.6;
+      spinnerY = 0.75;
     } else if (st === 'crawl') {
       pitch = 1.45;
       spinnerY = 0.3;
