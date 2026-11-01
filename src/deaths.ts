@@ -71,7 +71,9 @@ export const ADJUSTER_NOTES = [
 const FIRST = ['Linda', 'Gary', 'Doug', 'Brenda', 'Kevin', 'Tammy', 'Earl', 'Darlene', 'Chad', 'Bev', 'Randy', 'Peggy', 'Duane', 'Crystal', 'Walt', 'Rhonda', 'Skip', 'Marge', 'Travis', 'Deb', 'Lyle', 'Shonda', 'Hank', 'Trish'];
 const LAST = ['Pruitt', 'Hoffman', 'Kowalski', 'Butts', 'McGee', 'Dinkel', 'Ferguson', 'Snodgrass', 'Plunkett', 'Wiggins', 'Sauerkraut', 'Bumgarner', 'Weatherby', 'Puckett', 'Hornswoggle', 'Fudge'];
 
-export const JOBS = ['Farmhand', 'Mechanic', 'Mail Carrier', 'Retiree', 'Banker', 'Teen', 'Dentist', 'Diner Cook', 'Insurance Salesman', 'Pastor', 'Crossing Guard', 'Influencer', 'Cop', 'Construction Worker'] as const;
+export const JOBS = ['Farmhand', 'Mechanic', 'Mail Carrier', 'Retiree', 'Banker', 'Teen', 'Dentist', 'Diner Cook', 'Insurance Salesman', 'Pastor', 'Crossing Guard', 'Influencer', 'Cop', 'Construction Worker',
+  // Airport staff (src/places/airport).
+  'Pilot', 'Flight Attendant', 'TSA Agent', 'Baggage Handler', 'Ground Crew', 'Air Traffic Controller'] as const;
 export type Physical = 'Feeble' | 'Normal' | 'Athlete';
 export type Mental = 'Depressed' | 'Normal' | 'Medicated';
 
@@ -129,7 +131,7 @@ export interface PersonFile {
   mental: Mental;
 }
 
-const ATHLETIC_JOBS: readonly string[] = ['Cop', 'Construction Worker', 'Farmhand', 'Teen', 'Mail Carrier'];
+const ATHLETIC_JOBS: readonly string[] = ['Cop', 'Construction Worker', 'Farmhand', 'Teen', 'Mail Carrier', 'Baggage Handler', 'Ground Crew'];
 
 export function physicalFor(rng: Rng, age: number, job: string): Physical {
   if (age >= 72) return rng() < 0.9 ? 'Feeble' : 'Normal';
@@ -145,6 +147,7 @@ export function randomFile(rng: Rng, job?: Job): PersonFile {
   let age = Math.floor(randRange(rng, 16, 92));
   if (chosenJob === 'Teen') age = Math.floor(randRange(rng, 14, 19));
   if (chosenJob === 'Retiree') age = Math.floor(randRange(rng, 66, 95));
+  if (chosenJob === 'Pilot' || chosenJob === 'Air Traffic Controller') age = Math.floor(randRange(rng, 28, 64));
   if (chosenJob === 'Cop' || chosenJob === 'Construction Worker') age = Math.floor(randRange(rng, 21, 56));
   const roll = rng();
   const daysLeft = roll < 0.45 ? Math.floor(randRange(rng, 0, 30)) : roll < 0.7 ? Math.floor(randRange(rng, 30, 900)) : Math.floor(randRange(rng, 3000, 20000));
