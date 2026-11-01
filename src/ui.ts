@@ -81,6 +81,9 @@ export class UI {
         <tr><td>Skills</td><td>1 – 5 (or click)</td><td>D-pad up/down pick, right use</td></tr>
         <tr><td>Interact / possess</td><td>E</td><td>Y</td></tr>
         <tr><td>Scream for help</td><td>T</td><td>LB</td></tr>
+        <tr><td>Hijack car / get out</td><td>E</td><td>Y</td></tr>
+        <tr><td>Drive · steer</td><td>W / S · A / D</td><td>Stick or RT / LT · stick</td></tr>
+        <tr><td>Handbrake · horn</td><td>Space · T</td><td>A · LB</td></tr>
         <tr><td>Pee</td><td>Q</td><td>RB</td></tr>
         <tr><td>Ghost rise / sink</td><td>Space / Shift</td><td>A / B</td></tr>
         <tr><td>Ledger · music</td><td>Tab · M</td><td>View · D-pad left</td></tr>
