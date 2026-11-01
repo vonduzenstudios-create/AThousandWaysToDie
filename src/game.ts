@@ -18,7 +18,7 @@ import {
   mapOfDeath,
   type PersonFile,
 } from './deaths';
-import { Input } from './input';
+import { Input, lockBrowserKeys } from './input';
 import { Npc } from './npc';
 import { LifeSystem, type LifeMap } from './life';
 import { autoLifeMap } from './travel/autolife';
@@ -310,6 +310,13 @@ export class Game {
 
     this.input = new Input(canvas);
     this.input.onAnyGesture = () => this.sound.init();
+    lockBrowserKeys();
+    // A stray Ctrl+W (or closing the tab) asks before throwing the run away.
+    window.addEventListener('beforeunload', (e) => {
+      if (this.mode === 'title') return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
     this.cam = new FollowCam(this.camera, this.physics);
     this.player = new Player(this.physics, new THREE.Vector3(87, G, 88));
     this.player.setEnabled(false);
