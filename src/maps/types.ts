@@ -159,6 +159,8 @@ export interface MapBuild {
    * the right. Points shared by two roads (within 1.5 units) become intersections. Used by traffic.
    */
   roads?: { points: THREE.Vector3[]; width: number; loop?: boolean }[];
+  /** Traffic tuning for this map's roads (cars per 100 blocks of lane, max cars, cruise speed). */
+  traffic?: { density?: number; maxCars?: number; speed?: number; parked?: { pos: THREE.Vector3; facing: number }[] };
   /**
    * Rich NPC data (LifeMap from src/life/types.ts, owned by the NPC life thread): nav grid,
    * places, population. When present the game hands it to the LifeSystem; `npcs` is the fallback.

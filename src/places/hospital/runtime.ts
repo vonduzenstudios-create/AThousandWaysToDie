@@ -1461,7 +1461,7 @@ export function setupHospital(ctx: MapContext, info: HospitalInfo, opts: Hospita
       if (inside) indoor.position.copy(p!).add(new THREE.Vector3(0, 3.6, 0));
       if (inside !== wasInside) {
         wasInside = inside;
-        indoor.intensity = inside ? 22 : 0;
+        indoor.intensity = inside ? 11 : 0;
         indoorHemi.intensity = inside ? 0.45 : 0;
       }
     },

@@ -85,6 +85,7 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/town.ts`, `src/townkit.ts`, `src/voxel.ts`: Smallville layout (places, transit stops, roads, signs, death spots), building and street kit, voxel mesher with ambient occlusion and merged colliders
 - `src/hometown.ts`: the expanded town's deaths, animals and moving props
 - `src/props.ts`: train, hay bale, signs, hazards
+- `src/kit/`: the shared building and prop kit: detailed voxel buildings, paving, trees, tents, fences and street props (see `docs/building-kit.md` and `docs/prop-kit.md`; showcases at `/buildings.html` and `/props.html`)
 - `src/npc.ts`, `src/deaths.ts`: townspeople, their files, the death list and save data
 - `src/life/`: NPC life: daily schedules, shops, chatting, gossip, talking to townsfolk (see `docs/npc-life.md`)
 - `src/skills.ts`: skill definitions and the per-body skill bar
