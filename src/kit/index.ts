@@ -385,6 +385,18 @@ export class StreetKit {
     }
   }
 
+  /** Remove everything the kit added: meshes, instanced props and colliders. */
+  dispose() {
+    this.group.removeFromParent();
+    this.group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) m.geometry.dispose();
+    });
+    if (this.body && this.physics) this.physics.removeRigidBody(this.body);
+    this.body = null;
+    this.jobs = [];
+  }
+
   stats() {
     let instances = 0;
     for (const b of this.props.values()) instances += b.mats.length;

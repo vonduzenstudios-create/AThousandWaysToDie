@@ -28,6 +28,7 @@ import {
   type InstitutionApi,
   type Gate,
 } from './common';
+import { prisonDecor, prisonLots, type Decor } from './decor';
 import { prisonLife } from './life';
 
 /**
@@ -236,6 +237,7 @@ function buildPrison(w: VoxelWorld, rng: Rng) {
     if (!nearWall && !nearTunnel) treeAt(w, rng, x, z);
   }
   w.fill(8, G, 102, 8, G + 9, 102, B.Metal);
+  prisonLots(w);
 }
 
 function treeAt(w: VoxelWorld, rng: Rng, x: number, z: number) {
@@ -273,6 +275,7 @@ function prisonZones(): AccessZone[] {
 
 class PrisonRuntime implements MapRuntime {
   private kit: PropKit;
+  private decor: Decor;
   private game: GameApi;
   private rng = mulberry32(4471);
   private access = new AccessControl(prisonZones());
@@ -305,6 +308,7 @@ class PrisonRuntime implements MapRuntime {
   constructor(private ctx: MapContext) {
     this.game = ctx.game;
     const kit = (this.kit = new PropKit(ctx));
+    this.decor = prisonDecor(ctx, WALL);
     this.interactables = kit.interactables;
     const rng = this.rng;
 
@@ -1051,6 +1055,7 @@ class PrisonRuntime implements MapRuntime {
   dispose() {
     for (const a of [...this.actors, ...this.mob]) a.dispose();
     this.kit.dispose();
+    this.decor.dispose();
   }
 }
 
