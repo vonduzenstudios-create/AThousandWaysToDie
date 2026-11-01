@@ -10,7 +10,6 @@ import {
   ADJUSTER_NOTES,
   DEATH_BY_ID,
   DENIAL_REASONS,
-  JOBS,
   Ledger,
   UNINSURED_LINES,
   isDeserving,
@@ -18,6 +17,8 @@ import {
 } from './deaths';
 import { Input } from './input';
 import { Npc } from './npc';
+import { LifeSystem } from './life';
+import { deathGossip, smallvilleLife } from './life/maps/smallville';
 import { Particles } from './particles';
 import { Player, PLAYER_CENTER, type LandEvent } from './player';
 import { Props } from './props';
@@ -68,7 +69,11 @@ export class Game {
   private player: Player;
   private character: Character | null = null;
   private body: PersonFile | null = null;
-  private npcs: Npc[] = [];
+  private life!: LifeSystem;
+  /** Townsfolk bodies (owned by the life system). */
+  private get npcs(): Npc[] {
+    return this.life.npcs;
+  }
   private ragdolls: Ragdoll[] = [];
   private pancakes: THREE.Object3D[] = [];
   private activeRagdoll: Ragdoll | null = null;
@@ -96,7 +101,6 @@ export class Game {
   private pendingDeath: { id: string; victim: PersonFile; startPos: THREE.Vector3 } | null = null;
   private crosshair: HTMLElement;
   private hornCooldown = 0;
-  private npcRespawnT = 0;
   private atms!: Atms;
   private skillBar = new SkillBar();
   private combat!: Combat;
@@ -235,45 +239,28 @@ export class Game {
   }
 
   private spawnInitialNpcs() {
-    const a = this.town.areas;
-    const plan: [keyof typeof a, (typeof JOBS)[number] | undefined][] = [
-      ['downtown', undefined],
-      ['downtown', 'Diner Cook'],
-      ['downtown', undefined],
-      ['park', undefined],
-      ['park', 'Retiree'],
-      ['farm', 'Farmhand'],
-      ['farm', 'Farmhand'],
-      ['woods', undefined],
-      ['tower', 'Construction Worker'],
-      ['garage', 'Mechanic'],
-      ['downtown', undefined],
-      ['station', 'Cop'],
-      ['station', 'Cop'],
-      ['construction', 'Construction Worker'],
-    ];
-    plan.forEach(([area, job], i) => {
-      const n = new Npc(this.scene, this.town.world, a[area], mulberry32(500 + i * 77 + (Date.now() % 1000)), job);
-      if (i === 1) {
-        n.file.peanutAllergy = true;
-        n.file.quirk = 'Has a peanut allergy. Like, a bad one.';
-      }
-      if (i === 2) n.file.daysLeft = 2; // always at least one fair mark nearby
-      if (i === 8) {
-        n.file.physical = 'Athlete'; // someone who can do the water tower long jump
-        n.file.age = 27;
-        n.file.daysLeft = 12;
-      }
-      if (i === 4) n.file.physical = 'Feeble';
-      this.npcs.push(n);
+    this.life = new LifeSystem(this.scene, smallvilleLife(this.town), {
+      seed: 500 + (Date.now() % 1000),
+      blip: () => this.sound.blip(0.6),
     });
-  }
-
-  private spawnRandomNpc() {
-    const keys = Object.keys(this.town.areas);
-    const key = pick(this.rng, keys);
-    const area = this.town.areas[key];
-    this.npcs.push(new Npc(this.scene, this.town.world, area, mulberry32(Math.floor(this.rng() * 1e9)), key === 'station' ? 'Cop' : undefined));
+    this.life.populate();
+    // Guarantee a few marks for the demo's deaths.
+    const byJob = (job: string) => this.npcs.filter((n) => n.file.job === job);
+    const cook = byJob('Diner Cook')[0];
+    if (cook) {
+      cook.file.peanutAllergy = true;
+      cook.file.quirk = 'Has a peanut allergy. Like, a bad one.';
+    }
+    const due = this.npcs[2];
+    if (due) due.file.daysLeft = 2; // always at least one fair mark nearby
+    const worker = byJob('Construction Worker')[0];
+    if (worker) {
+      worker.file.physical = 'Athlete'; // someone who can do the water tower long jump
+      worker.file.age = 27;
+      worker.file.daysLeft = 12;
+    }
+    const old = byJob('Retiree')[0];
+    if (old) old.file.physical = 'Feeble';
   }
 
   private wirePlayerHooks() {
@@ -382,14 +369,12 @@ export class Game {
           this.ghost.visible = false;
           this.ghost.scale.setScalar(1);
           this.ui.flash('#c9b8ff', 400);
-          const idx = this.npcs.indexOf(n);
-          if (idx >= 0) this.npcs.splice(idx, 1);
+          this.life.take(n);
           this.scene.remove(n.character.root);
           const facing = n.character.root.rotation.y;
           this.setBody(n.file, n.character, n.pos.clone(), facing);
           this.sound.setStyle('town');
           this.mode = 'play';
-          this.npcRespawnT = 4;
           if (!this.helpShown) {
             this.helpShown = true;
             this.ui.toggleHelp();
@@ -458,6 +443,8 @@ export class Game {
       if (this.ragdolls.length > 6) this.ragdolls.shift()!.dispose();
     }
     this.character = null;
+    this.life.closeTalk();
+    this.life.event({ kind: 'death', at: this.player.position(), victim, what: deathGossip(id, def.name), where: def.location });
     this.ui.toast(def.name.toUpperCase(), def.category, 2600);
     this.runSeq([
       { at: 1.4, fn: () => (this.timeScale = 1) },
@@ -855,7 +842,7 @@ export class Game {
       gather: (n, radius, onArrive) => {
         const p = this.player.feet();
         const near = this.npcs
-          .filter((x) => !x.helping && !x.controlled && x.pos.distanceTo(p) < radius)
+          .filter((x) => !x.helping && !x.controlled && !x.away && x.pos.distanceTo(p) < radius)
           .sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p))
           .slice(0, n);
         let first = true;
@@ -894,7 +881,7 @@ export class Game {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const g = this;
     return new Combat({
-      npcs: () => this.npcs,
+      npcs: () => this.life.visibleNpcs(),
       get player() {
         return g.player;
       },
@@ -934,7 +921,7 @@ export class Game {
     this.character.kick(-0.3);
     const p = this.player.feet();
     const near = this.npcs
-      .filter((n) => !n.helping && !n.controlled && n.pos.distanceTo(p) < 28)
+      .filter((n) => !n.helping && !n.away && !n.controlled && n.pos.distanceTo(p) < 28)
       .sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p))
       .slice(0, 2);
     if (!near.length) {
@@ -1008,6 +995,7 @@ export class Game {
     // Peeing.
     if (this.input.held('pee') && this.player.grounded && (this.player.state === 'ground' || this.player.state === 'locked')) {
       this.peeTime += dt;
+      if (this.peeTime >= 0.4 && this.peeTime - dt < 0.4) this.life.event({ kind: 'pee', at: this.player.feet(), radius: 12 });
       const fd = new THREE.Vector3(Math.sin(this.player.facing), 0, Math.cos(this.player.facing));
       const origin = this.player.feet().add(new THREE.Vector3(0, 0.75, 0)).addScaledVector(fd, 0.3);
       for (let i = 0; i < 2; i++)
@@ -1100,12 +1088,12 @@ export class Game {
     while (this.acc >= h && steps < 5) {
       if (this.mode === 'play' || this.mode === 'dying') {
         if (this.mode === 'play' && this.character) {
-          const peeing = inp.held('pee') && this.player.grounded;
+          const peeing = (inp.held('pee') && this.player.grounded) || this.life.isTalking;
           this.player.update(h, {
             moveX: peeing || this.ui.ledgerOpen ? 0 : inp.moveX,
             moveY: peeing || this.ui.ledgerOpen ? 0 : inp.moveY,
             camYaw: this.cam.yaw,
-            jumpPressed: first && this.latched.jump,
+            jumpPressed: first && this.latched.jump && !this.life.isTalking,
             jumpHeld: inp.held('jump'),
             crouchHeld: inp.held('crouch'),
             crouchPressed: first && this.latched.crouch,
@@ -1127,7 +1115,11 @@ export class Game {
     if (steps === 5) this.acc = 0;
 
     for (const r of this.ragdolls) r.update();
-    for (const n of this.npcs) n.update(dt);
+    this.life.update(dt, {
+      camera: this.camera,
+      player: this.mode === 'play' && this.body ? { pos: this.player.feet(), file: this.body } : null,
+      menu: { up: inp.pressed('up'), down: inp.pressed('down'), confirm: inp.pressed('confirm'), back: inp.pressed('crouch') },
+    });
     this.combat.update(dt);
     this.updateEffects(realDt);
     this.props.update(dt, this.time);
@@ -1140,12 +1132,6 @@ export class Game {
         this.props.train.smokeTimer = 0.08;
         this.particles.emit(this.props.train.smokePos(), new THREE.Vector3(-4, 4, 0), 0xdddddd, { life: 1.6, size: 0.6, gravity: -1, spread: 1 });
       }
-    }
-
-    // Keep the town populated.
-    if (this.npcRespawnT > 0) {
-      this.npcRespawnT -= dt;
-      if (this.npcRespawnT <= 0 && this.npcs.length < 14) this.spawnRandomNpc();
     }
 
     // Mode-specific per-frame logic and camera.
@@ -1161,9 +1147,12 @@ export class Game {
         stateTime: this.player.stateTime,
         airTime: this.player.airTime,
       });
-      const it = this.player.state !== 'locked' ? this.nearestInteractable() : null;
-      this.ui.prompt(it ? `<span class="key">E</span>${it.prompt}` : null);
+      const free = this.player.state !== 'locked' && !this.life.isTalking;
+      const it = free ? this.nearestInteractable() : null;
+      const who = free && !it && this.player.grounded ? this.life.talkable(feet) : null;
+      this.ui.prompt(it ? `<span class="key">E</span>${it.prompt}` : who ? `<span class="key">E</span>Talk to ${who.file.name.split(' ')[0]}` : null);
       if (it && inp.pressed('interact')) this.interact(it.id);
+      else if (who && inp.pressed('interact') && this.body) this.life.talkTo(who, this.body, feet);
       if (inp.pressed('scream') && this.player.state !== 'locked') this.scream();
       if (inp.pressed('punch') && !this.ui.ledgerOpen) this.combat.punch();
       (['skill1', 'skill2', 'skill3', 'skill4', 'skill5'] as const).forEach((b, i) => {
@@ -1230,6 +1219,7 @@ export class Game {
     let best: Npc | null = null;
     let bestScore = Infinity;
     for (const n of this.npcs) {
+      if (n.away) continue;
       const to = n.pos.clone().add(new THREE.Vector3(0, 1, 0)).sub(camPos);
       const d = to.length();
       if (d > 45) continue;
