@@ -56,6 +56,7 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 - Fist fights: F punches, punched people fight back (cops nearby join in), and the HUD health bar decides how long you last.
 - Traffic on every road: cars follow their lanes, take turns at intersections, brake (unless they're texting) and honk. Walk up to any car and press E to yank the driver out and drive it. Ram traffic, run people over (God notices if they weren't due), drive off the edge of the world or race the train.
 - GTA-style radar in the top right that rotates with the camera, draws itself from the voxels on any map, shows cars and landmarks, a speedometer while driving, and in ghost mode every soul colored by whether they're due.
+- Anime-style story cutscenes drawn in code: the opening (Gary's turkey-fryer death, the DENIED stamp, and Death's "Fine. You do it then!"), plus a scene from Death on his day off each time 25 deaths in an area opens the next route (bus to downtown, the harbor boats, the airport). Click, Space, E or A advances; Esc or Start twice skips. Add `?cutscene=opening` (or `smallville:25`, `city:25`, `city:50`) to the URL to replay one.
 - Ragdoll physics, insurance claim cards with payouts, a 1,000-slot death ledger saved in the browser.
 
 ## Tech
@@ -76,6 +77,7 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/economy.ts`: ATMs and card withdrawals
 - `src/combat.ts`: punching, angry NPCs, player health
 - `src/audio.ts`: synthesized sound effects and the chiptune sequencer
+- `src/story/`: cutscene player (`cutscene.ts`), canvas anime art (`art.ts`), synth stings and voices (`sfx.ts`), scripts (`scenes.ts`) and the director that picks and saves scenes (`director.ts`)
 - `src/ui.ts`: HUD, scythe vision panel, claim card, ledger
 - `src/minimap.ts`: the radar (works on any VoxelWorld)
 - `src/vehicles/`: road graph and lanes (`roads.ts`), traffic AI (`traffic.ts`), drivable cars on Rapier's ray-cast vehicle controller (`car.ts`), voxel car models (`carModel.ts`), car sounds, and Smallville's roads and parked cars (`smallville.ts`)

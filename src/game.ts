@@ -32,6 +32,7 @@ import { Car, sit } from './vehicles/car';
 import { DOOR_OUT, HALF, RIDE } from './vehicles/carModel';
 import { carSfx, EngineSound } from './vehicles/carSound';
 import { smallvillePois, smallvilleTraffic } from './vehicles/smallville';
+import { StoryDirector } from './story/director';
 
 type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing';
 
@@ -135,6 +136,8 @@ export class Game {
   private shoutT = 0;
   private burning: { car: Car; t: number }[] = [];
   private drivenOnce = false;
+  /** Anime story cutscenes. The game loop pauses while one plays. */
+  readonly story = new StoryDirector(() => this.sound.ctx);
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -237,6 +240,7 @@ export class Game {
     this.cam.autoOrbit = 0.08;
     this.cam.snap(new THREE.Vector3(90, G + 6, 80));
 
+    this.story.onPause = (p) => this.sound.duck(p);
     this.ui.showTitle(() => this.start());
     this.renderer.setAnimationLoop(() => this.frame());
   }
@@ -327,7 +331,12 @@ export class Game {
     this.sound.startMusic();
     this.input.requestLock();
     this.cam.autoOrbit = 0;
-    this.enterGhost(new THREE.Vector3(80.5, G + 4, 86), true);
+    const go = () => this.enterGhost(new THREE.Vector3(80.5, G + 4, 86), true);
+    // ?cutscene=<id> replays one scene (e.g. opening, smallville:25) for testing.
+    const forced = new URLSearchParams(location.search).get('cutscene');
+    if (forced) void this.story.replay(forced).then(go);
+    else if (this.story.hasSeen('opening')) go();
+    else void this.story.opening().then(go);
   }
 
   // ---------------------------------------------------------------- bodies
@@ -556,6 +565,7 @@ export class Game {
     at.y = Math.max(at.y, G) + 3;
     this.pendingDeath = null;
     this.enterGhost(at);
+    this.story.checkLedger(this.ledger.found);
     if (Math.random() < 0.5) setTimeout(() => this.ui.say('Death', pick(this.rng, DEATH_QUIPS), 3000), 3800);
   }
 
@@ -1499,6 +1509,8 @@ export class Game {
     const realDt = Math.min((now - this.lastT) / 1000, 0.1);
     this.lastT = now;
     this.input.poll();
+    // A story cutscene covers the screen: freeze the game underneath it.
+    if (this.story.active) return;
     const inp = this.input;
 
     if (inp.pressed('music')) this.sound.toggleMusic();
