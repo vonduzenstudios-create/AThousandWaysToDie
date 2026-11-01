@@ -2440,9 +2440,11 @@ export class Game {
     const mouseSens = 0.0032 * this.options.sens;
     if (this.mode === 'play' || this.mode === 'ghost') this.cam.zoom(inp.wheel);
     // Death can look (and fly) much further up and down than a body can.
-    this.cam.minPitch = this.mode === 'ghost' ? -1.2 : -0.2;
-    this.cam.maxPitch = this.mode === 'ghost' ? 1.4 : 1.25;
-    if (this.mode !== 'ghost' && this.cam.pitch < -0.2 && !this.cam.firstPerson) this.cam.pitch = -0.2;
+    // Look well up from below in play (and further as Death); death cams keep a high angle.
+    const lowCam = this.mode === 'dying' || this.mode === 'claim';
+    this.cam.minPitch = this.mode === 'ghost' ? -1.25 : lowCam ? -0.2 : -1.1;
+    this.cam.maxPitch = this.mode === 'ghost' ? 1.4 : 1.3;
+    if (lowCam && this.cam.pitch < -0.2 && !this.cam.firstPerson) this.cam.pitch = -0.2;
     this.cam.minDist = this.mode === 'dying' || this.mode === 'claim' ? 6 : 0;
     // Right mouse (or first person) makes the character face where the camera looks.
     const steer = inp.rmb || this.cam.firstPerson;
