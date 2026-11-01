@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import type { GameApi, MapContext, MapRuntime } from '../types';
 import type { Interactable } from '../../props';
+import type { RAPIER } from '../../physics';
 import { Actor, Animal, MOOD_NAMES, type Ground } from './animals';
 import * as M from './models';
 import { buildClouds, buildFoliage, buildWater } from './scenery';
 import { RIVER_A, SX, SZ, type Terrain } from './terrain';
 import type { Spots } from './structures';
 import { buildKit, disposeKit } from './kitbuild';
+import { buildRoadRibbons, type RoadProfile } from './roads';
 import type { StreetKit } from '../../kit';
 
 export interface WildLayout {
@@ -14,6 +16,7 @@ export interface WildLayout {
   spots: Spots;
   ground: Ground;
   cover: Uint8Array;
+  roads: RoadProfile[];
 }
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -144,6 +147,7 @@ export class WildRuntime implements MapRuntime {
   private logGame: { t: number; want: number; next: number; balance: number; log: THREE.Mesh } | null = null;
   private skeletons: { a: Actor; t: number; dir: THREE.Vector3 }[] = [];
   private kit: StreetKit;
+  private roadBody: RAPIER.RigidBody;
 
   constructor(private ctx: MapContext, L: WildLayout) {
     this.game = ctx.game;
@@ -154,6 +158,9 @@ export class WildRuntime implements MapRuntime {
     this.cover = L.cover;
     this.scene.add(this.root);
     this.kit = buildKit(this.root, ctx.physics);
+    const ribbons = buildRoadRibbons(L.roads, ctx.physics);
+    this.root.add(ribbons.group);
+    this.roadBody = ribbons.body;
 
     const water = buildWater(this.t);
     this.waterMat = water.mat;
@@ -823,6 +830,7 @@ export class WildRuntime implements MapRuntime {
 
   dispose() {
     disposeKit(this.kit, this.ctx.physics);
+    this.ctx.physics.removeRigidBody(this.roadBody);
     this.scene.remove(this.root);
     for (const a of this.animals) a.dispose(this.scene);
     for (const a of this.actors) a.dispose(this.scene);

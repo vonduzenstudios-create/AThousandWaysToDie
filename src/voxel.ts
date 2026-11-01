@@ -57,6 +57,14 @@ export const B = {
   Ice: 50,
   /** Draws nothing; marks a footprint that a mesh from elsewhere (the building kit) stands on, so nav and collision see it. */
   Footprint: 51,
+  /**
+   * Invisible solids under detailed kit props (src/kit/props.ts) placed through VoxelWorld.prop():
+   * the block shape keeps collision, nav and deaths working while the prop model is what you see.
+   * Their palette colors are what the minimap shows.
+   */
+  GhostWood: 52,
+  GhostLeaf: 53,
+  GhostProp: 54,
   // Prison and asylum blocks (src/maps/institutions). Ids 230-238 (beach 100-139, city 140-179, wilderness 180-219, travel 220-229).
   PrisonGrey: 230,
   CellFloor: 231,
@@ -71,6 +79,19 @@ export const B = {
 
 /** Blocks you can walk (or sink) through. They still render and hide faces behind them. */
 export const PASSABLE = new Set<number>([B.Water, B.Corn, B.Grain]);
+
+/** Blocks that collide but never draw (a kit mesh from elsewhere shows instead). */
+export const HIDDEN = new Set<number>([B.Footprint, B.GhostWood, B.GhostLeaf, B.GhostProp]);
+
+/** A detailed kit prop queued by map build code; game.ts places these after the build. */
+export interface WorldProp {
+  kind: string;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  scale: number;
+}
 
 /** Base color and how much per-voxel color noise each block gets. Maps may add blocks with registerBlock. */
 export const PALETTE: Record<number, [number, number]> = {
@@ -125,6 +146,9 @@ export const PALETTE: Record<number, [number, number]> = {
   [B.Mud]: [0x5e4128, 0.12],
   [B.Ice]: [0xcdeefa, 0.04],
   [B.Footprint]: [0x8c6e60, 0],
+  [B.GhostWood]: [0x6e4a2b, 0],
+  [B.GhostLeaf]: [0x3f9a35, 0],
+  [B.GhostProp]: [0x9a9a96, 0],
   [B.PrisonGrey]: [0x7c8088, 0.08],
   [B.CellFloor]: [0x5d6168, 0.1],
   [B.ShowerTile]: [0xdfe8ec, 0.05],
@@ -137,6 +161,82 @@ export const PALETTE: Record<number, [number, number]> = {
 };
 
 const AO_CURVE = [0.42, 0.62, 0.8, 1.0];
+
+/**
+ * Painted surface detail per block type, drawn in the shader at 4 x 4 sub-cells per block face
+ * (no extra geometry): foliage gets light specks on top and a dark ragged rim along the bottom of
+ * its sides, grass gets blade specks, bark grooves, stone and soil grain, planks board seams.
+ */
+export const Detail = { None: 0, Foliage: 1, Grass: 2, Bark: 3, Stone: 4, Soil: 5, Plank: 6 } as const;
+const DETAIL = new Uint8Array(256);
+/** Give block ids a painted surface style (maps call this for their own blocks). */
+export function blockDetail(style: number, ...ids: number[]) {
+  for (const id of ids) DETAIL[id] = style;
+}
+blockDetail(Detail.Foliage, B.Leaves, B.LeavesDark, B.Hay);
+blockDetail(Detail.Grass, B.Grass, B.Flower);
+blockDetail(Detail.Bark, B.Wood);
+blockDetail(Detail.Stone, B.Stone, B.Gravel, B.Concrete, B.Tombstone, B.Marble);
+blockDetail(Detail.Soil, B.Dirt, B.Sand, B.Mud);
+blockDetail(Detail.Plank, B.Plank, B.BarnRed);
+
+/** Lambert material for voxel sections, with the painted detail from blockDetail(). */
+function voxelMaterial() {
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float vdetail;\nvarying float vDet;\nvarying vec3 vWP;\nvarying vec3 vON;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvDet = vdetail;\nvON = normal;\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying float vDet;
+varying vec3 vWP;
+varying vec3 vON;
+float vxHash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+{
+  int det = int(vDet + 0.5);
+  if (det > 0) {
+    vec3 p = vWP - vON * 0.02;
+    vec3 sub = floor(p * 4.0);
+    vec3 fr = fract(p);
+    float h = vxHash(sub + 7.0);
+    float k = 1.0;
+    if (det == 1) {
+      if (vON.y > 0.5) k = h > 0.9 ? 1.3 : h < 0.07 ? 0.84 : 1.0;
+      else if (vON.y < -0.5) k = 0.8;
+      else if (fr.y < 0.25 || (fr.y < 0.5 && h < 0.4)) k = 0.72;
+      else k = h > 0.965 ? 1.25 : h < 0.04 ? 0.85 : 1.0;
+    } else if (det == 2) {
+      if (vON.y > 0.5) k = 0.94 + h * 0.12 + (h > 0.95 ? 0.16 : 0.0);
+      else k = (fr.y > 0.7 || (fr.y > 0.45 && h < 0.5)) ? 1.0 : 0.8;
+    } else if (det == 3) {
+      float g = vxHash(vec3(sub.x, floor(sub.y / 3.0), sub.z) + 3.0);
+      k = g > 0.72 ? 0.74 : (h > 0.93 ? 1.15 : 1.0);
+    } else if (det == 4) {
+      k = 0.9 + h * 0.2;
+      if (h < 0.05) k = 0.72;
+    } else if (det == 5) {
+      k = 0.93 + h * 0.14;
+      if (h > 0.95) k = 0.8;
+    } else if (det == 6) {
+      float board = floor(p.y * 2.0);
+      k = 0.94 + vxHash(vec3(board, floor(p.x * 0.5), floor(p.z * 0.5)) + 1.0) * 0.12;
+      if (abs(vON.y) < 0.5 && fract(p.y * 2.0) < 0.1) k *= 0.72;
+    }
+    diffuseColor.rgb *= k;
+  }
+}`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'voxdetail';
+  return mat;
+}
 
 /** Add a block type (for maps that need new materials). Returns the id. Ids 1-255. */
 export function registerBlock(id: number, color: number, noise = 0.1) {
@@ -165,6 +265,8 @@ export class VoxelWorld {
   readonly ncy: number;
   readonly ncz: number;
   private chunks: (Uint8Array | null)[];
+  /** Detailed kit props queued by build code (see prop()). */
+  readonly props: WorldProp[] = [];
   /** Called with section coords when voxels in that section change (the streamer listens). */
   onChange: ((sx: number, sz: number) => void) | null = null;
 
@@ -173,6 +275,15 @@ export class VoxelWorld {
     this.ncy = Math.ceil(sy / CS);
     this.ncz = Math.ceil(sz / CS);
     this.chunks = new Array(this.ncx * this.ncy * this.ncz).fill(null);
+  }
+
+  /**
+   * Queue a detailed kit prop (src/kit/props.ts) at a world position. It is purely visual:
+   * write Ghost* blocks for its collision shape. game.ts instances every queued prop after
+   * the map build. rotY in radians.
+   */
+  prop(kind: string, x: number, y: number, z: number, rotY = 0, scale = 1) {
+    this.props.push({ kind, x, y, z, rotY, scale });
   }
 
   inBounds(x: number, y: number, z: number) {
@@ -259,7 +370,7 @@ export class VoxelWorld {
 
   private solid(x: number, y: number, z: number) {
     const b = this.get(x, y, z);
-    return b !== 0 && b !== B.Footprint ? 1 : 0;
+    return b !== 0 && !HIDDEN.has(b) ? 1 : 0;
   }
 
   private collides(x: number, y: number, z: number) {
@@ -278,6 +389,7 @@ export class VoxelWorld {
     const pos: number[] = [];
     const nor: number[] = [];
     const col: number[] = [];
+    const det: number[] = [];
     const ind: number[] = [];
     const color = new THREE.Color();
     const per = SECTION / CS;
@@ -295,7 +407,7 @@ export class VoxelWorld {
             for (let lz = 0; lz < CS; lz++)
               for (let lx = 0; lx < CS; lx++) {
                 const b = c[(ly << 8) | (lz << 4) | lx];
-                if (!b || b === B.Footprint) continue;
+                if (!b || HIDDEN.has(b)) continue;
                 const x = ccx * CS + lx, y = cy * CS + ly, z = ccz * CS + lz;
                 const [hex, vari] = PALETTE[b] ?? [0xff00ff, 0];
                 const f = 1 + (hash3(x, y, z) - 0.5) * vari * 2;
@@ -339,6 +451,7 @@ export class VoxelWorld {
                       nor.push(nv[0], nv[1], nv[2]);
                       const kk = f * AO_CURVE[ao] * faceShade;
                       col.push(color.r * kk, color.g * kk, color.b * kk);
+                      det.push(DETAIL[b]);
                     }
                     if (aos[0] + aos[2] > aos[1] + aos[3]) ind.push(base, base + 1, base + 2, base, base + 2, base + 3);
                     else ind.push(base + 1, base + 2, base + 3, base + 1, base + 3, base);
@@ -346,7 +459,7 @@ export class VoxelWorld {
               }
         }
     if (!pos.length) return null;
-    return { pos: new Float32Array(pos), nor: new Float32Array(nor), col: new Float32Array(col), ind: new Uint32Array(ind) };
+    return { pos: new Float32Array(pos), nor: new Float32Array(nor), col: new Float32Array(col), det: new Uint8Array(det), ind: new Uint32Array(ind) };
   }
 
   /**
@@ -447,7 +560,7 @@ export class ChunkStreamer {
   private sections = new Map<number, Section | 'empty'>();
   private dirty = new Set<number>();
   private body: RAPIER.RigidBody;
-  private mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  private mat = voxelMaterial();
   private nsx: number;
   private nsz: number;
   /** Sections built so far (for the loading bar and tests). */
@@ -492,6 +605,7 @@ export class ChunkStreamer {
     geo.setAttribute('position', new THREE.BufferAttribute(m.pos, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(m.nor, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(m.col, 3));
+    geo.setAttribute('vdetail', new THREE.BufferAttribute(m.det, 1));
     geo.setIndex(new THREE.BufferAttribute(m.ind, 1));
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, this.mat);

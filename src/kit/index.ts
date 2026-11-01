@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RAPIER, G_ALL, G_WORLD, groups } from '../physics';
 import { mulberry32 } from '../util';
 import { DV } from './grid';
-import { meshGrid, toGeometry, triCount, type MeshArrays } from './mesher';
+import { downsample, meshGrid, toGeometry, triCount, type MeshArrays } from './mesher';
 import { MeshPool } from './pool';
 import { kitMaterial } from './material';
 import { buildBuilding, type BuildingSpec, type BuiltBuilding, type Preset } from './building';
@@ -17,7 +18,9 @@ export { kitMaterial } from './material';
 export { buildBuilding, FLOOR_H } from './building';
 export type { BuildingSpec, BuiltBuilding, Preset, WallStyle, RoofKind, GroundKind, WindowTop, LocalBox } from './building';
 export { propModel, PROP_KINDS } from './props';
-export type { PropKind, PropModel } from './props';
+export type { PropKind, PropModel, StreetPropKind } from './props';
+export { cactusArms, NC } from './nature';
+export * from './shapes';
 export { pavingCell, pavingGrid } from './street';
 export type { PavingKind, Side } from './street';
 export { rasterText, textWidth } from './font';
@@ -91,10 +94,16 @@ export interface KitOptions {
   shadows?: boolean;
   /** Mesh on the main thread instead of in workers (tests, tiny previews). Default false. */
   sync?: boolean;
+  /** Instanced props are bucketed per square of this many blocks (culling and LOD). Default 48. */
+  propChunk?: number;
+  /** Distance where detailed props switch to a half-resolution mesh. Default 60; 0 = never. */
+  propLod?: number;
 }
 
 const FACE_ROT: Record<Facing, number> = { n: 0, s: Math.PI, e: -Math.PI / 2, w: Math.PI / 2 };
 const CHUNK = 48;
+/** Prop meshes are shared by every kit (models never change), so maps reuse them across loads. */
+const PROP_GEOS = new Map<PropKind, THREE.BufferGeometry[]>();
 
 /**
  * The shared building and street-detail kit. One per map:
@@ -121,6 +130,8 @@ export class StreetKit {
   private pool = new MeshPool();
   private sync: boolean;
   private jobs: Promise<void>[] = [];
+  private propChunk: number;
+  private propLod: number;
 
   constructor(opts: KitOptions) {
     this.physics = opts.physics ?? null;
@@ -128,6 +139,8 @@ export class StreetKit {
     this.lodD = opts.lodDistances ?? [55, 120];
     this.shadows = opts.shadows ?? true;
     this.sync = opts.sync ?? false;
+    this.propChunk = opts.propChunk ?? CHUNK;
+    this.propLod = opts.propLod ?? 60;
     this.group.name = 'street-kit';
     opts.parent.add(this.group);
   }
@@ -323,7 +336,7 @@ export class StreetKit {
   /** Queue an instanced street prop. rotY in radians. Call finish() once after placing them all. */
   prop(kind: PropKind, x: number, y: number, z: number, rotY = 0, opts: { collide?: boolean; scale?: number; color?: number } = {}) {
     const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotY), new THREE.Vector3().setScalar(opts.scale ?? 1));
-    const key = `${kind}:${Math.floor(x / CHUNK)}:${Math.floor(z / CHUNK)}`;
+    const key = `${kind}|${Math.floor(x / this.propChunk)}|${Math.floor(z / this.propChunk)}`;
     let bucket = this.props.get(key);
     if (!bucket) {
       bucket = { kind, mats: [], colors: [] };
@@ -367,25 +380,106 @@ export class StreetKit {
   finish() {
     for (const o of this.finished) {
       this.group.remove(o);
-      (o as THREE.InstancedMesh).dispose?.();
+      o.traverse((c) => {
+        if ((c as THREE.InstancedMesh).isInstancedMesh) (c as THREE.InstancedMesh).dispose();
+        else (c as THREE.Mesh).geometry?.dispose();
+      });
     }
     this.finished = [];
-    const geos = new Map<PropKind, THREE.BufferGeometry>();
-    for (const bucket of this.props.values()) {
-      let geo = geos.get(bucket.kind);
-      if (!geo) {
-        const model = propModel(bucket.kind);
-        geo = meshGrid(model.grid, { origin: model.origin });
-        geos.set(bucket.kind, geo);
+    const geos = PROP_GEOS;
+    const center = new THREE.Vector3(), tmp = new THREE.Vector3();
+    const levelsOf = (kind: PropKind) => {
+      let lv = geos.get(kind);
+      if (!lv) {
+        const model = propModel(kind);
+        lv = [meshGrid(model.grid, { origin: model.origin, size: model.size })];
+        // Detailed props get a half-resolution far mesh (a quarter of the faces or less).
+        if (model.grid.count() > 1200) {
+          const half = downsample(model.grid, 2, 0.35);
+          lv.push(meshGrid(half, { origin: [model.origin[0] / 2, 0, model.origin[2] / 2], size: model.size * 2 }));
+        }
+        geos.set(kind, lv);
       }
-      const im = new THREE.InstancedMesh(geo, kitMaterial(DV), bucket.mats.length);
-      bucket.mats.forEach((m, i) => im.setMatrixAt(i, m));
-      if (bucket.colors.some((c) => c)) bucket.colors.forEach((c, i) => im.setColorAt(i, c ?? new THREE.Color(1, 1, 1)));
-      im.castShadow = this.shadows && bucket.kind !== 'rope';
-      im.receiveShadow = true;
-      im.computeBoundingSphere();
-      this.group.add(im);
-      this.finished.push(im);
+      return lv;
+    };
+    const place = (obj: THREE.Object3D) => {
+      this.group.add(obj);
+      this.finished.push(obj);
+    };
+    // Kinds with only one or two copies in a chunk (one-off cacti, tents) are merged per chunk
+    // and cell size into one static mesh instead of costing a draw call each.
+    const singles = new Map<string, { size: number; c: THREE.Vector3; parts: [THREE.BufferGeometry[], THREE.Matrix4][]; tint: boolean }>();
+    for (const [key, bucket] of this.props) {
+      const model = propModel(bucket.kind);
+      const lv = levelsOf(bucket.kind);
+      const lod = this.propLod > 0 && lv.length > 1;
+      center.set(0, 0, 0);
+      for (const mm of bucket.mats) center.add(tmp.setFromMatrixPosition(mm));
+      center.multiplyScalar(1 / bucket.mats.length);
+      if (bucket.mats.length <= 2 && !bucket.colors.some((c) => c)) {
+        const [, cx, cz] = key.split('|');
+        const sk = `${cx}|${cz}|${model.size}`;
+        let s = singles.get(sk);
+        if (!s) singles.set(sk, (s = { size: model.size, c: center.clone(), parts: [], tint: false }));
+        for (const mm of bucket.mats) s.parts.push([lod ? lv : [lv[0]], mm]);
+        continue;
+      }
+      const inst = (geo: THREE.BufferGeometry, size: number, offset: THREE.Vector3) => {
+        const im = new THREE.InstancedMesh(geo, kitMaterial(size), bucket.mats.length);
+        const m = new THREE.Matrix4();
+        bucket.mats.forEach((mm, i) => {
+          m.copy(mm);
+          m.elements[12] -= offset.x;
+          m.elements[13] -= offset.y;
+          m.elements[14] -= offset.z;
+          im.setMatrixAt(i, m);
+        });
+        if (bucket.colors.some((c) => c)) bucket.colors.forEach((c, i) => im.setColorAt(i, c ?? new THREE.Color(1, 1, 1)));
+        im.castShadow = this.shadows && bucket.kind !== 'rope';
+        im.receiveShadow = true;
+        im.computeBoundingSphere();
+        return im;
+      };
+      if (!lod) place(inst(lv[0], model.size, new THREE.Vector3()));
+      else {
+        // LOD distance is measured from the LOD's own position, so put it at the bucket's center.
+        const l = new THREE.LOD();
+        l.position.copy(center);
+        l.addLevel(inst(lv[0], model.size, center), 0);
+        l.addLevel(inst(lv[1], model.size * 2, center), this.propLod);
+        place(l);
+      }
+    }
+    for (const s of singles.values()) {
+      const off = new THREE.Matrix4().makeTranslation(-s.c.x, -s.c.y, -s.c.z);
+      const merged = (level: number) => {
+        const geos: THREE.BufferGeometry[] = [];
+        for (const [lv, mm] of s.parts) {
+          const g = (lv[level] ?? lv[0]).clone();
+          g.applyMatrix4(off.clone().multiply(mm));
+          if (g.index && !(g.index.array instanceof Uint32Array)) g.setIndex(new THREE.BufferAttribute(new Uint32Array(g.index.array), 1));
+          geos.push(g);
+        }
+        const out = mergeGeometries(geos, false)!;
+        for (const g of geos) g.dispose();
+        out.computeBoundingSphere();
+        return out;
+      };
+      const mesh = (geo: THREE.BufferGeometry, size: number) => {
+        const m = new THREE.Mesh(geo, kitMaterial(size));
+        m.castShadow = this.shadows;
+        m.receiveShadow = true;
+        return m;
+      };
+      const hasLod = s.parts.some(([lv]) => lv.length > 1);
+      const l = new THREE.LOD();
+      l.position.copy(s.c);
+      l.addLevel(mesh(merged(0), s.size), 0);
+      // The far level mixes half-res models (cell size * 2) with small props that have none;
+      // its material size only affects the shader's color noise, so use the coarse one.
+      if (hasLod) l.addLevel(mesh(merged(1), s.size * 2), this.propLod);
+      l.userData.merged = true;
+      place(l);
     }
   }
 
@@ -393,7 +487,9 @@ export class StreetKit {
   dispose() {
     this.group.parent?.remove(this.group);
     // Materials are shared through kitMaterial's cache, so only geometry is freed.
-    this.group.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    this.group.traverse((o) => {
+      if (!(o as THREE.InstancedMesh).isInstancedMesh) (o as THREE.Mesh).geometry?.dispose();
+    });
     if (this.body && this.physics) this.physics.removeRigidBody(this.body);
     this.body = null;
     this.pool.dispose();

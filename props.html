@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prop Kit</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #9fd3ff; overflow: hidden; font: 13px system-ui, sans-serif; color: #fff; }
+      canvas { display: block; }
+      #hud { position: fixed; top: 10px; left: 10px; background: rgba(0,0,0,.45); padding: 8px 10px; border-radius: 8px; line-height: 1.5; }
+      #hud button { background: #333; color: #eee; border: 1px solid #666; border-radius: 6px; padding: 3px 8px; cursor: pointer; margin-right: 4px; }
+      #hud button.on { background: #6a4; }
+    </style>
+  </head>
+  <body>
+    <div id="hud"></div>
+    <script type="module" src="./src/kit/propdemo.ts"></script>
+  </body>
+</html>

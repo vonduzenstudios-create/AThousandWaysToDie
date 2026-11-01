@@ -44,7 +44,7 @@ import { HOMETOWN_DEATHS, Hometown } from './hometown';
 import { GROCERY } from './places/grocery';
 import type { PlaceRuntime } from './places/types';
 import { PostFX, warmLighting } from './render/post';
-import { StreetKit } from './kit';
+import { StreetKit, type PropKind } from './kit';
 import { UI } from './ui';
 import { mulberry32, pick, turnToward, type Rng } from './util';
 import { Minimap, type Blip } from './minimap';
@@ -167,6 +167,8 @@ export class Game {
   private stationVisits = 0;
   private deniedToastT = 0;
   private wasInStation = false;
+  /** Seconds until the next roof check for the indoor exposure/bloom look. */
+  private roofCheckT = 0;
   private screamCooldown = 0;
   private acc = 0;
   private time = 0;
@@ -1064,6 +1066,21 @@ export class Game {
     }
   }
 
+  /**
+   * Indoors (anything solid overhead), lit white floors and walls bloom into a glare, so switch the
+   * post stack to its dimmer indoor look. Maps can force it with scene.userData.indoor = true/false.
+   */
+  private updateIndoorLook(focus: THREE.Vector3, realDt: number) {
+    this.roofCheckT -= realDt;
+    if (this.roofCheckT > 0) return;
+    this.roofCheckT = 0.2;
+    const forced = this.scene.userData.indoor;
+    if (typeof forced === 'boolean') return this.post.setIndoor(forced);
+    const from = { x: focus.x, y: focus.y + 1.9, z: focus.z };
+    const roof = this.physics.castRay(new RAPIER.Ray(from, { x: 0, y: 1, z: 0 }), 14, true, undefined, QUERY_WORLD);
+    this.post.setIndoor(!!roof);
+  }
+
   private updateEffects(realDt: number) {
     if (this.slowmoT > 0) {
       this.slowmoT -= realDt;
@@ -1509,6 +1526,7 @@ export class Game {
     const t0 = performance.now();
     this.mapBuild = def.build(this.world, rng);
     const b = this.mapBuild;
+    this.placeWorldProps();
     const at = focus ?? b.spawn;
     this.mapGround = b.groundAt ? b.groundAt(b.spawn.x, b.spawn.z) : this.world.topY(b.spawn.x, b.spawn.z);
     if (!Number.isFinite(this.mapGround)) this.mapGround = G;
@@ -1591,7 +1609,7 @@ export class Game {
       maxPopulation: this.town ? undefined : 120,
       hooks: { deathHint: (f) => depressedHint(this.rng, f, this.mapDef.id, (id) => !!this.ledger.found[id]) },
     });
-    this.traffic = new Traffic(this.scene, this.physics, this.town ? smallvilleTraffic(this.town) : { roads: b.roads ?? [], parked: [] });
+    this.traffic = new Traffic(this.scene, this.physics, this.town ? smallvilleTraffic(this.town) : { roads: b.roads ?? [], parked: [], ...b.traffic });
     this.traffic.onHonk = (car, tag) => this.onHonk(car, tag);
     this.traffic.onShoo = (car, tag) => {
       // The honked-at townsperson hops out of the lane.
@@ -1640,6 +1658,20 @@ export class Game {
       if (inside || Math.hypot(s.pos.x - p.x, s.pos.z - p.z) < 3.2) if (Math.abs(s.pos.y - p.y) < 3) return s;
     }
     return null;
+  }
+
+  /**
+   * Detailed kit props (trees, tents, fences, street clutter) that the map build queued with
+   * VoxelWorld.prop(). Their collision is the invisible Ghost* blocks under them, so this is
+   * visual only. One instanced mesh per kind per 64-block square, with a far LOD.
+   */
+  private placeWorldProps() {
+    const props = this.world.props;
+    if (!props.length) return;
+    const kit = new StreetKit({ parent: this.scene, physics: null, propChunk: 64 });
+    for (const p of props) kit.prop(p.kind as PropKind, p.x, p.y, p.z, p.rotY, { collide: false, scale: p.scale });
+    kit.finish();
+    kit.group.name = 'world-props';
   }
 
   /** Ticket prompts at stops, plus the plane's wheel well while it's parked. */
@@ -2702,6 +2734,7 @@ export class Game {
       if (b.t >= 1) this.camBlend = null;
     }
     this.updateSaturation(realDt);
+    this.updateIndoorLook(focus, realDt);
 
     if (!this.driving) this.engine.set(false, 0, 0);
     this.post.render();
