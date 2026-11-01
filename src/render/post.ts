@@ -103,7 +103,7 @@ export class PostFX {
     if (q === 'low') return;
     const size = this.renderer.getSize(new THREE.Vector2());
     const pr = this.renderer.getPixelRatio();
-    const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: 4 });
+    const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: 4, stencilBuffer: true });
     const composer = new EffectComposer(this.renderer, rt);
     composer.addPass(new RenderPass(this.scene, this.camera));
     if (q === 'high') {

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RAPIER, QUERY_WORLD } from './physics';
+import { setOutline } from './outline';
 import { Sound } from './audio';
 import { FollowCam } from './camera';
 import { Atms, withdraw } from './economy';
@@ -627,7 +628,7 @@ export class Game {
           this.setBody(n.file, n.character, n.pos.clone(), facing);
           this.sound.setStyle('town');
           this.mode = 'play';
-          n.character.mats.forEach((m) => m.emissive.setHex(0));
+          setOutline(n.character.root, false);
           if (this.possessCam) {
             this.camBlend = { pos: this.possessCam.toPos.clone(), quat: this.possessCam.quat.clone(), t: 0, dur: 0.7 };
             this.possessCam = null;
@@ -2257,6 +2258,7 @@ export class Game {
     this.life.take(n);
     this.life.event({ kind: 'death', at: n.pos.clone(), victim: n.file, what: byPlayer ? 'got run over by a maniac in a stolen car' : 'got hit by a car', where: 'the road' });
     if (this.ghostTarget === n) {
+      setOutline(n.character.root, false);
       this.ghostTarget = null;
       this.ui.showFile(null);
     }
@@ -2710,16 +2712,13 @@ export class Game {
       }
     }
     if (best !== this.ghostTarget) {
-      this.ghostTarget?.character.mats.forEach((m) => m.emissive.setHex(0));
+      if (this.ghostTarget) setOutline(this.ghostTarget.character.root, false);
       this.ghostTarget = best;
+      if (best) setOutline(best.character.root, true);
       if (best) this.sound.blip(1.4);
     }
-    // Highlight only (the file opens on E). A soft pulse so it reads against the grey world.
-    if (best) {
-      const k = 0.75 + Math.sin(performance.now() * 0.006) * 0.25;
-      const c = new THREE.Color(0x5a3fb0).multiplyScalar(k);
-      best.character.mats.forEach((m) => m.emissive.copy(c));
-    }
+    // Highlight only: a white outline that stays a few pixels wide at any distance. The file opens on E.
+    if (best) setOutline(best.character.root, true, Math.max(0.035, best.pos.distanceTo(this.camera.position) * 0.0055));
     if (best && inp.pressed('interact')) this.enterInspect(best);
   }
 
@@ -2785,7 +2784,7 @@ export class Game {
     if (!ins || this.mode !== 'inspect') return;
     this.sound.blip(i === 0 ? 1.6 : 0.9);
     if (i === 0) {
-      ins.npc.character.mats.forEach((m) => m.emissive.setHex(0));
+      setOutline(ins.npc.character.root, false);
       this.ghostTarget = null;
       this.possess(ins.npc);
       return;
@@ -2807,9 +2806,7 @@ export class Game {
     const e = 1 - Math.pow(1 - ins.t, 3);
     this.camera.position.lerpVectors(ins.fromPos, ins.toPos, e);
     this.camera.quaternion.slerpQuaternions(ins.fromQuat, ins.toQuat, e);
-    const k = 0.75 + Math.sin(performance.now() * 0.006) * 0.25;
-    const c = new THREE.Color(0x5a3fb0).multiplyScalar(k);
-    ins.npc.character.mats.forEach((m) => m.emissive.copy(c));
+    setOutline(ins.npc.character.root, true, 0.022);
     const inp = this.input;
     if (inp.pressed('menuUp') || inp.pressed('menuDown') || inp.pressed('menuLeft') || inp.pressed('menuRight')) {
       ins.sel = 1 - ins.sel;
