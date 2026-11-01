@@ -31,6 +31,10 @@ export interface PlayerInput {
   crouchHeld: boolean;
   crouchPressed: boolean;
   divePressed: boolean;
+  /** Sprinting (double-tap W, or left stick click). */
+  sprint?: boolean;
+  /** When set (right mouse held / first person), the character faces this way while standing still. */
+  faceYaw?: number | null;
 }
 
 export interface LandEvent {
@@ -68,6 +72,8 @@ export class Player {
   private kcc: RAPIER.KinematicCharacterController;
   readonly vel = new THREE.Vector3();
   facing = 0;
+  /** True while running at sprint speed. */
+  sprinting = false;
   state: MoveState = 'ground';
   grounded = false;
   stateTime = 0;
@@ -188,6 +194,7 @@ export class Player {
     if (inp.crouchPressed) this.crouchBuf = 0.13;
     else this.crouchBuf -= dt;
     this.skidTimer -= dt;
+    this.sprinting = false;
     this.wallTimer -= dt;
 
     // Camera-relative wish direction.
@@ -215,7 +222,7 @@ export class Player {
       if (this.legsBroken) {
         this.setState('crawl');
         if (wishLen > 0.1) {
-          this.facing = turnToward(this.facing, wishYaw, 4 * dt);
+          this.facing = wishYaw;
           const fd = this.facingDir();
           approach2(v, fd.x * 1.6 * wishLen, fd.z * 1.6 * wishLen, 20 * dt);
         } else approach2(v, 0, 0, 20 * dt);
@@ -231,15 +238,26 @@ export class Player {
           else this.setState('crouch');
         } else this.setState('ground');
         if (this.state === 'ground' || this.state === 'crouch') {
-          const target = wishLen * (this.state === 'crouch' ? 2.5 : RUN_SPEED * (this.tier === 'Feeble' ? 0.5 : 1));
+          const feeble = this.tier === 'Feeble';
+          const sprintMul = inp.sprint && this.state === 'ground' ? (feeble ? 1.2 : 1.5) : 1;
+          this.sprinting = sprintMul > 1 && wishLen > 0.5;
+          const target = wishLen * (this.state === 'crouch' ? 2.5 : RUN_SPEED * (feeble ? 0.5 : 1) * sprintMul);
           if (wishLen > 0.1) {
             const dot = hs > 0.01 ? (v.x * wx + v.z * wz) / hs : 1;
             if (hs > 5 && dot < -0.4) this.skidTimer = 0.22;
-            const turnRate = hs > 7 ? 9 : 16;
-            this.facing = turnToward(this.facing, wishYaw, turnRate * dt);
+            // Turning is instant: facing snaps to the stick/keys, and momentum swings with it
+            // (except a hard reversal, which skids so the side flip still works).
+            this.facing = wishYaw;
             const fd = this.facingDir();
+            if (this.skidTimer <= 0 && hs > 0.01) {
+              v.x = fd.x * hs;
+              v.z = fd.z * hs;
+            }
             approach2(v, fd.x * target, fd.z * target, (this.skidTimer > 0 ? 70 : 55) * dt);
-          } else approach2(v, 0, 0, 45 * dt);
+          } else {
+            approach2(v, 0, 0, 45 * dt);
+            if (inp.faceYaw != null) this.facing = inp.faceYaw;
+          }
         }
       }
 
@@ -324,7 +342,7 @@ export class Player {
         v.y -= g * dt;
         v.y = Math.max(v.y, -55);
 
-        const accel = st === 'longjump' ? 5 : st === 'backflip' ? 7 : st === 'dive' ? 2.5 : st === 'wallkick' ? 9 : 24;
+        const accel = st === 'longjump' ? 5 : st === 'backflip' ? 7 : st === 'dive' ? 2.5 : st === 'wallkick' ? 12 : 34;
         if (wishLen > 0.1) {
           const before = Math.max(hs, RUN_SPEED * 0.9);
           v.x += wx * accel * wishLen * dt;
@@ -335,7 +353,7 @@ export class Player {
             v.z *= before / nh;
           }
           if (st !== 'backflip' && st !== 'sideflip' && st !== 'triple')
-            this.facing = turnToward(this.facing, wishYaw, (st === 'dive' || st === 'longjump' ? 1.5 : 5) * dt);
+            this.facing = st === 'dive' || st === 'longjump' ? turnToward(this.facing, wishYaw, 1.5 * dt) : wishYaw;
         } else if (st === 'jump' || st === 'fall') {
           approach2(v, 0, 0, 4 * dt);
         }

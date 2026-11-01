@@ -17,15 +17,20 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 
 | Action | Keyboard / mouse | Gamepad |
 |---|---|---|
-| Move / look | WASD / mouse | Left stick / right stick |
+| Move | WASD | Left stick |
+| Sprint | Double-tap and hold W | Click left stick |
+| Orbit camera | Hold left mouse | Right stick |
+| Steer (camera stays behind) | Hold right mouse | Right stick |
+| Walk forward | Hold both mouse buttons | |
+| Zoom / first person | Scroll wheel | |
 | Jump (tap on landing for double and triple jump) | Space | A |
 | Crouch, slide (running), ground pound (in air) | Shift or C | B or LT |
 | Long jump | Run + Shift + Space | Run + B + A |
 | Backflip | Shift + Space while standing | B + A |
 | Side flip | Reverse direction + Space | Reverse + A |
 | Wall kick | Space while touching a wall in the air | A |
-| Dive | F or left click | X or RT |
-| Interact / possess | E or right click | Y |
+| Dive | F | X or RT |
+| Interact / possess | E | Y |
 | Scream for help | T | LB |
 | Pee | Q | RB |
 | Death ledger | Tab | Back |

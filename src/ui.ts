@@ -55,15 +55,20 @@ export class UI {
       <div class="hh"><b>Controls</b> <span>H or Start to hide</span></div>
       <table>
         <tr><th></th><th>Keyboard</th><th>Controller</th></tr>
-        <tr><td>Move / look</td><td>WASD / mouse</td><td>Left stick / right stick</td></tr>
+        <tr><td>Move</td><td>WASD</td><td>Left stick</td></tr>
+        <tr><td>Sprint</td><td>Double-tap and hold W</td><td>Click left stick</td></tr>
+        <tr><td>Orbit camera</td><td>Hold left mouse</td><td>Right stick</td></tr>
+        <tr><td>Steer (camera stays behind)</td><td>Hold right mouse</td><td>Right stick</td></tr>
+        <tr><td>Walk forward</td><td>Hold both mouse buttons</td><td></td></tr>
+        <tr><td>Zoom / first person</td><td>Scroll wheel</td><td></td></tr>
         <tr><td>Jump (tap on landing to chain)</td><td>Space</td><td>A</td></tr>
         <tr><td>Crouch, slide, ground pound</td><td>Shift</td><td>B or LT</td></tr>
         <tr><td>Long jump (Athlete)</td><td>Run + Shift + Space</td><td>Run + B + A</td></tr>
         <tr><td>Backflip</td><td>Shift + Space standing</td><td>B + A standing</td></tr>
         <tr><td>Side flip</td><td>Reverse + Space</td><td>Reverse + A</td></tr>
         <tr><td>Wall kick</td><td>Space on a wall</td><td>A on a wall</td></tr>
-        <tr><td>Dive</td><td>F or left click</td><td>X or RT</td></tr>
-        <tr><td>Interact / possess</td><td>E or right click</td><td>Y</td></tr>
+        <tr><td>Dive</td><td>F</td><td>X or RT</td></tr>
+        <tr><td>Interact / possess</td><td>E</td><td>Y</td></tr>
         <tr><td>Scream for help</td><td>T</td><td>LB</td></tr>
         <tr><td>Pee</td><td>Q</td><td>RB</td></tr>
         <tr><td>Ghost rise / sink</td><td>Space / Shift</td><td>A / B</td></tr>

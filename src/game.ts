@@ -311,7 +311,7 @@ export class Game {
     this.player.setEnabled(false);
     this.body = null;
     this.character = null;
-    this.cam.dist = 8;
+    if (first) this.cam.dist = 8;
     this.cam.autoOrbit = 0;
     this.sound.setStyle('ghost');
     this.sound.ghost();
@@ -353,7 +353,6 @@ export class Game {
           this.scene.remove(n.character.root);
           const facing = n.character.root.rotation.y;
           this.setBody(n.file, n.character, n.pos.clone(), facing);
-          this.cam.dist = 9;
           this.sound.setStyle('town');
           this.mode = 'play';
           this.npcRespawnT = 4;
@@ -848,7 +847,11 @@ export class Game {
     if (this.mode === 'title' && inp.pressed('confirm')) this.ui.titleGo?.();
     this.ui.setPadMode(inp.padConnected);
 
-    const mouseSens = 0.0026;
+    const mouseSens = 0.0032;
+    if (this.mode === 'play' || this.mode === 'ghost') this.cam.zoom(inp.wheel);
+    this.cam.minDist = this.mode === 'dying' || this.mode === 'claim' ? 6 : 0;
+    // Right mouse (or first person) makes the character face where the camera looks.
+    const steer = inp.rmb || this.cam.firstPerson;
     const lookDX = inp.mouseDX * mouseSens + inp.lookX * realDt * 2.6;
     const lookDY = inp.mouseDY * mouseSens + inp.lookY * realDt * 2;
 
@@ -879,6 +882,8 @@ export class Game {
             crouchHeld: inp.held('crouch'),
             crouchPressed: first && this.latched.crouch,
             divePressed: first && this.latched.dive,
+            sprint: inp.sprint,
+            faceYaw: steer ? this.cam.forwardFacing : null,
           });
         }
       }
@@ -930,22 +935,25 @@ export class Game {
       this.ui.prompt(it ? `<span class="key">E</span>${it.prompt}` : null);
       if (it && inp.pressed('interact')) this.interact(it.id);
       if (inp.pressed('scream') && this.player.state !== 'locked') this.scream();
-      const hs = this.player.horizSpeed();
-      this.cam.update(realDt, feet.clone().add(new THREE.Vector3(0, 1.6, 0)), lookDX, lookDY, this.player.facing, hs > 6 ? 0.6 : 0);
+      const eyeH = this.player.state === 'crawl' ? 0.6 : this.player.state === 'crouch' ? 1.1 : 1.65;
+      this.cam.update(realDt, feet.clone().add(new THREE.Vector3(0, 1.6, 0)), lookDX, lookDY, feet.clone().add(new THREE.Vector3(0, eyeH, 0)));
+      ch.root.visible = !this.cam.firstPerson;
     } else if (this.mode === 'dying' || this.mode === 'claim') {
       const target = this.activeRagdoll ? this.activeRagdoll.position() : this.player.position();
       if (target.y < -20) target.y = -20;
       target.y += 1;
       this.cam.pitch += (0.55 - this.cam.pitch) * Math.min(1, realDt * 2);
-      this.cam.update(realDt, target, lookDX + realDt * 0.25, lookDY, null);
+      if (this.character) this.character.root.visible = true;
+      this.cam.update(realDt, target, lookDX + realDt * 0.25, lookDY);
     } else if (this.mode === 'ghost' || this.mode === 'possessing') {
       if (this.mode === 'ghost') this.updateGhost(realDt, lookDX, lookDY);
-      else this.cam.update(realDt, this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0)), lookDX, lookDY, null);
+      else this.cam.update(realDt, this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0)), lookDX, lookDY);
       this.ghost.position.copy(this.ghostPos);
+      this.ghost.visible = this.mode === 'possessing' || !this.cam.firstPerson;
       this.ghost.position.y += Math.sin(this.time * 3) * 0.15;
       this.ghost.rotation.y = this.cam.yaw + Math.PI;
     } else {
-      this.cam.update(realDt, new THREE.Vector3(90, G + 6, 80), 0, 0, null);
+      this.cam.update(realDt, new THREE.Vector3(90, G + 6, 80), 0, 0);
     }
 
     // Sun follows the action for crisp shadows.
@@ -972,7 +980,8 @@ export class Game {
     this.ghostPos.x = Math.min(Math.max(this.ghostPos.x, 2), SIZE - 2);
     this.ghostPos.z = Math.min(Math.max(this.ghostPos.z, 2), SIZE - 2);
     this.ghostPos.y = Math.min(Math.max(this.ghostPos.y, G + 0.5), 50);
-    this.cam.update(dt, this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0)), lookDX, lookDY, null);
+    const gEye = this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0));
+    this.cam.update(dt, gEye, lookDX, lookDY, gEye);
 
     // Scythe vision: whoever is closest to the center of the screen.
     const camPos = this.camera.position;
