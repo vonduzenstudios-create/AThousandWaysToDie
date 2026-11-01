@@ -2,7 +2,7 @@ export type Btn =
   | 'jump' | 'crouch' | 'sprint' | 'dive' | 'punch' | 'interact' | 'pee' | 'scream' | 'ledger' | 'music' | 'help' | 'confirm' | 'up' | 'down'
   | 'skill1' | 'skill2' | 'skill3' | 'skill4' | 'skill5' | 'skillUse'
   | 'menuUp' | 'menuDown' | 'menuLeft' | 'menuRight' | 'back'
-  | 'map' | 'zoomIn' | 'zoomOut' | 'prevPoi' | 'nextPoi';
+  | 'map' | 'zoomIn' | 'zoomOut' | 'prevPoi' | 'nextPoi' | 'lead' | 'intro';
 
 const KEYMAP: Record<string, Btn[]> = {
   Space: ['jump', 'confirm'],
@@ -38,6 +38,8 @@ const KEYMAP: Record<string, Btn[]> = {
   KeyR: ['up'],
   KeyV: ['down'],
   KeyN: ['map'],
+  KeyJ: ['lead'],
+  KeyI: ['intro'],
   Equal: ['zoomIn'],
   NumpadAdd: ['zoomIn'],
   Minus: ['zoomOut'],
@@ -226,6 +228,11 @@ export class Input {
 
   pressed(b: Btn) {
     return this.pressedSet.has(b);
+  }
+
+  /** Swallow a press so nothing later this frame sees it. */
+  consume(b: Btn) {
+    this.pressedSet.delete(b);
   }
 
   /** Call at the end of each frame. */

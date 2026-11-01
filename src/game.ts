@@ -61,6 +61,8 @@ import { MapScreen, type Waypoint } from './mapscreen/mapscreen';
 import { Gps } from './mapscreen/gps';
 import type { Road } from './vehicles/roads';
 import { placeDeaths, poisFromPlaces, type MapPoi } from './mapscreen/pois';
+import { areaProgress, leadCycle, nextMilestone, objective, type GuideState } from './guide/guide';
+import { COUNTDOWN, Coach } from './guide/coach';
 
 /** What an ambulance ride costs when you call 911 with broken legs. */
 const AMBULANCE_FEE = 250;
@@ -158,6 +160,16 @@ export class Game {
   private post!: PostFX;
   private lastT = performance.now();
   private helpShown = false;
+  /** Guidance: Death's one-time coaching, the objective panel and J leads (src/guide). */
+  private coach = new Coach();
+  private objT = 0;
+  private leadIdx = -1;
+  /** Seconds in the current body without filing a death, for Death's "tick tock" nag. */
+  private bodyT = 0;
+  private nagged = false;
+  private coached = false;
+  /** What the last claim was, so the next ghost line can react to it. */
+  private lastClaim: { isNew: boolean; map: string } | null = null;
   private latched = { jump: false, crouch: false, dive: false };
   /** The yaw WASD moves relative to. Frozen while left mouse orbits the camera, so looking around doesn't steer. */
   private moveYaw = 0;
@@ -518,6 +530,7 @@ export class Game {
   private eraseProgress() {
     this.ledger.reset();
     this.story.forget();
+    this.coach.forget();
     this.ui.setHud(this.ledger, null);
   }
 
@@ -528,10 +541,12 @@ export class Game {
     this.sound.startMusic();
     this.input.requestLock();
     this.cam.autoOrbit = 0;
-    const go = () => this.enterGhost(this.start0.clone(), true);
+    const enter = () => this.enterGhost(this.start0.clone(), true);
+    // Death's "how this works" card plays once per save, right after the opening.
+    const go = () => (this.coach.has('intro') ? enter() : this.showIntro().then(enter));
     if (how === 'dev') {
       this.loadDevMap(mapId);
-      go();
+      enter();
       return;
     }
     if (how === 'new') {
@@ -543,6 +558,15 @@ export class Game {
     if (forced) void this.story.replay(forced).then(go);
     else if (this.story.hasSeen('opening')) go();
     else void this.story.opening().then(go);
+  }
+
+  /** Death's orientation card. Pauses the game while it's up. */
+  private showIntro() {
+    this.coach.once('intro');
+    document.exitPointerLock?.();
+    return this.ui.showIntro(this.input.padConnected).then(() => {
+      if (this.mode !== 'title') this.input.requestLock();
+    });
   }
 
   // ---------------------------------------------------------------- bodies
@@ -563,6 +587,8 @@ export class Game {
     this.hometown?.onBody(file);
     this.barnTries = 0;
     this.stationVisits = 0;
+    this.bodyT = 0;
+    this.nagged = false;
     this.skillBar.setBody(file);
     this.combat.setBody(file);
     this.withdrawn = 0;
@@ -595,11 +621,47 @@ export class Game {
     this.ui.setHud(this.ledger, null);
     this.ui.setBanner('GHOST MODE · Look at someone, <b>E</b> / <b>Y</b> to read their file · Right click or both buttons to fly where you look');
     this.crosshair.classList.remove('hidden');
+    this.leadIdx = -1;
+    this.objT = 0;
+    const line = first ? null : this.ghostCoachLine();
+    this.coached = false;
     if (first) {
-      this.ui.say('Death', '"Fine. You do it then." Look at people with the scythe. Their file tells you everything. Pick one and jump in.', 6000);
+      this.ui.say(
+        'Death',
+        this.coach.has('body')
+          ? '"Fine. You do it then." Pick someone who\'s due and jump in. Your objective is top left.'
+          : '"Fine. You do it then." Look at someone and read their file. Green on the radar means they\'re due. Pick one and jump in.',
+        6000,
+      );
+    } else if (line) {
+      this.ui.say('Death', line, 6000);
+      this.coached = true;
     } else {
       this.ui.say('Death', pick(this.rng, POSSESS_LINES), 3500);
     }
+    this.lastClaim = null;
+  }
+
+  /** What Death says when you pop out of a body, reacting to the claim you just filed. */
+  private ghostCoachLine(): string | null {
+    const c = this.lastClaim;
+    if (!c) return null;
+    if (!c.isNew) {
+      return this.coach.once('repeat')
+        ? "Denied. Mortalis never pays twice for the same death. Find a new one. Your ledger (Tab) shows what's left."
+        : null;
+    }
+    const ms = nextMilestone(this.ledger, c.map);
+    if (this.coach.once('claim1')) {
+      return ms
+        ? `One down. ${ms.need - ms.have} more new deaths here and I'll open ${ms.opens}. Grab another body.`
+        : 'One down. Grab another body and keep going.';
+    }
+    if (ms && COUNTDOWN.has(ms.need - ms.have) && this.coach.once(`count:${c.map}:${ms.need}:${ms.need - ms.have}`)) {
+      const left = ms.need - ms.have;
+      return left === 1 ? `One more new death here and I open ${ms.opens}. Don't screw it up.` : `${left} more new deaths here and I open ${ms.opens}.`;
+    }
+    return null;
   }
 
   private possess(n: Npc) {
@@ -660,6 +722,11 @@ export class Game {
             this.ui.toast('THE TIMELINE TREMBLES', `${n.file.name} wasn't due for ${Math.round(n.file.daysLeft / 365)} years. God is watching.`, 3500);
           } else {
             this.ui.toast(n.file.name.toUpperCase(), `${n.file.age} · ${n.file.job}. Make it count.`, 2200);
+          }
+          if (this.coach.once('body')) {
+            setTimeout(() => {
+              if (this.mode === 'play') this.ui.say('Death', `You're in. Now go die somewhere new. Stuck? ${this.input.padConnected ? 'Open the ledger with View and press Y' : 'Press J'} and I'll mark a death spot.`, 6500);
+            }, 2400);
           }
         },
       },
@@ -759,6 +826,7 @@ export class Game {
     this.ledger.claimNo++;
     if (isNew) this.ledger.found[id] = { count: 1, payout: total, first: Date.now(), map: this.mapDef.id };
     else already.count++;
+    this.lastClaim = { isNew, map: this.mapDef.id };
     this.ledger.balance += total;
     this.ledger.total += total;
     this.ledger.save();
@@ -810,7 +878,8 @@ export class Game {
     at.y = Math.max(at.y, G) + 3;
     this.pendingDeath = null;
     this.enterGhost(at);
-    if (Math.random() < 0.5) setTimeout(() => this.ui.say('Death', pick(this.rng, DEATH_QUIPS), 3000), 3800);
+    // A coaching line (first claim, unlock countdown) beats a random quip.
+    if (!this.coached && Math.random() < 0.5) setTimeout(() => this.ui.say('Death', pick(this.rng, DEATH_QUIPS), 3000), 3800);
   }
 
   // ---------------------------------------------------------------- triggers
@@ -2362,6 +2431,74 @@ export class Game {
     }
   }
 
+  // ---------------------------------------------------------------- guidance
+  private guideState(): GuideState | null {
+    const mode = this.mode === 'play' ? 'play' : this.mode === 'ghost' || this.mode === 'inspect' ? 'ghost' : null;
+    if (!mode) return null;
+    return {
+      mode,
+      mapId: this.mapDef.id,
+      ledger: this.ledger,
+      body: mode === 'play' ? this.body : null,
+      pois: this.mapPois,
+      stops: this.mapBuild.stops,
+      at: this.focusPos(),
+      possessedBefore: this.coach.has('body') || this.ledger.foundCount > 0,
+      leadKey: this.input.padConnected ? 'View, then Y,' : 'J',
+    };
+  }
+
+  private guideNow() {
+    const s = this.guideState();
+    return s ? objective(s) : null;
+  }
+
+  /** Objective panel refresh (a few times a second) and Death's nag if a body dawdles. */
+  private updateGuide(dt: number) {
+    const s = this.guideState();
+    if (!s || this.mapScreen.open) {
+      this.ui.setObjective(null);
+      return;
+    }
+    this.objT -= dt;
+    if (this.objT <= 0) {
+      this.objT = 0.5;
+      this.ui.setObjective(objective(s));
+    }
+    if (s.mode === 'play' && !this.ui.ledgerOpen) {
+      this.bodyT += dt;
+      if (this.bodyT > 120 && !this.nagged) {
+        this.nagged = true;
+        const o = objective(s);
+        const where = o.lead?.kind === 'death' && o.lead.doable ? ` Try ${o.lead.name}.` : '';
+        this.ui.say('Death', `Tick tock. This body won't kill itself.${where} ${this.input.padConnected ? 'View, then Y' : 'J'} marks it on your map.`, 6000);
+        this.ui.pulseObjective();
+      }
+    }
+  }
+
+  /** J: put the next lead on the GPS. Pressing again moves on to the next one. */
+  private trackLead() {
+    const s = this.guideState();
+    if (!s) return;
+    const leads = leadCycle(s);
+    if (!leads.length) {
+      this.ui.toast('NO LEADS', 'Nothing marked is left here. Try something reckless anywhere.', 2600);
+      return;
+    }
+    // Pressing again while a lead is tracked moves on to the next; otherwise start from the best.
+    this.leadIdx = this.waypoint ? (this.leadIdx + 1) % leads.length : 0;
+    const lead = leads[this.leadIdx];
+    this.setWaypoint({ x: lead.x, z: lead.z, name: lead.name });
+    const n = lead.ids.length;
+    const sub =
+      lead.kind === 'travel'
+        ? 'Buy a ticket there to move on.'
+        : `${n === 1 ? 'An unknown death' : `${n} unknown deaths`} here.${lead.needs ? ` Needs ${lead.needs}.` : s.mode === 'play' ? ' This body can do it.' : ''}`;
+    this.ui.toast(`LEAD: ${lead.name.toUpperCase()}`, `${sub}${leads.length > 1 ? ` (${this.leadIdx + 1}/${leads.length}, ${this.input.padConnected ? 'again' : 'J'} for next)` : ''}`, 3000);
+    this.ui.pulseObjective();
+  }
+
   // ---------------------------------------------------------------- full map + GPS
   /** Points of interest, death spots and GPS roads for the full-screen map, for whichever map just loaded. */
   private setupMapScreen(roads: Road[]) {
@@ -2488,6 +2625,14 @@ export class Game {
     // A story cutscene covers the screen: freeze the game underneath it.
     if (this.story.active) return;
     const inp = this.input;
+    // Death's orientation card pauses everything underneath it.
+    if (this.ui.introOpen) {
+      if (inp.pressed('confirm')) this.ui.pendingIntro?.();
+      this.ui.setObjective(null);
+      this.post.render();
+      this.input.endFrame();
+      return;
+    }
 
     // The full map pauses the game while it is open.
     if (this.mapScreen.open || (inp.pressed('map') && this.mode !== 'title')) {
@@ -2510,7 +2655,16 @@ export class Game {
       if (inp.pressed('back')) this.title.nav('back');
     } else if (inp.pressed('music')) this.sound.toggleMusic();
     if (inp.pressed('help')) this.ui.toggleHelp();
-    if (inp.pressed('ledger') && this.mode !== 'title') this.ui.toggleLedger(this.ledger, this.mapDef, MAPS);
+    if (inp.pressed('ledger') && this.mode !== 'title') this.ui.toggleLedger(this.ledger, this.mapDef, MAPS, { progress: areaProgress(this.ledger), lead: this.guideNow()?.leadLine ?? '', pad: inp.padConnected });
+    if (this.ui.ledgerOpen && inp.padConnected && inp.pressed('interact')) {
+      inp.consume('interact');
+      inp.consume('confirm');
+      this.ui.toggleLedger(this.ledger);
+      this.trackLead();
+    }
+    if (inp.pressed('lead') && this.mode !== 'title') this.trackLead();
+    if (inp.pressed('intro') && (this.mode === 'play' || this.mode === 'ghost')) void this.showIntro();
+    this.updateGuide(realDt);
     if (this.mode === 'claim' && inp.pressed('confirm')) this.ui.pendingClaim?.();
     this.ui.setPadMode(inp.padConnected);
 
