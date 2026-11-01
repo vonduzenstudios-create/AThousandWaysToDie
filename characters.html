@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>C'est La Vie: Townsfolk</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #2a2a2e; overflow: hidden; font: 14px system-ui, sans-serif; color: #eee; }
+      canvas { display: block; }
+      #bar { position: fixed; top: 10px; left: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+      #bar button { background: #444; color: #eee; border: 1px solid #666; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+      #bar button:hover { background: #555; }
+      #hint { position: fixed; bottom: 10px; left: 10px; opacity: 0.7; }
+    </style>
+  </head>
+  <body>
+    <div id="bar"></div>
+    <div id="hint">Drag to orbit, scroll to zoom. Every voxel here is generated in code.</div>
+    <script type="module" src="./src/chars/preview.ts"></script>
+  </body>
+</html>
