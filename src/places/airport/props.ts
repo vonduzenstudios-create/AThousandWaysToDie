@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RAPIER, G_ALL, G_PROP, groups } from '../../physics';
 import { canvasTexture, noiseTexture, turnToward } from '../../util';
-import { Character, type Appearance } from '../../character';
+import { Character } from '../../character';
 import type { Frame } from './frame';
 
 export const lambert = (color: THREE.ColorRepresentation, map: THREE.Texture | null = noiseTexture()) =>
@@ -52,21 +52,22 @@ export function beltTexture(rubber = '#26262a', stripe = '#3b3b42') {
 
 // ------------------------------------------------------------------ people at posts
 
-const UNIFORMS: Record<string, Partial<Appearance>> = {
-  tsa: { shirt: 0x3a6fd8, pants: 0x1e1e2a, hat: null },
-  agent: { shirt: 0xd8443a, pants: 0x1e1e2a, hat: null },
-  ground: { shirt: 0xf07a2a, pants: 0x3b3b3b, hat: 0xf07a2a },
-  pilot: { shirt: 0xeeeeee, pants: 0x1e1e2a, hat: 0x1e1e2a },
-  perfume: { shirt: 0xe06aa0, pants: 0x2a2a2a, hat: null },
-  bartender: { shirt: 0x2a2a2a, pants: 0x2a2a2a, hat: null },
-  frank: { shirt: 0x6b8e23, pants: 0x6b5a3a, hat: 0xe0b030 },
-};
+/** Which job's look each post wears. */
+const POSTS = {
+  tsa: 'TSA Agent',
+  agent: 'Flight Attendant',
+  ground: 'Ground Crew',
+  pilot: 'Pilot',
+  perfume: 'Influencer',
+  bartender: 'Diner Cook',
+  frank: 'Construction Worker',
+} as const;
 
 /** A non-possessable person who stands at their post (TSA lane, desk, bar). */
 export class Actor {
   readonly ch: Character;
-  constructor(scene: THREE.Scene, base: Appearance, role: keyof typeof UNIFORMS, pos: THREE.Vector3, facing: number) {
-    this.ch = new Character({ ...base, ...UNIFORMS[role] });
+  constructor(scene: THREE.Scene, seed: number, role: keyof typeof POSTS, pos: THREE.Vector3, facing: number) {
+    this.ch = Character.fromFile({ job: POSTS[role], age: 30 + (seed % 30) }, seed);
     this.ch.root.position.copy(pos);
     this.ch.root.rotation.y = facing;
     scene.add(this.ch.root);

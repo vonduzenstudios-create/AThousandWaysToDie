@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import type { Interactable } from '../../props';
 import type { Job } from '../../deaths';
 import type { GameApi, MapContext, MapRuntime } from '../../maps/types';
-import { randomAppearance } from '../../character';
 import { mulberry32 } from '../../util';
 import { Frame, dbox, inD, type DBox } from './frame';
 import {
@@ -265,7 +264,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
   const arng = mulberry32(4242);
   const actors: Actor[] = [];
   const actor = (role: ConstructorParameters<typeof Actor>[2], x: number, y: number, z: number, h: number) => {
-    const a = new Actor(scene, randomAppearance(arng), role, W(x, y, z), f.heading(h));
+    const a = new Actor(scene, Math.floor(arng() * 1e6), role, W(x, y, z), f.heading(h));
     actors.push(a);
     return a;
   };
@@ -349,6 +348,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
   let trespassT = 0;
   let trespassWarned = false;
   let walkAgainstT = 0;
+  let beltStandT = 0;
   const scannerIn = LANES.map(() => false);
   let tsaCool = 0;
   let deathLock = false;
@@ -394,6 +394,11 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
         if (!game.spend(12.5, 'Massage chair')) return;
         s.cash();
         massageIt.enabled = false;
+        {
+          const fd = feetD();
+          const i = Math.max(0, Math.min(3, Math.round((fd.x - 168) / 3.5)));
+          game.player.teleport(W(168 + i * 3.5, 1.85, 28.6), f.heading(Math.PI));
+        }
         game.say('Massage chair', 'INTENSITY: MAXIMUM. ENJOY YOUR SHIATSU.', 2400);
         lockAndRun([
           ...Array.from({ length: 26 }, (_, i) => ({
@@ -645,7 +650,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
     // Pilot flight.
     if (pilot) {
       pilot.t += h;
-      if (pilot.phase === 'taxi' && a3.pos.x > 262) {
+      if (pilot.phase === 'taxi' && a3.pos.x > 215) {
         pilot.phase = 'warn';
         pilot.t = 0;
         game.say('Cockpit', 'TERRAIN. TERRAIN. PULL UP. PULL UP.', 3000);
@@ -683,8 +688,8 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
         const dx = d.x - (c.c.x + 0.5), dz = d.z - (c.c.z + 0.5);
         const r = Math.hypot(dx, dz);
         if (r > CAROUSEL_R.inner && r < CAROUSEL_R.outer && d.y > 0.7 && d.y < 1.8) {
-          // The ring turns counterclockwise in world space; in design space z is mirrored.
-          carry = new THREE.Vector3(dz * OMEGA, 0, -dx * OMEGA);
+          // Matches the suitcase ring's +y rotation in world space (design z is mirrored).
+          carry = new THREE.Vector3(-dz * OMEGA, 0, dx * OMEGA);
         }
       }
       if (carry && !deathLock) {
@@ -711,7 +716,9 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
     // Bag belt: lie flat (crouch) or the check-in agent yanks you off.
     if (inD(d, dbox(BELT.x0, 0.7, BELT.z0, BELT.x1 + 1, 2, BELT.z1 + 1))) {
       const flat = p.state === 'crouch' || p.state === 'slide' || p.state === 'bellyslide' || job() === 'Baggage Handler';
-      if (!flat && d.z < SEC_Z - 0.5) {
+      beltStandT = flat ? 0 : beltStandT + h;
+      if (!flat && d.z < SEC_Z - 0.5 && beltStandT > 0.9) {
+        beltStandT = 0;
         bs.beltYanks++;
         game.say('Check-in agent', bs.beltYanks < 3 ? 'Sir. SIR. You cannot check yourself in.' : 'Again?! Bags lie FLAT, sir. You are not a bag.', 2600);
         s.whoosh();
@@ -990,7 +997,9 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
     return false;
   };
 
-  return {
+  const runtime: MapRuntime & { debug: unknown } = {
+    // Handles for tests and the dev preview.
+    debug: { f404, f22, a3, doors, get bs() { return bs; }, frame: f },
     interactables: its,
     interact,
     update,
@@ -1004,6 +1013,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
       for (const a of actors) a.ch.dispose();
     },
   };
+  return runtime;
 }
 
 /** NPC spawns that make the airport jobs available to possess. Area keys match placeAirport's areas. */

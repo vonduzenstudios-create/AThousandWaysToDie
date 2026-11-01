@@ -1,6 +1,6 @@
 import type { DeathDef } from '../../deaths';
 
-const L = 'City International Airport';
+const L = 'Fuhgeddaboudit International';
 
 /** Deaths on the airport grounds. In-flight deaths belong to the travel system. */
 export const AIRPORT_DEATHS: DeathDef[] = [
