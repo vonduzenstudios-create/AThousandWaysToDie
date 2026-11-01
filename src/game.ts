@@ -420,6 +420,7 @@ export class Game {
     this.ui.setHueShift(0);
     const victim = this.body;
     const ch = this.character;
+    ch.setExpression('dead');
     this.player.setEnabled(false);
     this.pendingDeath = { id, victim, startPos: this.player.position() };
     this.timeScale = 0.35;
@@ -429,7 +430,7 @@ export class Game {
     this.ui.setHealth(null);
 
     if (style.kind === 'cube') {
-      ch.root.scale.set(ch.app.height * 1.1, ch.app.height * 0.45, ch.app.height * 1.1);
+      ch.root.scale.set(ch.baseScale * 1.1, ch.baseScale * 0.45, ch.baseScale * 1.1);
       ch.spinner.rotation.set(0, 0, 0);
       ch.tint(0xe3c25a, 0.7);
       ch.root.position.copy(this.town.baler).add(new THREE.Vector3(-1.6, 0, 0));
@@ -439,7 +440,7 @@ export class Game {
       this.particles.burst(ch.root.position.clone().add(new THREE.Vector3(0, 0.5, 0)), 40, 0xe3c25a, 6, { life: 1.4, size: 0.18 });
       this.activeRagdoll = null;
     } else if (style.kind === 'pancake') {
-      ch.root.scale.set(ch.app.height * 1.7, ch.app.height * 0.08, ch.app.height * 1.7);
+      ch.root.scale.set(ch.baseScale * 1.7, ch.baseScale * 0.08, ch.baseScale * 1.7);
       ch.root.position.y = this.player.feet().y + 0.02;
       ch.spinner.rotation.set(0, 0, 0);
       this.pancakes.push(ch.root);
