@@ -1,4 +1,4 @@
-import { CATEGORIES, DEATHS, PHYSICAL_INFO, TOTAL_SLOTS, isDeserving, timeLeftLabel, type Ledger, type PersonFile } from './deaths';
+import { CATEGORIES, DEATHS, mapOfDeath, PHYSICAL_INFO, TOTAL_SLOTS, isDeserving, timeLeftLabel, type Ledger, type PersonFile } from './deaths';
 import { money } from './util';
 import type { SkillBar } from './skills';
 
@@ -81,6 +81,9 @@ export class UI {
         <tr><td>Skills</td><td>1 – 5 (or click)</td><td>D-pad up/down pick, right use</td></tr>
         <tr><td>Interact / possess</td><td>E</td><td>Y</td></tr>
         <tr><td>Scream for help</td><td>T</td><td>LB</td></tr>
+        <tr><td>Hijack car / get out</td><td>E</td><td>Y</td></tr>
+        <tr><td>Drive · steer</td><td>W / S · A / D</td><td>Stick or RT / LT · stick</td></tr>
+        <tr><td>Handbrake · horn</td><td>Space · T</td><td>A · LB</td></tr>
         <tr><td>Pee</td><td>Q</td><td>RB</td></tr>
         <tr><td>Ghost rise / sink</td><td>Space / Shift</td><td>A / B</td></tr>
         <tr><td>Ledger · music</td><td>Tab · M</td><td>View · D-pad left</td></tr>
@@ -265,14 +268,20 @@ export class UI {
     document.body.classList.toggle('pad', on);
   }
 
-  toggleLedger(ledger: Ledger) {
+  /**
+   * Show the ledger for the area you're in: only deaths on this map are listed. Other maps
+   * get a one-line summary at the bottom. `areas` is every map, for that summary.
+   */
+  toggleLedger(ledger: Ledger, area: { id: string; name: string } = { id: 'smallville', name: 'Smallville' }, areas: { id: string; name: string }[] = []) {
     this.ledgerOpen = !this.ledgerOpen;
     if (!this.ledgerOpen) {
       this.ledgerEl.classList.add('hidden');
       return;
     }
+    const here = DEATHS.filter((d) => mapOfDeath(d.id) === area.id);
     const cats = CATEGORIES.map((c) => {
-      const defs = DEATHS.filter((d) => d.category === c);
+      const defs = here.filter((d) => d.category === c);
+      if (!defs.length) return '';
       const rows = defs
         .map((d) => {
           const f = ledger.found[d.id];
@@ -282,12 +291,21 @@ export class UI {
         })
         .join('');
       const foundN = defs.filter((d) => ledger.found[d.id]).length;
-      return `<div class="cat"><div class="cn">${c} <span>${foundN} found</span></div>${rows || '<div class="row none">??? (not in this town)</div>'}</div>`;
+      return `<div class="cat"><div class="cn">${c} <span>${foundN} / ${defs.length}</span></div>${rows}</div>`;
     }).join('');
+    const hereFound = here.filter((d) => ledger.found[d.id]).length;
+    const elsewhere = areas
+      .filter((a) => a.id !== area.id)
+      .map((a) => {
+        const defs = DEATHS.filter((d) => mapOfDeath(d.id) === a.id);
+        return defs.length ? `${a.name} ${defs.filter((d) => ledger.found[d.id]).length}/${defs.length}` : '';
+      })
+      .filter(Boolean);
     this.ledgerEl.innerHTML = `
-      <div class="lh">Death Ledger <span>${ledger.foundCount} / ${TOTAL_SLOTS.toLocaleString()}</span></div>
-      <div class="lsub">Lifetime payouts ${money(ledger.total)} · ${DEATHS.length} deaths hidden in Smallville</div>
-      <div class="cats">${cats}</div>
+      <div class="lh">Death Ledger: ${area.name} <span>${hereFound} / ${here.length} here</span></div>
+      <div class="lsub">${ledger.foundCount} / ${TOTAL_SLOTS.toLocaleString()} deaths filed overall · Lifetime payouts ${money(ledger.total)}</div>
+      <div class="cats">${cats || '<div class="row none">No known deaths around here. Yet.</div>'}</div>
+      ${elsewhere.length ? `<div class="lsub">Elsewhere: ${elsewhere.join(' · ')}</div>` : ''}
       <div class="lfoot">Tab to close</div>`;
     this.ledgerEl.classList.remove('hidden');
   }
