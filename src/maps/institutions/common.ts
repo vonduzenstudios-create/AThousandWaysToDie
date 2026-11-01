@@ -299,7 +299,7 @@ export const UNIFORMS: Record<string, { shirt: number; pants: number; hat?: numb
   Psychiatrist: { shirt: 0xf0f0f0, pants: 0x5a4a3a, hat: null, shoes: 0x2a1a10 },
 };
 
-/** A scripted person in the chibi voxel style, dressed for `job`, with spec overrides. */
+/** A scripted person in the detailed voxel style, dressed for `job`, with spec overrides. */
 export function person(job: string, seed: number, over: Partial<PersonSpec> = {}): Character {
   const spec = { ...specForJob(job, mulberry32(seed)), ...over };
   return new Character(null, buildVoxelBody(spec));
