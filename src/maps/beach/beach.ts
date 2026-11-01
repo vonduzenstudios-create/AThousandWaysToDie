@@ -6,6 +6,7 @@ import type { GameApi, MapContext, MapRuntime } from '../types';
 import { Actor } from './actor';
 import * as M from './models';
 import { Sea } from './water';
+import { BeachTown } from './town';
 import { BUOY_Z, DECK, GL, PIER_END, SEA, SX, SZ, type BeachLayout, shoreZ } from './world';
 
 type V = THREE.Vector3;
@@ -38,6 +39,7 @@ export class BeachRuntime implements MapRuntime {
   private scene: THREE.Scene;
   private root = new THREE.Group();
   private sea: Sea;
+  private town: BeachTown;
   private hud: HTMLElement;
   private timers: { t: number; fn: () => void }[] = [];
   private lastBody: PersonFile | null = null;
@@ -177,6 +179,7 @@ export class BeachRuntime implements MapRuntime {
     const g = this.g;
 
     // Water, tide and fog.
+    this.town = new BeachTown(this.root, ctx.physics, L);
     this.sea = new Sea(ctx.world);
     this.root.add(this.sea.group);
     g.player.waterAt = () => this.tide;
@@ -2092,6 +2095,7 @@ export class BeachRuntime implements MapRuntime {
     this.hud.remove();
     for (const a of [...this.guards, ...this.kids, ...this.vbPlayers, ...this.passengers, this.captain, this.guide, this.davy, this.boatGuy]) a.dispose();
     this.sea.dispose();
+    this.town.dispose();
     this.scene.remove(this.root);
     for (const b of this.bodies) {
       try {

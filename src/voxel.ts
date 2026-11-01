@@ -55,6 +55,18 @@ export const B = {
   Grain: 48,
   Mud: 49,
   Ice: 50,
+  /** Draws nothing; marks a footprint that a mesh from elsewhere (the building kit) stands on, so nav and collision see it. */
+  Footprint: 51,
+  // Prison and asylum blocks (src/maps/institutions). High ids so other maps can add blocks below them.
+  PrisonGrey: 180,
+  CellFloor: 181,
+  ShowerTile: 182,
+  Padding: 183,
+  PoolTile: 184,
+  AsylumWall: 185,
+  AsylumLino: 186,
+  OrangePaint: 187,
+  OfficeCarpet: 188,
 } as const;
 
 /** Blocks you can walk (or sink) through. They still render and hide faces behind them. */
@@ -112,6 +124,16 @@ export const PALETTE: Record<number, [number, number]> = {
   [B.Grain]: [0xd9b85a, 0.18],
   [B.Mud]: [0x5e4128, 0.12],
   [B.Ice]: [0xcdeefa, 0.04],
+  [B.Footprint]: [0x8c6e60, 0],
+  [B.PrisonGrey]: [0x7c8088, 0.08],
+  [B.CellFloor]: [0x5d6168, 0.1],
+  [B.ShowerTile]: [0xdfe8ec, 0.05],
+  [B.Padding]: [0xf1ead2, 0.07],
+  [B.PoolTile]: [0x4aa8d8, 0.06],
+  [B.AsylumWall]: [0xc9d8c2, 0.05],
+  [B.AsylumLino]: [0xb9c4a8, 0.12],
+  [B.OrangePaint]: [0xf07a2a, 0.04],
+  [B.OfficeCarpet]: [0x7a3a4a, 0.12],
 };
 
 /**
@@ -168,7 +190,8 @@ export class VoxelWorld {
   }
 
   private solid(x: number, y: number, z: number) {
-    return this.get(x, y, z) !== 0 ? 1 : 0;
+    const b = this.get(x, y, z);
+    return b !== 0 && b !== B.Footprint ? 1 : 0;
   }
 
   /**
@@ -191,7 +214,7 @@ export class VoxelWorld {
           for (let z = cz; z < Math.min(cz + chunk, this.sz); z++)
             for (let x = cx; x < Math.min(cx + chunk, this.sx); x++) {
               const b = this.get(x, y, z);
-              if (!b) continue;
+              if (!b || b === B.Footprint) continue;
               const [hex, vari] = PALETTE[b] ?? [0xff00ff, 0];
               const n = hash3(x, y, z);
               const f = 1 + (n - 0.5) * vari * 2;

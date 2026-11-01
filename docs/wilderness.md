@@ -6,6 +6,7 @@ A 640 x 640 wilderness map in `src/maps/wilderness/`. It runs from snowy pine fo
 
 - `terrain.ts`: height field, biomes, rivers, lakes, roads and building pads. Block ids 180-214 are registered with `defineBlock`.
 - `structures.ts`: every building and set piece (train depot, ranger station, campground, bear cave, lumber camp, gator show, bungee bridge, safari lodge, airstrip, Pride Rock, gas station, conspiracy trailer, crop circle, Doom Town, beaver dam, oasis), plus scattered trees, cacti and rocks. Returns named `spots` the runtime uses.
+- `kitbuild.ts`: the depot, ranger station, lodge gift shop and kitchen, diner, airstrip terminal and Doom Town houses, drawn with the shared building kit (`docs/building-kit.md`), plus the paving, lamps, benches, bunting and props around them. The voxel world only gets a slab under each building. `blockFootprints` marks the footprints as roofs in the floor map so NPCs walk around them. Shops serve from walk-up counters out front.
 - `models.ts`: voxel-style animals (lion, elephant, giraffe, zebra, gazelle, rhino, hippo, bear, camel, vulture, monkey, roadrunner, gator, beaver, piranha), the jeep, the balloon, the UFO, the ACME rocket and props.
 - `animals.ts`: `Animal` (wander, flee, charge, mood meter 0-3 shown as `?`, `!`, `!!` over the head) and `Actor` (scripted humans who save you, or don't).
 - `scenery.ts`: water surfaces and waterfalls, savanna tall grass (you can hide in it by crouching), clouds.

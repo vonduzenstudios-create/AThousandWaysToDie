@@ -192,6 +192,35 @@ const JOB_LOOKS: Partial<Record<JobName, (r: Rng) => Partial<PersonSpec>>> = {
     outfit: pick(r, ['polo', 'sweaterVest'] as const), top: pick(r, [0x5a7aa0, 0x6a6a5a, 0x8a5a6a]), accent: pick(r, SHIRTS),
     bottoms: pick(r, [0x3a3a48, 0x6a6a6a]), extras: ['headphones'], glasses: r() < 0.6 ? 'round' : 'none', marks: ['eyebags'],
   }),
+  // Prison and asylum (src/maps/institutions).
+  Inmate: (r) => ({
+    outfit: 'coveralls', hat: 'none', top: 0xf07a2a, accent: 0xf2f2f2, bottoms: 0xf07a2a, shoes: 0xf2f2f2, shoeStyle: 'sneakers',
+    held: r() < 0.15 ? 'toothbrush' : 'none', marks: r() < 0.3 ? ['scar'] : [], facial: r() < 0.5 ? pick(r, ['stubble', 'goatee', 'beard'] as const) : 'none',
+  }),
+  'Prison Guard': (r) => ({
+    outfit: 'police', hat: r() < 0.7 ? 'police' : 'none', hatColor: 0x2a2a30, top: 0x5a6a8a, accent: GOLD_C, bottoms: 0x1e2430,
+    shoes: 0x111114, glasses: r() < 0.3 ? 'sun' : 'none', facial: r() < 0.4 ? 'mustache' : 'none', build: pick(r, ['average', 'heavy', 'buff'] as const),
+  }),
+  Warden: (r) => ({
+    outfit: 'suit', top: 0x55575e, accent: 0xb02a2a, bottoms: 0, glasses: 'round', hairStyle: pick(r, ['ring', 'combover', 'slick'] as const),
+    held: 'book', shoes: 0x2a1a10, facial: r() < 0.5 ? 'mustache' : 'none',
+  }),
+  Patient: (r) => ({
+    outfit: 'casual', hat: 'none', top: 0xbcd8ec, accent: 0xbcd8ec, bottoms: 0xbcd8ec, shoes: 0xd8d8d8, shoeStyle: 'sandals',
+    held: 'none', extras: [], hairStyle: pick(r, ['afro', 'long', 'spiky', 'curly', 'bald', 'mohawk', 'bun'] as const),
+  }),
+  Orderly: (r) => ({
+    outfit: 'casual', hat: 'none', top: 0xf4f4f4, accent: 0xf4f4f4, bottoms: 0xf4f4f4, shoes: 0xf4f4f4, shoeStyle: 'sneakers',
+    build: pick(r, ['buff', 'heavy'] as const), held: 'none',
+  }),
+  Nurse: (r) => ({
+    outfit: 'casual', hat: 'none', top: 0x8fd0c0, accent: 0x8fd0c0, bottoms: 0x8fd0c0, shoes: 0xf4f4f4, shoeStyle: 'sneakers',
+    held: r() < 0.4 ? 'book' : 'none', glasses: r() < 0.3 ? 'round' : 'none',
+  }),
+  Psychiatrist: (r) => ({
+    outfit: 'labCoat', top: 0xf4f6f8, accent: 0x6a8ab0, bottoms: pick(r, [0x5a4a3a, 0x3a3a48]), glasses: 'round', held: 'book',
+    facial: r() < 0.5 ? pick(r, ['beard', 'goatee'] as const) : 'none',
+  }),
 };
 
 const GOLD_C = 0xe8b830;
