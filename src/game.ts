@@ -18,16 +18,25 @@ import {
 } from './deaths';
 import { Input } from './input';
 import { Npc } from './npc';
-import type { GameApi, MapRuntime } from './maps/types';
-import { HOSPITAL_DEATHS, setupHospital } from './places/hospital';
-import { LifeSystem } from './life';
+import { LifeSystem, type LifeMap } from './life';
+import { autoLifeMap } from './travel/autolife';
+import { setupHospital } from './places/hospital';
+import { composeRuntimes } from './maps/compose';
 import { deathGossip, smallvilleLife } from './life/maps/smallville';
 import { Particles } from './particles';
 import { Player, PLAYER_CENTER, type LandEvent } from './player';
 import { Props } from './props';
 import { Ragdoll } from './ragdoll';
+import { G, inBox, type TownInfo } from './town';
+import { ChunkStreamer, VoxelWorld } from './voxel';
+import { MAPS, MAP_BY_ID } from './maps';
+import { routesFrom } from './maps/routes';
+import type { SmallvilleBuild } from './maps/smallville';
+import type { GameApi, MapBuild, MapDef, MapRuntime, TravelKind, TravelStop } from './maps/types';
+import { TicketUI, type TicketOption } from './travel/ticket';
+import { Transit, onArrive, onDepart, type Service } from './travel/transit';
+import { checkUnlocks, isOpen, lockReason, onUnlock } from './travel/progress';
 import { Rides } from './rides';
-import { G, SIZE, buildTown, inBox, type TownInfo } from './town';
 import { HOMETOWN_DEATHS, Hometown } from './hometown';
 import { GROCERY } from './places/grocery';
 import type { PlaceRuntime } from './places/types';
@@ -46,7 +55,28 @@ import { arrest, commit } from './maps/institutions/common';
 import { TitleMenu, type DevMap } from './titlemenu';
 import { loadOptions, saveOptions, type Options } from './options';
 
-type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing';
+type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing' | 'travel';
+
+/** A trip in progress: riding out, black-out while the next map loads, riding in. */
+interface Trip {
+  phase: 'boarding' | 'departing' | 'black' | 'arriving';
+  svc: Service | null;
+  to: string;
+  kind: TravelKind;
+  minutes: number;
+  fromName: string;
+  t: number;
+  special: null | 'exitrow' | 'wheelwell' | 'express';
+  line?: string;
+  title?: string;
+}
+
+const TRIP_LINES: Record<TravelKind, string[]> = {
+  bus: ['The guy next to you ate a whole onion. Raw.', 'Someone played music out loud the entire way.', 'The driver missed your stop twice, on purpose.'],
+  train: ['A conductor punched your ticket with real hatred.', 'The quiet car was not quiet.', 'You were delayed by "a person on the tracks". Rookie.'],
+  plane: ['Middle seat. Both armrests taken.', 'The in-flight movie was about a plane crash.', 'Turbulence. The pilot said "whoops" over the intercom.'],
+  boat: ['Seasick the whole way. So was the captain.', 'A seagull stole your sandwich at sea.', 'The lifeboats looked decorative.'],
+};
 
 type DeathStyle =
   | { kind: 'ragdoll'; vel: THREE.Vector3; spin?: number; bounce?: number }
@@ -82,8 +112,24 @@ export class Game {
   private ui = new UI();
   private sound = new Sound();
   private ledger = new Ledger();
-  private town: TownInfo;
-  private props: Props;
+  /** Smallville's original set pieces. Null on every other map. */
+  private town: TownInfo | null = null;
+  private props: Props | null = null;
+  private mapDef!: MapDef;
+  private mapBuild!: MapBuild;
+  private world!: VoxelWorld;
+  private streamer: ChunkStreamer | null = null;
+  private runtime: MapRuntime | null = null;
+  private transit: Transit | null = null;
+  private mapObjects: THREE.Object3D[] = [];
+  private mapGround = G;
+  private skyMat!: THREE.ShaderMaterial;
+  private tickets = new TicketUI();
+  private ticket: { stopId: string; to: string; kind: TravelKind; minutes: number } | null = null;
+  private trip: Trip | null = null;
+  private pendingFall: string | null = null;
+  private menuY = 0;
+  private api: GameApi;
   private particles: Particles;
   private player: Player;
   private character: Character | null = null;
@@ -119,7 +165,6 @@ export class Game {
   private seqT = 0;
   private rng: Rng = mulberry32(Date.now() & 0xffff);
   /** Places stamped into the map (the hospital annex for now): their runtime hooks. */
-  private places: MapRuntime[] = [];
   private start0 = new THREE.Vector3();
   private ghost: THREE.Group;
   private ghostPos = new THREE.Vector3();
@@ -131,8 +176,8 @@ export class Game {
   private pendingDeath: { id: string; victim: PersonFile; startPos: THREE.Vector3 } | null = null;
   private crosshair: HTMLElement;
   private hornCooldown = 0;
-  private hometown: Hometown;
-  private grocery!: PlaceRuntime;
+  private hometown: Hometown | null = null;
+  private grocery: PlaceRuntime | null = null;
   private atms!: Atms;
   private rides!: Rides;
   private skillBar = new SkillBar();
@@ -150,9 +195,9 @@ export class Game {
   private beam: THREE.Mesh | null = null;
   private beamT = 0;
   // Vehicles and the radar.
-  private traffic: Traffic;
+  private traffic!: Traffic;
   private minimap: Minimap;
-  private pois: Blip[];
+  private pois: Blip[] = [];
   /** The car Gary is driving, if any. */
   driving: Car | null = null;
   private engine: EngineSound;
@@ -183,18 +228,16 @@ export class Game {
 
     // Sky dome and lighting.
     const skyColor = new THREE.Color(0x9fd3ff);
-    this.scene.fog = new THREE.Fog(skyColor, 110, 320);
-    const sky = new THREE.Mesh(
-      new THREE.SphereGeometry(400, 24, 12),
-      new THREE.ShaderMaterial({
+    this.scene.fog = new THREE.Fog(skyColor, 90, 260);
+    this.skyMat = new THREE.ShaderMaterial({
         side: THREE.BackSide,
         depthWrite: false,
         fog: false,
         uniforms: { top: { value: new THREE.Color(0x3d7fe0) }, bottom: { value: new THREE.Color(0xcfeaff) } },
         vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
         fragmentShader: 'uniform vec3 top; uniform vec3 bottom; varying vec3 vP; void main(){ float h = clamp(vP.y*1.6+0.2,0.0,1.0); gl_FragColor = vec4(mix(bottom, top, h), 1.0); }',
-      }),
-    );
+    });
+    const sky = new THREE.Mesh(new THREE.SphereGeometry(400, 24, 12), this.skyMat);
     sky.renderOrder = -1;
     this.scene.add(sky);
     (sky as THREE.Mesh).onBeforeRender = () => sky.position.copy(this.camera.position);
@@ -216,127 +259,53 @@ export class Game {
     warmLighting(this.scene, this.renderer, { sun: this.sun, hemi });
     this.post = new PostFX(this.renderer, this.scene, this.camera);
 
-    // Physics and world.
+    // Physics (each map gets a fresh world in loadMap) and the persistent actors.
     this.physics = new RAPIER.World({ x: 0, y: -30, z: 0 });
-    // City General Hospital is stamped into Smallville's E3 lot. ?place=hospital starts the ghost at its door.
-    const devPlace = new URLSearchParams(location.search).get('place');
-    this.town = buildTown();
-    const hospital = this.town.hospital;
-    this.start0 = this.town.spawn.clone().setY(G + 4);
-    if (devPlace === 'hospital') this.start0 = hospital.entrance.clone().add(new THREE.Vector3(0, 4, -8));
-    this.town.world.build(this.scene, this.physics);
-    // Detailed exterior-only buildings from the building kit (docs/building-kit.md).
-    const kit = new StreetKit({ parent: this.scene, physics: this.physics });
-    for (const b of this.town.kitBuildings) kit.building(b);
-    kit.finish();
-    this.props = new Props(this.scene, this.physics, this.town);
-    this.atms = new Atms(this.scene, this.physics, this.town.world, this.town.areas.downtown, this.props.interactables);
     this.combat = this.makeCombat();
     this.skillHost = this.makeSkillHost();
     this.ui.onSkillClick = (i) => this.useSkill(i);
     this.particles = new Particles(this.scene);
     registerMapDeaths(HOMETOWN_DEATHS, 'smallville');
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const game = this;
-    this.hometown = new Hometown(this.scene, this.physics, this.town, {
-      get player() {
-        return game.player;
-      },
-      get body() {
-        return game.body;
-      },
-      get character() {
-        return game.character;
-      },
-      sound: this.sound,
-      particles: this.particles,
-      kill: (id, style) => this.kill(id, style),
-      runSeq: (steps) => this.runSeq(steps),
-      toast: (t, b, ms) => this.ui.toast(t, b, ms),
-      say: (who, line, ms) => this.ui.say(who, line, ms),
-      shake: (a) => this.cam.shake(a),
-    });
-    this.props.interactables.push(...this.hometown.interactables);
-    this.traffic = new Traffic(this.scene, this.physics, smallvilleTraffic(this.town));
-    this.traffic.onHonk = (car, tag) => this.onHonk(car, tag);
-    this.traffic.onShoo = (car, tag) => {
-      // The honked-at townsperson hops out of the lane.
-      const n = this.npcs[Number(tag?.split(':')[1])];
-      if (!n) return;
-      const r = car.toWorld(new THREE.Vector3(-1, 0, 0)).sub(car.pos).setY(0).normalize();
-      const lat = r.dot(n.pos.clone().sub(car.pos));
-      const side = lat >= 0 ? 1 : -1;
-      n.pos.addScaledVector(r, side * 3 - lat);
-      n.character.kick(0.6);
-    };
+    registerMapDeaths(GROCERY.deaths, 'smallville');
     this.minimap = new Minimap(document.getElementById('ui')!);
-    this.minimap.setWorld(this.town.world, 'Smallville', G);
     this.minimap.setVisible(false);
-    this.pois = smallvillePois(this.town);
     this.engine = new EngineSound(this.sound);
 
     this.input = new Input(canvas);
     this.input.onAnyGesture = () => this.sound.init();
-    // The grocery store is its own place stamp with its own deaths and runtime.
-    registerMapDeaths(GROCERY.deaths, 'smallville');
-    this.grocery = this.town.grocery.setup({
-      scene: this.scene,
-      physics: this.physics,
-      world: this.town.world,
-      rng: mulberry32(4242),
-      game: {
-        get player() {
-          return game.player;
-        },
-        get body() {
-          return game.body;
-        },
-        get character() {
-          return game.character;
-        },
-        sound: this.sound,
-        particles: this.particles,
-        input: this.input,
-        kill: (id, style) => this.kill(id, style),
-        runSeq: (steps) => this.runSeq(steps),
-        toast: (t, b, ms) => this.ui.toast(t, b, ms),
-        say: (who, line, ms) => this.ui.say(who, line, ms),
-        shake: (a) => this.cam.shake(a),
-        flash: (c, ms) => this.ui.flash(c, ms),
-      },
-    });
-    this.props.interactables.push(...this.grocery.interactables);
     this.cam = new FollowCam(this.camera, this.physics);
-    this.player = new Player(this.physics, this.town.spawn);
+    this.player = new Player(this.physics, new THREE.Vector3(87, G, 88));
     this.player.setEnabled(false);
     this.wirePlayerHooks();
-    this.rides = this.makeRides();
 
     this.ghost = this.makeGhost();
     this.scene.add(this.ghost);
     this.ghost.visible = false;
+    this.api = this.makeApi();
+
+    this.loadMap('smallville');
 
     this.crosshair = document.createElement('div');
     this.crosshair.className = 'crosshair hidden';
     document.getElementById('ui')!.appendChild(this.crosshair);
 
-    this.spawnInitialNpcs();
-    {
-      registerMapDeaths(HOSPITAL_DEATHS, 'smallville');
-      this.places.push(setupHospital({ scene: this.scene, physics: this.physics, world: this.town.world, rng: this.rng, game: this.api() }, hospital, { name: 'Smallville General Hospital' }));
-    }
     this.ui.blip = () => this.sound.blip(0.6);
     this.ui.setHud(this.ledger, null);
 
     // Title camera.
-    this.ghostPos.set(this.town.spawn.x, G + 14, this.town.spawn.z + 6);
+    this.ghostPos.set(this.mapBuild.spawn.x, G + 14, this.mapBuild.spawn.z + 6);
     this.cam.yaw = 0.6;
     this.cam.pitch = 0.45;
     this.cam.dist = 26;
     this.cam.autoOrbit = 0.08;
-    this.cam.snap(this.town.spawn.clone().setY(G + 6));
+    this.cam.snap(this.mapBuild.spawn.clone().setY(G + 6));
 
     this.story.onPause = (p) => this.sound.duck(p);
+    // Death's milestone scenes play when 25 unique deaths open a route.
+    onUnlock((e) => this.story.unlock(e));
+    // Townsfolk ride the scheduled buses, trains, ferries and planes.
+    onArrive((e) => this.life?.vehicleArrived(e.stopId, e.door));
+    onDepart((e) => this.life?.vehicleDeparted(e.stopId));
     this.title = new TitleMenu(document.getElementById('ui')!, {
       hasSave: () => this.ledger.foundCount > 0 || this.ledger.total > 0 || this.story.hasSeen('opening'),
       newGame: () => {
@@ -391,52 +360,16 @@ export class Game {
     return g;
   }
 
-  /** The slice of the game that maps and places drive (src/maps/types.ts). */
-  private api(): GameApi {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const g = this;
-    return {
-      get player() { return g.player; },
-      get body() { return g.body; },
-      get character() { return g.character; },
-      get sound() { return g.sound; },
-      get particles() { return g.particles; },
-      kill: (id, style) => g.kill(id, style),
-      runSeq: (steps) => g.runSeq(steps),
-      toast: (t, b, ms) => g.ui.toast(t, b, ms),
-      say: (who, line, ms) => g.ui.say(who, line, ms),
-      shake: (a) => g.cam.shake(a),
-      flash: (c, ms) => g.ui.flash(c, ms),
-      prompt: (html) => g.ui.prompt(html),
-      get input() { return g.input; },
-      get camYaw() { return g.cam.yaw; },
-      get time() { return g.time; },
-      get balance() { return g.ledger.balance; },
-      spend: (amount, label) => {
-        if (g.ledger.balance < amount) {
-          g.ui.toast("CAN'T AFFORD IT", `${label} costs $${amount}.`, 2000);
-          return false;
-        }
-        g.ledger.balance -= amount;
-        g.ledger.save();
-        g.ui.setHud(g.ledger, g.body);
-        return true;
-      },
-      setHueShift: (deg) => g.ui.setHueShift(deg),
-    };
-  }
-
   /** Bodies scythe vision can target: townsfolk plus people the places post (hospital staff). */
   private get targetable(): Npc[] {
-    return this.places.length ? [...this.npcs, ...this.places.flatMap((pl) => pl.npcs ?? [])] : this.npcs;
+    const extra = this.runtime?.npcs;
+    return extra?.length ? [...this.npcs, ...extra] : this.npcs;
   }
 
   private spawnInitialNpcs() {
-    this.life = new LifeSystem(this.scene, smallvilleLife(this.town), {
-      seed: 500 + (Date.now() % 1000),
-      blip: () => this.sound.blip(0.6),
-    });
+    if (!this.life) return;
     this.life.populate();
+    if (!this.town) return;
     // Guarantee a few marks for the demo's deaths.
     const byJob = (job: string) => this.npcs.filter((n) => n.file.job === job);
     const cook = byJob('Diner Cook')[0];
@@ -481,8 +414,8 @@ export class Game {
     };
   }
 
-  private makeRides() {
-    const { spots, ramps } = Rides.smallvilleLayout();
+  private makeRides(smallville: boolean) {
+    const { spots, ramps } = smallville ? Rides.smallvilleLayout() : { spots: [], ramps: [] };
     return new Rides(
       this.scene,
       this.physics,
@@ -509,13 +442,23 @@ export class Game {
     );
   }
 
-  /** Maps Dev Mode can jump to. The map loader extends this list. */
+  /** Maps Dev Mode can jump to: every registered map, plus test places. */
   devMaps(): DevMap[] {
-    return [{ id: 'smallville', name: 'Smallville', note: 'Hometown' }];
+    return [
+      ...MAPS.map((m) => ({ id: m.id, name: m.name, note: m.id === 'smallville' ? 'Hometown' : 'Map' })),
+      { id: 'place:hospital', name: 'City General Hospital', note: 'Test place (in Smallville)' },
+    ];
   }
 
-  /** Dev Mode: load a map by id. Smallville is already loaded; the map loader overrides this. */
-  protected loadDevMap(_id: string) {}
+  /** Dev Mode: load a map by id (or a test place inside one). */
+  protected loadDevMap(id: string) {
+    if (id === 'place:hospital') {
+      if (this.mapDef.id !== 'smallville') this.loadMap('smallville');
+      if (this.town) this.start0 = this.town.hospital.entrance.clone().add(new THREE.Vector3(0, 4, -8));
+      return;
+    }
+    if (MAP_BY_ID[id] && id !== this.mapDef.id) this.loadMap(id);
+  }
 
   private applyOptions() {
     this.sound.setVolumes(this.options.music, this.options.sfx);
@@ -566,8 +509,8 @@ export class Game {
     this.player.tier = file.physical;
     this.player.healLegs();
     this.player.lock(false);
-    this.props.setBarnOpen(file.job === 'Farmhand');
-    this.hometown.onBody(file);
+    this.props?.setBarnOpen(file.job === 'Farmhand');
+    this.hometown?.onBody(file);
     this.barnTries = 0;
     this.stationVisits = 0;
     this.skillBar.setBody(file);
@@ -579,7 +522,7 @@ export class Game {
     this.player.floatT = 0;
     this.ui.setSkills(this.skillBar, this.input.padConnected);
     this.ui.setHud(this.ledger, file);
-    for (const pl of this.places) pl.onBody?.(file);
+    this.runtime?.onBody?.(file);
   }
 
   private enterGhost(at: THREE.Vector3, first = false) {
@@ -594,7 +537,7 @@ export class Game {
     this.combat.setBody(null);
     this.ui.setSkills(null);
     this.ui.setHealth(null);
-    for (const pl of this.places) pl.onBody?.(null);
+    this.runtime?.onBody?.(null);
     if (first) this.cam.dist = 8;
     this.cam.autoOrbit = 0;
     this.sound.setStyle('ghost');
@@ -661,6 +604,9 @@ export class Game {
   // ---------------------------------------------------------------- death
   private kill(id: string, style: DeathStyle) {
     if (this.mode !== 'play' || !this.character || !this.body) return;
+    this.pendingFall = null;
+    this.ticket = null;
+    this.tickets.close();
     if (this.driving) this.leaveCar();
     const def = DEATH_BY_ID[id];
     this.mode = 'dying';
@@ -685,7 +631,7 @@ export class Game {
       ch.tint(style.color ?? 0xe3c25a, 0.7);
       ch.root.rotation.set(0, ch.root.rotation.y, 0);
       if (style.at) ch.root.position.copy(style.at);
-      else ch.root.position.copy(this.town.baler).add(new THREE.Vector3(-1.6, 0, 0));
+      else ch.root.position.copy(this.town?.baler ?? this.player.feet()).add(new THREE.Vector3(-1.6, 0, 0));
       this.pancakes.push(ch.root);
       if (this.pancakes.length > 4) this.scene.remove(this.pancakes.shift()!);
       this.sound.stamp();
@@ -745,7 +691,7 @@ export class Game {
     }
     const isNew = !already;
     this.ledger.claimNo++;
-    if (isNew) this.ledger.found[id] = { count: 1, payout: total, first: Date.now() };
+    if (isNew) this.ledger.found[id] = { count: 1, payout: total, first: Date.now(), map: this.mapDef.id };
     else already.count++;
     this.ledger.balance += total;
     this.ledger.total += total;
@@ -777,16 +723,27 @@ export class Game {
     }, 550);
   }
 
+  /** Death's milestone line when a new route opens. The cutscene thread listens to onUnlock too. */
+  private announceUnlocks() {
+    for (const e of checkUnlocks(this.ledger)) {
+      const kinds = [...new Set(e.routes.map((r) => r.kind))];
+      const what = kinds.map((k) => ({ bus: 'the bus', train: 'the train', boat: 'the boats', plane: 'the airport' })[k]).join(' and ');
+      setTimeout(() => {
+        this.ui.toast('NEW ROUTES OPEN', `${e.deaths} deaths. Death has unlocked ${what}.`, 4200);
+      }, 900);
+    }
+  }
+
   private afterClaim() {
+    this.announceUnlocks();
     this.input.requestLock();
     this.ui.setHud(this.ledger, null);
-    const at = this.activeRagdoll ? this.activeRagdoll.position() : this.pendingDeath?.startPos ?? this.town.spawn.clone();
-    at.x = Math.min(Math.max(at.x, 4), this.town.world.sx - 4);
-    at.z = Math.min(Math.max(at.z, 4), this.town.world.sz - 4);
+    const at = this.activeRagdoll ? this.activeRagdoll.position() : this.pendingDeath?.startPos ?? this.mapBuild.spawn.clone();
+    at.x = Math.min(Math.max(at.x, 4), this.world.sx - 4);
+    at.z = Math.min(Math.max(at.z, 4), this.world.sz - 4);
     at.y = Math.max(at.y, G) + 3;
     this.pendingDeath = null;
     this.enterGhost(at);
-    this.story.checkLedger(this.ledger.found);
     if (Math.random() < 0.5) setTimeout(() => this.ui.say('Death', pick(this.rng, DEATH_QUIPS), 3000), 3800);
   }
 
@@ -794,10 +751,10 @@ export class Game {
   private onLand(e: LandEvent) {
     const ch = this.character;
     if (!ch) return;
-    if (this.mode === 'play' && !this.rides.isRiding && this.hometown.onLand(e)) return;
+    if (this.mode === 'play' && !this.rides.isRiding && this.hometown?.onLand(e)) return;
     if (this.rides.isRiding && this.rides.onLand(e)) return;
+    if (this.mode === 'play' && this.runtime?.onLand?.(e)) return;
     const heavy = Math.min(e.drop / 12, 1);
-    if (this.mode === 'play' && this.places.some((pl) => pl.onLand?.(e))) return;
     if (e.landState === 'groundpound') {
       this.sound.slam();
       this.cam.shake(0.6);
@@ -829,13 +786,15 @@ export class Game {
       const v = this.player.vel.clone().multiplyScalar(1.3);
       v.y = impact * 0.45;
       let id = 'faceplant';
-      if (inBox(e.launchPos, this.town.treeZone)) id = 'treehouse';
-      else if (inBox(e.launchPos, this.town.towerZone) && e.launchState === 'longjump') id = 'watertower';
-      id = this.hometown.fallDeathId(e, this.player.feet()) ?? id;
+      const town = this.town;
+      if (this.pendingFall) id = this.pendingFall;
+      else if (town && inBox(e.launchPos, town.treeZone)) id = 'treehouse';
+      else if (town && inBox(e.launchPos, town.towerZone) && e.launchState === 'longjump') id = 'watertower';
+      id = this.hometown?.fallDeathId(e, this.player.feet()) ?? id;
       this.sound.splat();
       this.cam.shake(0.8);
       this.kill(id, { kind: 'ragdoll', vel: v, spin: 12, bounce: 0.6 });
-      if (id === 'faceplant' && inBox(e.launchPos, this.town.towerZone))
+      if (id === 'faceplant' && town && inBox(e.launchPos, town.towerZone))
         setTimeout(() => this.ui.say('Death', 'From the water tower and THAT is what you went with? Try a long jump next time.', 4000), 1800);
     }
   }
@@ -844,7 +803,7 @@ export class Game {
     const p = this.player.feet();
     let best: { id: string; prompt: string } | null = null;
     let bd = Infinity;
-    for (const it of [...this.props.interactables, ...this.rides.activeInteractables(), ...this.places.flatMap((pl) => pl.interactables ?? [])]) {
+    for (const it of [...(this.props?.interactables ?? []), ...this.rides.activeInteractables(), ...(this.runtime?.interactables ?? []), ...this.travelInteractables()]) {
       if (!it.enabled) continue;
       const d = Math.hypot(it.pos.x - p.x, it.pos.z - p.z);
       if (d < it.radius && Math.abs(it.pos.y - p.y) < 2.5 && d < bd) {
@@ -858,13 +817,15 @@ export class Game {
   private interact(id: string) {
     const ch = this.character;
     if (!ch || !this.body) return;
-    if (this.hometown.interact(id)) return;
+    if (this.hometown?.interact(id)) return;
     if (id.startsWith('groc:')) {
-      this.grocery.interact(id);
+      this.grocery?.interact(id);
       return;
     }
     if (this.rides.tryInteract(id)) return;
-    for (const pl of this.places) if (pl.interactables?.some((it) => it.id === id)) return pl.interact?.(id);
+    if (id.startsWith('travel:')) return this.openTickets(id.slice(7));
+    if (id.startsWith('wheelwell:')) return this.stowAway(id.slice(10));
+    if (this.runtime?.interactables?.some((it) => it.id === id)) return this.runtime.interact?.(id);
     if (id.startsWith('atm:')) {
       const r = withdraw(this.body, this.withdrawn);
       this.ui.toast(r.title, r.sub, 3200);
@@ -872,12 +833,14 @@ export class Game {
         this.withdrawn += r.amount;
         this.addMoney(r.amount);
         this.sound.cash();
-        const it = this.props.interactables.find((x) => x.id === id);
+        const it = this.props?.interactables.find((x) => x.id === id);
         if (it) this.particles.burst(it.pos.clone().add(new THREE.Vector3(0, 1.2, 0)), 14, 0x55d16a, 3, { life: 0.9, size: 0.16 });
         if (this.rng() < 0.25) setTimeout(() => this.ui.say('Death', "You know you can't take it with you. Oh wait. You literally can.", 3200), 600);
       } else this.sound.denied();
       return;
     }
+    const pr = this.props;
+    if (!pr) return;
     if (id === 'barndoor') {
       if (this.body.job === 'Farmhand') {
         this.ui.toast('Door is open', "You're the farmer. Walk right in.", 1600);
@@ -899,8 +862,8 @@ export class Game {
         this.sound.denied();
         return;
       }
-      if (this.props.bale.release()) {
-        this.props.leverPulled = 3;
+      if (pr.bale.release()) {
+        pr.leverPulled = 3;
         this.sound.pull();
         this.sound.creak();
         setTimeout(() => this.sound.creak(), 800);
@@ -983,6 +946,7 @@ export class Game {
   }
 
   private ejectFromStation() {
+    if (!this.town) return;
     this.stationVisits++;
     const out = this.town.station.outside;
     const lines = ['Sir, this is a police station.', 'Out. Now.', 'Last warning, pal. I mean it.'];
@@ -1072,10 +1036,10 @@ export class Game {
     const p = this.player.feet();
     let best: THREE.Vector3 | null = null;
     let bd = Infinity;
-    const cands = this.props.interactables.filter((it) => it.enabled && !it.id.startsWith('atm')).map((it) => it.pos);
+    const cands = [...(this.props?.interactables ?? []), ...(this.runtime?.interactables ?? [])].filter((it) => it.enabled && !it.id.startsWith('atm')).map((it) => it.pos);
     const t = this.town;
     const center = (b: { min: THREE.Vector3; max: THREE.Vector3 }) => b.min.clone().add(b.max).multiplyScalar(0.5);
-    cands.push(center(t.treeZone), center(t.towerZone), new THREE.Vector3(p.x, G, t.trackZ + 0.5));
+    if (t) cands.push(center(t.treeZone), center(t.towerZone), new THREE.Vector3(p.x, G, t.trackZ + 0.5));
     for (const c of cands) {
       const d = Math.hypot(c.x - p.x, c.z - p.z);
       if (d > 2.5 && d < bd) {
@@ -1136,7 +1100,7 @@ export class Game {
       },
       nearbyCount: (r) => this.npcs.filter((x) => x.pos.distanceTo(this.player.feet()) < r).length,
       pauseTrain: (sec) => {
-        if (!this.props.train.moving) return false;
+        if (!this.props?.train.moving) return false;
         this.trainHold = sec;
         this.sound.horn();
         return true;
@@ -1236,10 +1200,10 @@ export class Game {
             this.falseAlarms = [];
             if (n.file.job === 'Cop') {
               this.ui.say(n.file.name, "Third time. That's disturbing the peace, pal.", 2600);
-              arrest(this.api(), 'Disturbing the peace (screaming at nothing, three times)');
+              arrest(this.api, 'Disturbing the peace (screaming at nothing, three times)');
             } else {
               this.ui.say(n.file.name, "Okay, I'm calling someone. Not the cops. The OTHER someone.", 2600);
-              setTimeout(() => this.mode === 'play' && commit(this.api(), 'Screamed at strangers three times for no reason'), 1800);
+              setTimeout(() => this.mode === 'play' && commit(this.api, 'Screamed at strangers three times for no reason'), 1800);
             }
           } else if (strikes === 2) {
             this.ui.say(n.file.name, "Again? Do that one more time and I'm calling somebody.", 2600);
@@ -1251,6 +1215,7 @@ export class Game {
   }
 
   private nearFence(p: THREE.Vector3) {
+    if (!this.town) return false;
     const f = this.town.fence;
     const m = 1.4;
     const insideOuter = p.x > f.x0 - m && p.x < f.x1 + 1 + m && p.z > f.z0 - m && p.z < f.z1 + 1 + m;
@@ -1270,19 +1235,18 @@ export class Game {
       this.kill(this.rides.isRiding ? 'sharetheroad' : 'roadkill', { kind: 'ragdoll', vel: hit.vel.clone().multiplyScalar(1.4).add(new THREE.Vector3(0, 8 + sp * 0.6, 0)), spin: 16, bounce: 0.65 });
       return;
     }
-    if (p.y < -12) {
+    if (p.y < -12 && !this.player.carry) {
       this.kill('edge', { kind: 'ragdoll', vel: this.player.vel.clone(), spin: 5 });
       return;
     }
-    for (const pl of this.places) {
-      pl.checkHazards?.(dt);
-      if (this.mode !== 'play') return;
-    }
-    const inStation = inBox(p, this.town.station.interior);
+    if (this.checkTransit(p)) return;
+    this.runtime?.checkHazards?.(dt);
+    if (this.mode !== 'play') return;
+    const inStation = !!this.town && inBox(p, this.town.station.interior);
     if (inStation && !this.wasInStation && this.body?.job !== 'Cop' && this.player.state !== 'locked') this.ejectFromStation();
     this.wasInStation = inStation;
-    const tr = this.props.train;
-    if (tr.moving) {
+    const tr = this.props?.train;
+    if (tr && tr.moving) {
       if (tr.contains(p)) {
         this.sound.splat();
         this.sound.horn();
@@ -1297,8 +1261,8 @@ export class Game {
         this.hornCooldown = 3;
       }
     }
-    const bale = this.props.bale;
-    if (bale.state === 'falling' && bale.velocityY < -4) {
+    const bale = this.props?.bale;
+    if (bale && bale.state === 'falling' && bale.velocityY < -4) {
       const bp = bale.position();
       if (Math.abs(bp.x - p.x) < 1.5 && Math.abs(bp.z - p.z) < 1.5 && bp.y - 1 < p.y + 1.1 && bp.y > p.y - 0.8) {
         this.kill('pancake', { kind: 'pancake' });
@@ -1316,7 +1280,7 @@ export class Game {
         if (cop) {
           this.ui.say(cop.file.name, 'Whoa, WHOA. Zip it up. You are under arrest.', 2600);
           this.peeTime = 0;
-          arrest(this.api(), 'Indecent exposure in front of an officer');
+          arrest(this.api, 'Indecent exposure in front of an officer');
         }
       }
       const fd = new THREE.Vector3(Math.sin(this.player.facing), 0, Math.cos(this.player.facing));
@@ -1359,6 +1323,552 @@ export class Game {
     } else this.peeTime = 0;
   }
 
+  // ---------------------------------------------------------------- maps
+  /** What maps get to drive. */
+  private makeApi(): GameApi {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const g = this;
+    return {
+      get player() {
+        return g.player;
+      },
+      get body() {
+        return g.body;
+      },
+      get character() {
+        return g.character;
+      },
+      get sound() {
+        return g.sound;
+      },
+      get particles() {
+        return g.particles;
+      },
+      get input() {
+        return g.input;
+      },
+      get camYaw() {
+        return g.cam.yaw;
+      },
+      get time() {
+        return g.time;
+      },
+      get balance() {
+        return g.ledger.balance;
+      },
+      get mapId() {
+        return g.mapDef.id;
+      },
+      kill: (id, style) => g.kill(id, style),
+      runSeq: (steps) => g.runSeq(steps),
+      toast: (t, b, ms) => g.ui.toast(t, b, ms),
+      say: (who, line, ms) => g.ui.say(who, line, ms),
+      shake: (a) => g.cam.shake(a),
+      flash: (c, ms) => g.ui.flash(c, ms),
+      prompt: (html) => g.ui.prompt(html),
+      setHueShift: (d) => g.ui.setHueShift(d),
+      spend: (amount, label) => {
+        if (g.ledger.balance < amount) {
+          g.ui.toast("CAN'T AFFORD IT", `${label} costs $${amount}. Go die for money.`, 2200);
+          g.sound.denied();
+          return false;
+        }
+        g.ledger.balance -= amount;
+        g.ledger.save();
+        g.ui.setHud(g.ledger, g.body);
+        g.sound.cash();
+        return true;
+      },
+      travelTo: (stopKey, opts) => g.travelTo(stopKey, opts),
+    };
+  }
+
+  /**
+   * Unload the current map and load another. Each map gets a fresh physics world; the player,
+   * ghost, camera and the body Gary is wearing carry over.
+   */
+  private loadMap(id: string, focus?: THREE.Vector3) {
+    const def = MAP_BY_ID[id] ?? MAP_BY_ID.smallville;
+    // Unload.
+    this.runtime?.dispose();
+    this.runtime = null;
+    this.transit?.dispose();
+    this.transit = null;
+    if (this.driving) this.leaveCar();
+    this.life?.dispose();
+    this.traffic?.dispose();
+    this.rides?.dispose();
+    this.burning = [];
+    this.ghostTarget = null;
+    for (const r of this.ragdolls) r.dispose();
+    this.ragdolls = [];
+    this.activeRagdoll = null;
+    for (const p of this.pancakes) this.scene.remove(p);
+    this.pancakes = [];
+    this.streamer?.dispose();
+    this.streamer = null;
+    for (const o of this.mapObjects) this.scene.remove(o);
+    this.mapObjects = [];
+    this.town = null;
+    this.props = null;
+    const old = this.physics;
+    this.physics = new RAPIER.World({ x: 0, y: -30, z: 0 });
+    this.cam.physics = this.physics;
+    old.free();
+
+    // Load.
+    const before = new Set(this.scene.children);
+    this.mapDef = def;
+    this.world = new VoxelWorld(def.size.x, def.size.y, def.size.z);
+    let seed = 0;
+    for (const c of def.id) seed = (seed * 31 + c.charCodeAt(0)) | 0;
+    const rng = mulberry32(seed);
+    const t0 = performance.now();
+    this.mapBuild = def.build(this.world, rng);
+    const b = this.mapBuild;
+    const at = focus ?? b.spawn;
+    this.mapGround = b.groundAt ? b.groundAt(b.spawn.x, b.spawn.z) : this.world.topY(b.spawn.x, b.spawn.z);
+    if (!Number.isFinite(this.mapGround)) this.mapGround = G;
+    this.player.rebind(this.physics, at);
+    this.rides = this.makeRides(id === 'smallville');
+    this.player.setEnabled(this.mode === 'play');
+    const fogFar = def.sky?.fogFar ?? 260;
+    this.streamer = new ChunkStreamer(this.world, this.scene, this.physics, { radius: fogFar + 16 });
+    this.streamer.buildNear(at, 80);
+    if (def.id === 'smallville') {
+      this.town = (b as SmallvilleBuild).town;
+      this.props = new Props(this.scene, this.physics, this.town);
+      this.props.setBarnOpen(this.body?.job === 'Farmhand');
+      this.atms = new Atms(this.scene, this.physics, this.world, this.town.areas.downtown, this.props.interactables);
+      const town = this.town;
+      // Detailed exterior-only buildings from the building kit (docs/building-kit.md).
+      const kit = new StreetKit({ parent: this.scene, physics: this.physics });
+      for (const kb of town.kitBuildings) kit.building(kb);
+      kit.finish();
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      const game = this;
+      this.hometown = new Hometown(this.scene, this.physics, town, {
+        get player() {
+          return game.player;
+        },
+        get body() {
+          return game.body;
+        },
+        get character() {
+          return game.character;
+        },
+        sound: this.sound,
+        particles: this.particles,
+        kill: (id, style) => this.kill(id, style),
+        runSeq: (steps) => this.runSeq(steps),
+        toast: (t, b, ms) => this.ui.toast(t, b, ms),
+        say: (who, line, ms) => this.ui.say(who, line, ms),
+        shake: (a) => this.cam.shake(a),
+      });
+      this.props.interactables.push(...this.hometown.interactables);
+      // The grocery store is its own place stamp with its own deaths and runtime.
+      this.grocery = town.grocery.setup({
+        scene: this.scene,
+        physics: this.physics,
+        world: this.world,
+        rng: mulberry32(4242),
+        game: {
+          get player() {
+            return game.player;
+          },
+          get body() {
+            return game.body;
+          },
+          get character() {
+            return game.character;
+          },
+          sound: this.sound,
+          particles: this.particles,
+          input: this.input,
+          kill: (id, style) => this.kill(id, style),
+          runSeq: (steps) => this.runSeq(steps),
+          toast: (t, b, ms) => this.ui.toast(t, b, ms),
+          say: (who, line, ms) => this.ui.say(who, line, ms),
+          shake: (a) => this.cam.shake(a),
+          flash: (c, ms) => this.ui.flash(c, ms),
+        },
+      });
+      this.props.interactables.push(...this.grocery.interactables);
+      // ?place=hospital starts the ghost at the door of the hospital stamped into the E3 lot.
+      this.start0 = town.spawn.clone().setY(G + 4);
+      if (new URLSearchParams(location.search).get('place') === 'hospital') this.start0 = town.hospital.entrance.clone().add(new THREE.Vector3(0, 4, -8));
+    } else {
+      this.hometown = null;
+      this.grocery = null;
+      this.start0 = b.spawn.clone().setY(this.mapGround + 4);
+    }
+    // Townsfolk, traffic and the radar for this map.
+    const lifeMap = this.town ? smallvilleLife(this.town) : ((b.life as LifeMap | undefined) ?? autoLifeMap(def, b, this.world, this.mapGround));
+    this.life = new LifeSystem(this.scene, lifeMap, {
+      seed: 500 + (Date.now() % 1000),
+      blip: () => this.sound.blip(0.6),
+      maxPopulation: this.town ? undefined : 120,
+    });
+    this.traffic = new Traffic(this.scene, this.physics, this.town ? smallvilleTraffic(this.town) : { roads: b.roads ?? [], parked: [] });
+    this.traffic.onHonk = (car, tag) => this.onHonk(car, tag);
+    this.traffic.onShoo = (car, tag) => {
+      // The honked-at townsperson hops out of the lane.
+      const n = this.npcs[Number(tag?.split(':')[1])];
+      if (!n) return;
+      const r = car.toWorld(new THREE.Vector3(-1, 0, 0)).sub(car.pos).setY(0).normalize();
+      const lat = r.dot(n.pos.clone().sub(car.pos));
+      const side = lat >= 0 ? 1 : -1;
+      n.pos.addScaledVector(r, side * 3 - lat);
+      n.character.kick(0.6);
+    };
+    this.minimap.setWorld(this.world, def.name, this.mapGround);
+    this.pois = this.town ? smallvillePois(this.town) : [];
+    const ctx = { scene: this.scene, physics: this.physics, world: this.world, rng, game: this.api };
+    const own = b.setup?.(ctx) ?? null;
+    this.runtime = this.town ? composeRuntimes([own, setupHospital(ctx, this.town.hospital, { name: 'Smallville General Hospital' })]) : own;
+    if (def.waterLevel !== undefined) {
+      const water = new THREE.Mesh(
+        new THREE.PlaneGeometry(def.size.x + 1200, def.size.z + 1200),
+        new THREE.MeshLambertMaterial({ color: 0x2a7fd0, transparent: true, opacity: 0.78 }),
+      );
+      water.rotation.x = -Math.PI / 2;
+      water.position.set(def.size.x / 2, def.waterLevel, def.size.z / 2);
+      water.receiveShadow = true;
+      this.scene.add(water);
+    }
+    this.transit = new Transit(def.id, b.stops, this.scene, this.physics, rng, def.waterLevel);
+    // Look.
+    const top = def.sky?.top ?? 0x3d7fe0, bottom = def.sky?.bottom ?? 0xcfeaff;
+    this.skyMat.uniforms.top.value.setHex(top);
+    this.skyMat.uniforms.bottom.value.setHex(bottom);
+    this.scene.fog = new THREE.Fog(bottom === 0xcfeaff ? 0x9fd3ff : bottom, def.sky?.fogNear ?? 90, fogFar);
+    this.spawnInitialNpcs();
+    this.mapObjects = this.scene.children.filter((o) => !before.has(o) && o !== this.character?.root);
+    console.info(`[map] ${def.id} loaded in ${Math.round(performance.now() - t0)} ms, ${this.streamer.loaded} sections`);
+  }
+
+  private stopKey(stopId: string) {
+    return `${this.mapDef.id}:${stopId}`;
+  }
+
+  private stopNear(p: THREE.Vector3): TravelStop | null {
+    for (const s of this.mapBuild.stops) {
+      const inside = s.board ? inBox(p.clone().setY(Math.min(Math.max(p.y, s.board.min.y), s.board.max.y)), s.board) : false;
+      if (inside || Math.hypot(s.pos.x - p.x, s.pos.z - p.z) < 3.2) if (Math.abs(s.pos.y - p.y) < 3) return s;
+    }
+    return null;
+  }
+
+  /** Ticket prompts at stops, plus the plane's wheel well while it's parked. */
+  private travelInteractables() {
+    const out: { id: string; pos: THREE.Vector3; radius: number; prompt: string; enabled: boolean }[] = [];
+    for (const s of this.mapBuild.stops) {
+      if (this.ticket?.stopId === s.id) continue;
+      if (!routesFrom(this.stopKey(s.id), (to) => !!MAP_BY_ID[to.split(':')[0]]).length) continue; // e.g. prison intake
+      out.push({ id: `travel:${s.id}`, pos: s.pos, radius: 3.2, prompt: `Buy a ${s.kind === 'plane' ? 'plane' : s.kind === 'boat' ? 'ferry' : s.kind} ticket`, enabled: true });
+    }
+    for (const svc of this.transit?.services.values() ?? []) {
+      if (svc.kind !== 'plane' || svc.phase !== 'dwell') continue;
+      const gear = new THREE.Vector3(-1, 0, 1.6).applyAxisAngle(new THREE.Vector3(0, 1, 0), svc.yaw).add(svc.pos);
+      out.push({ id: `wheelwell:${svc.stop.id}`, pos: gear, radius: 2.4, prompt: 'Climb into the landing gear bay', enabled: true });
+    }
+    return out;
+  }
+
+  private ticketPrompt() {
+    if (!this.ticket) return null;
+    const svc = this.transit?.get(this.ticket.stopId);
+    if (!svc) return null;
+    if (svc.phase === 'dwell') return 'Ticket in hand. <b>Walk to the door</b> to board.';
+    return `Ticket in hand. Wait at <b>${svc.stop.name}</b>.`;
+  }
+
+  private routeOptions(stop: TravelStop): TicketOption[] {
+    return routesFrom(this.stopKey(stop.id), (to) => !!MAP_BY_ID[to.split(':')[0]]).map((r) => {
+      const [mapId, stopId] = r.to.split(':');
+      const m = MAP_BY_ID[mapId];
+      return {
+        to: r.to,
+        mapName: m.name,
+        stopName: stopId,
+        kind: r.kind,
+        fare: r.fare,
+        minutes: r.minutes,
+        locked: isOpen(this.ledger, r) ? null : lockReason(this.ledger, r),
+        affordable: this.ledger.balance >= r.fare,
+      };
+    });
+  }
+
+  private openTickets(stopId: string) {
+    const stop = this.mapBuild.stops.find((s) => s.id === stopId);
+    if (!stop) return;
+    document.exitPointerLock?.();
+    this.sound.blip(1.2);
+    this.menuY = 0;
+    this.tickets.show(stop.name, stop.kind, this.ledger.balance, this.routeOptions(stop), (o) => this.buyTicket(stop, o), () => this.input.requestLock());
+  }
+
+  private menuInput() {
+    const inp = this.input;
+    const y = inp.moveY > 0.5 ? 1 : inp.moveY < -0.5 ? -1 : 0;
+    if (y !== this.menuY && y !== 0) this.tickets.move(-y);
+    this.menuY = y;
+    if (inp.pressed('up')) this.tickets.move(-1);
+    if (inp.pressed('down')) this.tickets.move(1);
+    if (inp.pressed('interact') || inp.pressed('confirm')) {
+      if (!this.tickets.confirm()) this.sound.denied();
+    } else if (inp.pressed('crouch')) this.tickets.close();
+  }
+
+  private buyTicket(stop: TravelStop, o: TicketOption) {
+    this.input.requestLock();
+    this.ledger.balance -= o.fare;
+    this.ledger.save();
+    this.ui.setHud(this.ledger, this.body);
+    this.sound.cash();
+    this.ticket = { stopId: stop.id, to: o.to, kind: o.kind, minutes: o.minutes };
+    const svc = this.transit?.get(stop.id);
+    svc?.call();
+    const what = { bus: 'bus', train: 'train', plane: 'flight', boat: 'ferry' }[o.kind];
+    this.ui.toast('TICKET BOUGHT', `${o.mapName}, $${o.fare}. ${svc?.phase === 'dwell' ? `The ${what} is boarding now!` : `Your ${what} is on its way.`}`, 2600);
+  }
+
+  /** Hide in a parked plane's gear bay: free trip, frozen arrival. */
+  private stowAway(stopId: string) {
+    const svc = this.transit?.get(stopId);
+    if (!svc || svc.phase !== 'dwell') return;
+    const routes = routesFrom(this.stopKey(stopId), (to) => !!MAP_BY_ID[to.split(':')[0]]).filter((r) => r.kind === 'plane' && isOpen(this.ledger, r));
+    if (!routes.length) {
+      this.ui.toast('NOWHERE TO GO', 'No flights you can reach from here yet.', 2400);
+      return;
+    }
+    const r = pick(this.rng, routes);
+    this.ui.say('Death', "The landing gear bay. Not heated, not pressurized. Bold choice.", 3000);
+    this.board(svc, { to: r.to, kind: 'plane', minutes: r.minutes }, 'wheelwell');
+  }
+
+  /** Climb aboard a docked vehicle and ride out. */
+  private board(svc: Service, t: { to: string; kind: TravelKind; minutes: number }, special: Trip['special'] = null) {
+    if (!this.character) return;
+    this.tickets.close();
+    this.ui.prompt(null);
+    this.ticket = null;
+    this.mode = 'travel';
+    this.player.setEnabled(false);
+    this.character.root.visible = false;
+    svc.hold = Math.max(svc.hold, Math.max(0, 2.5 - (svc.dur - svc.t)));
+    this.trip = { phase: 'boarding', svc, to: t.to, kind: t.kind, minutes: t.minutes, fromName: this.mapDef.name, t: 0, special };
+    this.sound.blip(1.6);
+    if (svc.kind === 'bus' || svc.kind === 'train') this.sound.horn();
+  }
+
+  /** Send the player somewhere without a ticket (arrests, set pieces). */
+  private travelTo(stopKey: string, opts: { line?: string; title?: string } = {}) {
+    if (this.mode !== 'play' || !this.character) return;
+    const mapId = stopKey.split(':')[0];
+    if (!MAP_BY_ID[mapId]) return;
+    this.ticket = null;
+    this.tickets.close();
+    this.mode = 'travel';
+    this.player.setEnabled(false);
+    this.character.root.visible = false;
+    this.trip = { phase: 'black', svc: null, to: stopKey, kind: 'bus', minutes: 0, fromName: this.mapDef.name, t: 0, special: null, line: opts.line, title: opts.title };
+    this.tickets.fade(true, 600);
+  }
+
+  /** Moving vehicles: getting hit, getting stuck to the express, boarding with a ticket. */
+  private checkTransit(p: THREE.Vector3) {
+    const tr = this.transit;
+    if (!tr) return false;
+    const hit = tr.hit(p);
+    if (hit) {
+      const v = hit.vel.clone();
+      this.sound.splat();
+      this.cam.shake(1.4);
+      if (hit.kind === 'bus') this.sound.horn();
+      if (hit.kind === 'train') {
+        const out = routesFrom(this.stopKey(hit.stop.id), (to) => !!MAP_BY_ID[to.split(':')[0]]).find((r) => r.kind === 'train');
+        if (out && this.character) {
+          // Stuck to the front of the express; peel off at the next station.
+          this.sound.horn();
+          this.ui.toast('SPLAT', 'You are now a hood ornament.', 2200);
+          this.character.tint(0xff9a9a, 0.3);
+          if (hit.phase !== 'departing') hit.hold = 0;
+          this.board(hit, { to: out.to, kind: 'train', minutes: out.minutes }, 'express');
+          this.character.root.visible = true;
+          return true;
+        }
+        this.kill('express', { kind: 'ragdoll', vel: v.multiplyScalar(1.4).add(new THREE.Vector3(0, 14, 0)), spin: 16, bounce: 0.5 });
+        return true;
+      }
+      const id = hit.kind === 'bus' ? 'bus' : hit.kind === 'plane' ? 'runway' : 'ferry';
+      this.kill(id, { kind: 'ragdoll', vel: v.multiplyScalar(1.5).add(new THREE.Vector3(0, hit.kind === 'boat' ? 6 : 13, 0)), spin: 14, bounce: 0.55 });
+      return true;
+    }
+    // Board when the vehicle is docked and we're at its door.
+    if (this.ticket && this.player.state !== 'locked') {
+      const svc = tr.get(this.ticket.stopId);
+      if (svc && svc.phase === 'dwell' && (svc.door().distanceTo(this.player.feet()) < 4.5 || svc.stop.pos.distanceTo(this.player.feet()) < 4.5)) {
+        this.board(svc, this.ticket);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private tripLine(kind: TravelKind) {
+    return pick(this.rng, TRIP_LINES[kind]);
+  }
+
+  /** Real-time trip sequencing. */
+  private updateTrip(dt: number) {
+    const trip = this.trip;
+    if (!trip) return;
+    trip.t += dt;
+    const ch = this.character;
+    const svc = trip.svc;
+    const stuck = () => {
+      if (!ch || !svc) return;
+      const front = new THREE.Vector3(svc.model.half.x + 0.25, 0.9, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), svc.yaw).add(svc.pos);
+      ch.root.position.copy(front);
+      const dir = new THREE.Vector3(Math.cos(svc.yaw), 0, -Math.sin(svc.yaw));
+      ch.root.rotation.y = Math.atan2(-dir.x, -dir.z);
+      ch.root.scale.set(1, 1, 0.45);
+      ch.root.visible = true;
+    };
+    if (trip.phase === 'boarding' || trip.phase === 'departing') {
+      if (trip.special === 'express') stuck();
+      if (svc && svc.phase === 'departing') trip.phase = 'departing';
+      // Exit Row: the emergency door, at altitude.
+      const flying = svc && svc.kind === 'plane' && svc.phase === 'departing' && svc.pos.y > svc.at.y + 6 && !trip.special;
+      this.ui.prompt(flying ? '<span class="key">E</span>Open the emergency exit door' : null);
+      if (flying && this.input.pressed('interact')) {
+        if (this.body?.physical === 'Feeble') {
+          this.ui.toast('TOO WEAK', "You can't budge the handle. Physical health: Feeble.", 2200);
+        } else {
+          trip.special = 'exitrow';
+          this.sound.whoosh();
+          this.ui.flash('#ffffff', 400);
+          this.ui.toast('WHOOSH', 'Well, you got some air.', 1800);
+          trip.phase = 'black';
+          trip.t = 0;
+          this.tickets.fade(true, 300);
+          return;
+        }
+      }
+      const leaveAt = svc?.kind === 'plane' ? svc.dur * 0.97 : Math.min(svc ? svc.dur * 0.7 : 0, 6);
+      if (trip.phase === 'departing' && svc && (svc.t > leaveAt || svc.phase === 'idle')) {
+        trip.phase = 'black';
+        trip.t = 0;
+        this.ui.prompt(null);
+        this.tickets.fade(true, 700);
+      }
+      return;
+    }
+    if (trip.phase === 'black') {
+      if (trip.t < 0.8) return;
+      if (trip.t < 10) {
+        // Load once, then hold the card a moment.
+        trip.t = 10;
+        const [mapId, stopId] = trip.to.split(':');
+        const toDef = MAP_BY_ID[mapId];
+        this.tickets.card(
+          TicketUI.tripCard(trip.kind, trip.fromName, toDef.name, toDef.name, trip.minutes, trip.line ?? (trip.special === 'wheelwell' ? 'It is very, very cold in here.' : trip.special === 'exitrow' ? 'Free falling.' : this.tripLine(trip.kind))),
+        );
+        // Let the card paint before the (blocking) map build.
+        setTimeout(() => this.arrive(mapId, stopId), 60);
+      }
+      return;
+    }
+    if (trip.phase === 'arriving') {
+      if (trip.special === 'express') stuck();
+      if (!svc) return;
+      // Wheel well: the gear drops on approach and so do you.
+      if (trip.special === 'wheelwell' && svc.phase === 'arriving' && svc.t > svc.dur * 0.55 && ch) {
+        const drop = svc.pos.clone().add(new THREE.Vector3(0, 0.5, 0));
+        this.mode = 'play';
+        this.trip = null;
+        this.player.teleport(drop, this.player.facing);
+        ch.root.position.copy(drop);
+        ch.root.visible = true;
+        ch.tint(0xbfe8ff, 0.75);
+        this.particles.burst(drop, 30, 0xdff4ff, 6, { life: 1.2, size: 0.18 });
+        this.ui.toast('THE GEAR IS DOWN', 'So are you. Frozen solid.', 2200);
+        this.kill('wheelwell', { kind: 'ragdoll', vel: svc.vel.clone().multiplyScalar(0.7).add(new THREE.Vector3(0, -6, 0)), spin: 4, bounce: 0.15 });
+        return;
+      }
+      if (svc.phase === 'dwell') this.stepOff(svc);
+    }
+  }
+
+  /** Called while the screen is black: build the destination and start the ride in. */
+  private arrive(mapId: string, stopId: string) {
+    const trip = this.trip;
+    if (!trip) return;
+    const def = MAP_BY_ID[mapId];
+    const probeStops = () => this.mapBuild.stops.find((s) => s.id === stopId) ?? null;
+    this.loadMap(def.id, undefined);
+    const stop = probeStops();
+    const svc = stop ? this.transit?.get(stop.id) ?? null : null;
+    if (stop) this.streamer?.buildNear(stop.pos, 96);
+    setTimeout(() => {
+      this.tickets.card(null);
+      this.tickets.fade(false, 900);
+    }, 1400);
+    if (trip.special === 'exitrow' && this.character) {
+      // Out the door at altitude, over the destination.
+      const p = (stop?.pos ?? this.mapBuild.spawn).clone().add(new THREE.Vector3((this.rng() - 0.5) * 30, 95, (this.rng() - 0.5) * 30));
+      this.trip = null;
+      this.mode = 'play';
+      this.player.setEnabled(true);
+      this.player.teleport(p, this.player.facing);
+      this.character.root.visible = true;
+      this.pendingFall = 'exitrow';
+      return;
+    }
+    if (!svc) {
+      // Nowhere to dock: just appear at the stop (or the map's spawn).
+      this.trip = null;
+      this.finishArrival(stop?.pos ?? this.mapBuild.spawn, stop?.facing ?? 0, stop?.name ?? def.name);
+      return;
+    }
+    svc.arriveNow();
+    trip.svc = svc;
+    trip.phase = 'arriving';
+  }
+
+  private stepOff(svc: Service) {
+    const trip = this.trip;
+    this.trip = null;
+    if (trip?.special === 'express' && this.character) {
+      // Peel off onto the platform.
+      const ch = this.character;
+      ch.root.scale.set(1, 1, 1);
+      this.mode = 'play';
+      this.player.teleport(ch.root.position.clone(), ch.root.rotation.y);
+      this.ui.toast('*schlorp*', `${svc.stop.name}. Your stop.`, 2000);
+      this.kill('express', { kind: 'ragdoll', vel: new THREE.Vector3(Math.sin(svc.stop.facing) * 3, 1, Math.cos(svc.stop.facing) * 3), spin: 3, bounce: 0.2 });
+      return;
+    }
+    svc.hold = 2;
+    this.finishArrival(svc.stop.pos, svc.stop.facing, svc.stop.name);
+  }
+
+  private finishArrival(pos: THREE.Vector3, facing: number, name: string) {
+    this.mode = 'play';
+    this.player.setEnabled(true);
+    this.player.teleport(pos, facing);
+    this.player.lock(false);
+    if (this.character) {
+      this.character.root.visible = true;
+      this.character.root.position.copy(pos);
+    }
+    this.cam.yaw = facing + Math.PI;
+    this.ui.toast(this.mapDef.name.toUpperCase(), name, 2600);
+    this.ui.setHud(this.ledger, this.body);
+  }
+
   // ---------------------------------------------------------------- vehicles
   /** Where the action is: the player, their car, the ghost or the death cam. */
   private focusPos() {
@@ -1376,9 +1886,9 @@ export class Game {
       if (!n.away) o.push({ pos: n.pos, person: true, tag: `npc:${i}` });
     });
     if (this.mode === 'play' && !this.driving && this.character) o.push({ pos: this.player.feet(), person: true, tag: 'player' });
-    const tr = this.props.train;
+    const tr = this.props?.train;
     // The train and where it will be in the next couple of seconds, like a crossing gate.
-    if (tr.moving) for (let dx = -20; dx <= 80; dx += 3) o.push({ pos: new THREE.Vector3(tr.x + dx, G, tr.z) });
+    if (tr?.moving) for (let dx = -20; dx <= 80; dx += 3) o.push({ pos: new THREE.Vector3(tr.x + dx, G, tr.z) });
   }
 
   private readCarInput() {
@@ -1534,11 +2044,11 @@ export class Game {
 
   /** Car on car, car on train and car on pedestrian. Runs after each physics step. */
   private carCollisions() {
-    const tr = this.props.train;
+    const tr = this.props?.train ?? null;
     const focus = this.focusPos();
     for (const car of this.traffic.cars) {
       if (car === this.driving) continue;
-      if (tr.moving && tr.contains(car.ground(), 1.4) && car.velocity().x < tr.speed * 0.8) {
+      if (tr && tr.moving && tr.contains(car.ground(), 1.4) && car.velocity().x < tr.speed * 0.8) {
         const side = car.pos.z < tr.z ? -1 : 1;
         const v = new THREE.Vector3(tr.speed * 1.3, 13, side * 7);
         this.ejectDriver(car, v.clone().add(new THREE.Vector3(0, 6, side * 4)));
@@ -1588,8 +2098,8 @@ export class Game {
     const dv = v.distanceTo(this.carPrevVel);
     const prevSpeed = this.carPrevVel.length();
     this.carPrevVel.copy(v);
-    const tr = this.props.train;
-    if (tr.moving && tr.contains(car.ground(), 1.8)) {
+    const tr = this.props?.train;
+    if (tr?.moving && tr.contains(car.ground(), 1.8)) {
       const side = car.pos.z < tr.z ? -1 : 1;
       this.carDeath('traincar', new THREE.Vector3(tr.speed * 1.5, 20, side * 9), true);
       this.sound.horn();
@@ -1789,7 +2299,7 @@ export class Game {
       if (inp.pressed('back')) this.title.nav('back');
     } else if (inp.pressed('music')) this.sound.toggleMusic();
     if (inp.pressed('help')) this.ui.toggleHelp();
-    if (inp.pressed('ledger') && this.mode !== 'title') this.ui.toggleLedger(this.ledger);
+    if (inp.pressed('ledger') && this.mode !== 'title') this.ui.toggleLedger(this.ledger, this.mapDef, MAPS);
     if (this.mode === 'claim' && inp.pressed('confirm')) this.ui.pendingClaim?.();
     this.ui.setPadMode(inp.padConnected);
 
@@ -1826,10 +2336,10 @@ export class Game {
         } else if (this.mode === 'play' && this.character) {
           const peeing = (inp.held('pee') && this.player.grounded) || this.life.isTalking;
           this.player.update(h, {
-            moveX: peeing || this.ui.ledgerOpen ? 0 : inp.moveX,
-            moveY: peeing || this.ui.ledgerOpen ? 0 : inp.moveY,
+            moveX: peeing || this.ui.ledgerOpen || this.tickets.open ? 0 : inp.moveX,
+            moveY: peeing || this.ui.ledgerOpen || this.tickets.open ? 0 : inp.moveY,
             camYaw: this.moveYaw,
-            jumpPressed: first && this.latched.jump && !this.life.isTalking,
+            jumpPressed: first && this.latched.jump && !this.life.isTalking && !this.tickets.open,
             jumpHeld: inp.held('jump'),
             crouchHeld: inp.held('crouch'),
             crouchPressed: first && this.latched.crouch,
@@ -1839,11 +2349,12 @@ export class Game {
           });
         }
       }
-      if (this.trainHold <= 0) this.props.train.update(h);
-      this.props.bale.update(h);
-      this.hometown.step(h);
-      this.grocery.step(h);
-      for (const pl of this.places) pl.step?.(h);
+      if (this.trainHold <= 0) this.props?.train.update(h);
+      this.props?.bale.update(h);
+      this.transit?.step(h);
+      this.runtime?.step?.(h);
+      this.hometown?.step(h);
+      this.grocery?.step(h);
       this.traffic.step(h, this.obstacles, focus0);
       this.physics.step();
       this.traffic.afterStep();
@@ -1854,8 +2365,8 @@ export class Game {
         else {
           this.rides.step(h);
           this.checkHazards(h);
-          if (this.mode === 'play' && this.character) this.hometown.checkHazards(h);
-          if (this.mode === 'play' && this.character) this.grocery.checkHazards(h);
+          if (this.mode === 'play' && this.character) this.hometown?.checkHazards(h);
+          if (this.mode === 'play' && this.character) this.grocery?.checkHazards(h);
         }
       }
       this.acc -= h;
@@ -1875,20 +2386,22 @@ export class Game {
     this.updateEffects(realDt);
     this.traffic.update(dt, this.focusPos());
     this.updateBurning(dt);
-    this.props.update(dt, this.time);
-    this.hometown.update(dt, this.time);
-    this.grocery.update(dt, this.time);
-    for (const pl of this.places) pl.update?.(dt, this.time);
+    this.props?.update(dt, this.time);
+    this.runtime?.update?.(dt, this.time);
+    this.hometown?.update(dt, this.time);
+    this.grocery?.update(dt, this.time);
     this.particles.update(dt);
 
     // Train smoke.
-    if (this.props.train.moving) {
-      this.props.train.smokeTimer -= dt;
-      if (this.props.train.smokeTimer <= 0) {
-        this.props.train.smokeTimer = 0.08;
-        this.particles.emit(this.props.train.smokePos(), new THREE.Vector3(-4, 4, 0), 0xdddddd, { life: 1.6, size: 0.6, gravity: -1, spread: 1 });
+    const train = this.props?.train;
+    if (train?.moving) {
+      train.smokeTimer -= dt;
+      if (train.smokeTimer <= 0) {
+        train.smokeTimer = 0.08;
+        this.particles.emit(train.smokePos(), new THREE.Vector3(-4, 4, 0), 0xdddddd, { life: 1.6, size: 0.6, gravity: -1, spread: 1 });
       }
     }
+    this.updateTrip(realDt);
 
     // Mode-specific per-frame logic and camera.
     if (this.mode === 'play' && this.character && this.driving) {
@@ -1907,7 +2420,8 @@ export class Game {
       });
       this.rides.update(realDt);
       const riding = this.rides.isRiding;
-      const free = this.player.state !== 'locked' && !this.life.isTalking;
+      const free = this.player.state !== 'locked' && !this.life.isTalking && !this.tickets.open;
+      if (this.tickets.open) this.menuInput();
       const it = free && !riding ? this.nearestInteractable() : null;
       const car = free && !riding && !it ? this.carToSteal() : null;
       const who = free && !riding && !it && !car && this.player.grounded ? this.life.talkable(feet) : null;
@@ -1915,7 +2429,7 @@ export class Game {
         it ? `<span class="key">E</span>${it.prompt}`
         : car ? `<span class="key">E</span>${car.mode === 'traffic' ? 'Hijack car' : 'Get in'}`
         : who ? `<span class="key">E</span>Talk to ${who.file.name.split(' ')[0]}`
-        : riding && free ? '<span class="key">E</span>Hop off' : null,
+        : riding && free ? '<span class="key">E</span>Hop off' : this.tickets.open ? null : this.ticketPrompt(),
       );
       if (inp.pressed('interact')) {
         if (riding && free) this.rides.dismount();
@@ -1937,6 +2451,11 @@ export class Game {
       const eyeH = this.player.state === 'crawl' ? 0.6 : this.player.state === 'crouch' ? 1.1 : 1.65;
       this.cam.update(realDt, feet.clone().add(new THREE.Vector3(0, 1.6, 0)), lookDX, lookDY, feet.clone().add(new THREE.Vector3(0, eyeH, 0)));
       ch.root.visible = !this.cam.firstPerson;
+    } else if (this.mode === 'travel') {
+      const svc = this.trip?.svc;
+      const target = svc ? svc.pos.clone().add(new THREE.Vector3(0, svc.model.half.y * 2 + 1, 0)) : this.player.position();
+      this.cam.minDist = 18;
+      this.cam.update(realDt, target, lookDX + realDt * 0.15, lookDY);
     } else if (this.mode === 'dying' || this.mode === 'claim') {
       const target = this.activeRagdoll ? this.activeRagdoll.position() : this.player.position();
       if (target.y < -20) target.y = -20;
@@ -1952,13 +2471,21 @@ export class Game {
       this.ghost.position.y += Math.sin(this.time * 3) * 0.15;
       this.ghost.rotation.y = this.cam.yaw + Math.PI;
     } else {
-      this.cam.update(realDt, this.town.spawn.clone().setY(G + 6), 0, 0);
+      this.cam.update(realDt, this.mapBuild.spawn.clone().setY(this.mapGround + 6), 0, 0);
     }
 
     if (this.mode !== 'play') this.rides.update(realDt);
 
-    // Sun follows the action for crisp shadows.
-    const focus = this.mode === 'play' ? this.player.position() : this.mode === 'ghost' ? this.ghostPos : this.activeRagdoll?.position() ?? this.ghostPos;
+    // Sun follows the action for crisp shadows; the world streams in around it.
+    const focus =
+      this.mode === 'play'
+        ? this.player.position()
+        : this.mode === 'ghost'
+          ? this.ghostPos
+          : this.mode === 'travel' && this.trip?.svc
+            ? this.trip.svc.pos.clone()
+            : this.activeRagdoll?.position() ?? this.ghostPos;
+    this.streamer?.update(focus, 5);
     this.sun.position.set(focus.x + 30, focus.y + 60, focus.z + 20);
     this.sun.target.position.copy(focus);
     this.drawMinimap(realDt);
@@ -1980,9 +2507,9 @@ export class Game {
     this.ghostPos.x += (fx * inp.moveY + rx * inp.moveX) * sp * dt;
     this.ghostPos.z += (fz * inp.moveY + rz * inp.moveX) * sp * dt;
     this.ghostPos.y += vy * sp * 0.7 * dt;
-    this.ghostPos.x = Math.min(Math.max(this.ghostPos.x, 2), SIZE - 2);
-    this.ghostPos.z = Math.min(Math.max(this.ghostPos.z, 2), SIZE - 2);
-    this.ghostPos.y = Math.min(Math.max(this.ghostPos.y, G + 0.5), G + 60);
+    this.ghostPos.x = Math.min(Math.max(this.ghostPos.x, 2), this.world.sx - 2);
+    this.ghostPos.z = Math.min(Math.max(this.ghostPos.z, 2), this.world.sz - 2);
+    this.ghostPos.y = Math.min(Math.max(this.ghostPos.y, this.mapGround + 0.5), this.world.sy + 10);
     const gEye = this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0));
     this.cam.update(dt, gEye, lookDX, lookDY, gEye);
 
