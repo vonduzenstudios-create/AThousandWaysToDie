@@ -640,7 +640,7 @@ export function setupCity(ctx: MapContext, L: CityLayout): MapRuntime {
               at: 1.2,
               fn: () => {
                 game.player.lock(false);
-                game.player.teleport(V(rigX, rigTop + 17.6, M.z0 + 8), 0);
+                game.player.teleport(V(rigX, G + 13 + 120 + 0.6, M.z0 + 8), 0);
                 game.toast('GRABBED', 'Lenny hauled you onto the roof. Get him away from the rig first.', 3200);
                 cables[0].cut = false;
                 rigTilt = 0;
@@ -779,6 +779,7 @@ export function setupCity(ctx: MapContext, L: CityLayout): MapRuntime {
         balloonState = 'free';
         freeT = 0;
         holding = true;
+        pin = feet();
         game.player.lock(true);
         gustAt = [4, 9];
         sayIf('Parade handler', "He's got the rope! CUT IT LOOSE before it drags all of us!", 3000);
@@ -920,6 +921,8 @@ export function setupCity(ctx: MapContext, L: CityLayout): MapRuntime {
     pin = null;
     holding = false;
     heyWarned = false;
+    // Set pieces that grab the player let go of the new body.
+    if (swarm > 0) swarm = Math.max(swarm, 11.9);
   };
 
   // ================================================================ per-frame updates
@@ -1015,7 +1018,7 @@ export function setupCity(ctx: MapContext, L: CityLayout): MapRuntime {
     // Wrecking ball pendulum.
     if (swinging) swingT += dt;
     const targetAmp = swinging ? 0.62 : 0;
-    swingAngle += ((targetAmp * Math.sin(swingT * 1.15)) - swingAngle) * Math.min(1, dt * (swinging ? 6 : 1.2));
+    swingAngle += ((targetAmp * Math.sin(swingT * 0.7)) - swingAngle) * Math.min(1, dt * (swinging ? 6 : 1.2));
     const bpos = V(pivot.x + Math.sin(swingAngle) * ropeL, pivot.y - Math.cos(swingAngle) * ropeL, pivot.z);
     ball.position.copy(bpos);
     ballBody.setNextKinematicTranslation({ x: bpos.x, y: bpos.y, z: bpos.z });
@@ -1036,10 +1039,16 @@ export function setupCity(ctx: MapContext, L: CityLayout): MapRuntime {
       const onBall = Math.hypot(f.x - bpos.x, f.z - bpos.z) < ballR + 0.3 && f.y > bpos.y + ballR * 0.5 && f.y < bpos.y + ballR + 0.9;
       if (onBall) {
         carry.add(ballDelta);
-        if (hitWall) ragdoll('city-wreckingball', V(16, 10, (Math.random() - 0.5) * 6), 14, 0.5);
+        // The rider reaches the wall a moment before the ball does.
+        if (ballDelta.x > 0 && bpos.x + ballR > 428.4) {
+          sound.crunch();
+          game.shake(1);
+          burst(V(430, bpos.y + 1, bpos.z), 40, 0xa8513b, 9);
+          ragdoll('city-wreckingball', V(18, 9, (Math.random() - 0.5) * 6), 14, 0.5);
+        }
       }
       // The foreman yells STOP if he sees anyone near the swinging ball.
-      if (swinging && foreman.visible && f.distanceTo(bpos) < 7 && time > stopCd) {
+      if (swinging && time > foremanAwayUntil && f.distanceTo(bpos) < 7 && time > stopCd) {
         stopCd = time + 4;
         swinging = false;
         sayIf('Foreman', 'STOP! STOP THE CRANE! Are you out of your mind?!', 3000);
@@ -1116,8 +1125,8 @@ export function setupCity(ctx: MapContext, L: CityLayout): MapRuntime {
       // Up and away, drifting toward the Mortalis spire.
       const to = spire.clone().sub(balloonPos);
       const horiz = V(to.x, 0, to.z);
-      if (horiz.length() > 1) balloonPos.addScaledVector(horiz.normalize(), Math.min(horiz.length(), 9 * dt));
-      balloonPos.y = Math.min(spire.y + 2, balloonPos.y + 9 * dt);
+      if (horiz.length() > 1 && balloonPos.y > 175) balloonPos.addScaledVector(horiz.normalize(), Math.min(horiz.length(), 10 * dt));
+      balloonPos.y = Math.min(spire.y + 2, balloonPos.y + 11 * dt);
       if (holding && alive()) {
         const tier = game.player.tier;
         // Gusts: hold Jump to hang on.
@@ -1222,12 +1231,8 @@ export function setupCity(ctx: MapContext, L: CityLayout): MapRuntime {
     scissorsIt.enabled = !bodyState.scissors;
 
     // Harbor patrol boat.
-    const bp = boatPos();
-    const nb = boatPos.call(null);
-    void nb;
-    const a = (time / 120) * Math.PI * 2;
-    boat.position.copy(bp);
-    boat.rotation.y = -a;
+    boat.position.copy(boatPos());
+    boat.rotation.y = -(time / 120) * Math.PI * 2;
 
     // Drum spins.
     drum.rotation.z += dt * 1.5;

@@ -160,14 +160,17 @@ export function buildScenery(sc: Scenery, L: CityLayout): SceneryHandles {
   // Times Squared billboards (glowing).
   for (const b of L.billboards) {
     const [lines, bg, fg] = AD_COPY[b.kind % AD_COPY.length];
-    const m = signMesh(lines, b.w, b.h, bg, fg, { glow: true, double: true });
-    m.position.copy(b.pos);
-    m.rotation.y = b.rotY;
-    sc.add(m);
-    const back = new BoxBatch().box(b.pos.x, b.pos.y, b.pos.z, b.w + 0.4, b.h + 0.4, 0.3, 0x222222, b.rotY).build();
-    back.position.set(0, 0, 0);
-    back.translateZ(-0.01);
-    sc.add(back);
+    const n = new THREE.Vector3(Math.sin(b.rotY), 0, Math.cos(b.rotY));
+    for (const side of [1, -1]) {
+      const m = signMesh(lines, b.w, b.h, bg, fg, { glow: true });
+      m.rotation.y = b.rotY + (side < 0 ? Math.PI : 0);
+      m.position.copy(b.pos).addScaledVector(n, 0.2 * side);
+      sc.add(m);
+    }
+    sc.add(new BoxBatch().box(b.pos.x, b.pos.y, b.pos.z, b.w + 0.4, b.h + 0.4, 0.3, 0x222222, b.rotY).build());
+    // Support strut down to the podium roof.
+    const strutH = b.pos.y - b.h / 2 - (G + 13);
+    if (strutH > 0) sc.add(new BoxBatch().box(b.pos.x, G + 13 + strutH / 2, b.pos.z, 0.5, strutH, 0.5, 0x333333).build());
   }
 
   // Benches, parked cars, rail yard rails and ties, subway rails, park lamps.
@@ -207,14 +210,20 @@ export function buildScenery(sc: Scenery, L: CityLayout): SceneryHandles {
   for (let z = P.z0 + 4; z < P.z1; z += 10) props.box((P.x0 + P.x1 + 1) / 2, G + 3, z, 0.3, 4.4, 0.3, 0x222222);
   sc.add(props.build());
 
-  // Lamp heads glow (instanced so 600 lamps are one draw call).
-  const lampHeads = new THREE.InstancedMesh(new THREE.BoxGeometry(1.05, 0.5, 1.05), new THREE.MeshBasicMaterial({ color: 0xfff2c0 }), Math.max(1, L.lamps.length));
+  // Street lamps: thin poles with an arm (batched) and glowing heads (instanced).
+  const poles = new BoxBatch();
+  const lampHeads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.7, 0.3, 0.45), new THREE.MeshBasicMaterial({ color: 0xfff2c0 }), Math.max(1, L.lamps.length));
   const d = new THREE.Object3D();
   L.lamps.forEach((p, i) => {
-    d.position.set(p.x, p.y + 0.3, p.z);
+    poles.box(p.x, G + 2.6, p.z, 0.22, 5.2, 0.22, 0x2a2e33);
+    poles.box(p.x, G + 0.25, p.z, 0.45, 0.5, 0.45, 0x2a2e33);
+    poles.box(p.x, G + 5.3, p.z, 1.1, 0.14, 0.14, 0x2a2e33);
+    d.position.set(p.x + 0.55, G + 5.1, p.z);
     d.updateMatrix();
     lampHeads.setMatrixAt(i, d.matrix);
+    sc.solid(p.x, G + 2.6, p.z, 0.12, 2.6, 0.12);
   });
+  sc.add(poles.build());
   sc.add(lampHeads);
 
   // Subway station signs.

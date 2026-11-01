@@ -183,11 +183,7 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
   // Street furniture along every sidewalk: lamps, hydrants, trash cans, newspaper boxes.
   const furnish = (x: number, z: number, i: number) => {
     if (w.get(x, G - 1, z) !== B.Sidewalk || w.get(x, G, z) !== 0) return;
-    if (i % 14 === 0) {
-      fill(x, G, z, x, G + 4, z, B.Dark);
-      set(x, G + 5, z, B.White);
-      out.lamps.push(V(x + 0.5, G + 5.5, z + 0.5));
-    } else if (i % 37 === 5) set(x, G, z, B.RedPaint);
+    if (i % 14 === 0) out.lamps.push(V(x + 0.5, G, z + 0.5)); // thin mesh lamp posts, see scenery else if (i % 37 === 5) set(x, G, z, B.RedPaint);
     else if (i % 29 === 9) set(x, G, z, B.Dark);
     else if (i % 53 === 21) set(x, G, z, B.WallBlue);
   };
@@ -606,6 +602,11 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     const ceil = G - 4; // tunnel air up to ceil (inclusive), slab above
     fill(x0, TUNNEL_FLOOR, S.bedZ0, x1, ceil, S.bedZ1, B.Air);
     fill(x0, TUNNEL_FLOOR - 1, S.bedZ0, x1, TUNNEL_FLOOR - 1, S.bedZ1, B.Gravel);
+    // Tiled walls and a concrete ceiling so the tunnel isn't a dirt hole.
+    fill(x0, TUNNEL_FLOOR, S.bedZ0 - 1, x1, ceil, S.bedZ0 - 1, B.Concrete);
+    fill(x0, TUNNEL_FLOOR, S.bedZ1 + 1, x1, ceil, S.bedZ1 + 1, B.Concrete);
+    fill(x0, ceil + 1, S.bedZ0 - 1, x1, ceil + 1, S.platZ1 + 1, B.Concrete);
+    for (let x = x0; x <= x1; x += 12) fill(x, TUNNEL_FLOOR + 3, S.bedZ0 - 1, x, TUNNEL_FLOOR + 3, S.bedZ0 - 1, B.Yellow);
     // Station: platform along the south side, tiled walls.
     fill(S.stationX0, TUNNEL_FLOOR, S.platZ0, S.stationX1, ceil, S.platZ1, B.Air);
     fill(S.stationX0, TUNNEL_FLOOR, S.platZ0, S.stationX1, TUNNEL_FLOOR, S.platZ1, B.Concrete);
@@ -826,10 +827,10 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
   // Billboards on Times Squared (around the 336 / 192 intersection).
   const tsx = AVES[4], tsz = STREETS[1];
   out.billboards.push(
-    { pos: V(tsx - 9, G + 20, tsz - 7.5), rotY: Math.PI / 4 - Math.PI / 2, w: 14, h: 8, kind: 0 },
-    { pos: V(tsx + 9, G + 22, tsz - 7.5), rotY: -Math.PI / 4 + Math.PI / 2, w: 14, h: 9, kind: 1 },
-    { pos: V(tsx - 9, G + 18, tsz + 8.5), rotY: Math.PI * 0.75 - Math.PI / 2, w: 12, h: 7, kind: 2 },
-    { pos: V(tsx + 9, G + 17, tsz + 8.5), rotY: -Math.PI * 0.75 + Math.PI / 2, w: 12, h: 8, kind: 3 },
+    { pos: V(tsx - 9, G + 38, tsz - 9.5), rotY: Math.PI / 4 - Math.PI / 2, w: 14, h: 8, kind: 0 },
+    { pos: V(tsx + 9, G + 40, tsz - 9.5), rotY: -Math.PI / 4 + Math.PI / 2, w: 14, h: 9, kind: 1 },
+    { pos: V(tsx - 9, G + 37, tsz + 10.5), rotY: Math.PI * 0.75 - Math.PI / 2, w: 12, h: 7, kind: 2 },
+    { pos: V(tsx + 9, G + 36, tsz + 10.5), rotY: -Math.PI * 0.75 + Math.PI / 2, w: 12, h: 8, kind: 3 },
   );
 
   return out;
