@@ -22,6 +22,7 @@ import { Particles } from './particles';
 import { Player, PLAYER_CENTER, type LandEvent } from './player';
 import { Props } from './props';
 import { Ragdoll } from './ragdoll';
+import { Rides } from './rides';
 import { G, SIZE, buildTown, inBox, type TownInfo } from './town';
 import { UI } from './ui';
 import { mulberry32, pick, type Rng } from './util';
@@ -98,6 +99,7 @@ export class Game {
   private hornCooldown = 0;
   private npcRespawnT = 0;
   private atms!: Atms;
+  private rides!: Rides;
   private skillBar = new SkillBar();
   private combat!: Combat;
   private skillHost!: SkillHost;
@@ -176,6 +178,7 @@ export class Game {
     this.player = new Player(this.physics, this.town.spawn);
     this.player.setEnabled(false);
     this.wirePlayerHooks();
+    this.rides = this.makeRides();
 
     this.ghost = this.makeGhost();
     this.scene.add(this.ghost);
@@ -296,7 +299,36 @@ export class Game {
       },
       onGroundPound: () => this.sound.whoosh(),
       onDive: () => this.sound.whoosh(),
+      onRideCrash: (impact, normal) => this.rides.onCrash(impact, normal),
+      onRideTrick: () => this.rides.onTrick(),
     };
+  }
+
+  private makeRides() {
+    const { spots, ramps } = Rides.smallvilleLayout();
+    return new Rides(
+      this.scene,
+      this.physics,
+      {
+        player: this.player,
+        input: this.input,
+        sound: this.sound,
+        particles: this.particles,
+        character: () => this.character,
+        body: () => this.body,
+        alive: () => this.mode === 'play' && !!this.body,
+        kill: (id, style) => this.kill(id, style),
+        toast: (t, b, ms) => this.ui.toast(t, b, ms),
+        say: (who, line, ms) => this.ui.say(who, line, ms),
+        shake: (a) => this.cam.shake(a),
+        breakLegs: () => {
+          this.player.breakLegs();
+          this.sound.scream(1.2);
+        },
+      },
+      spots,
+      ramps,
+    );
   }
 
   private start() {
@@ -309,6 +341,7 @@ export class Game {
 
   // ---------------------------------------------------------------- bodies
   private setBody(file: PersonFile, ch: Character, at: THREE.Vector3, facing: number) {
+    this.rides.onBodyChanged();
     if (this.character) {
       this.scene.remove(this.character.root);
     }
@@ -335,6 +368,7 @@ export class Game {
   }
 
   private enterGhost(at: THREE.Vector3, first = false) {
+    this.rides.onBodyChanged();
     this.mode = 'ghost';
     this.ghostPos.copy(at);
     this.ghost.visible = true;
@@ -420,6 +454,7 @@ export class Game {
     this.ui.setHueShift(0);
     const victim = this.body;
     const ch = this.character;
+    this.rides.onKilled(style.kind === 'ragdoll' ? style.vel : this.player.vel);
     this.player.setEnabled(false);
     this.pendingDeath = { id, victim, startPos: this.player.position() };
     this.timeScale = 0.35;
@@ -538,6 +573,7 @@ export class Game {
   private onLand(e: LandEvent) {
     const ch = this.character;
     if (!ch) return;
+    if (this.rides.isRiding && this.rides.onLand(e)) return;
     const heavy = Math.min(e.drop / 12, 1);
     if (e.landState === 'groundpound') {
       this.sound.slam();
@@ -582,7 +618,7 @@ export class Game {
     const p = this.player.feet();
     let best: { id: string; prompt: string } | null = null;
     let bd = Infinity;
-    for (const it of this.props.interactables) {
+    for (const it of [...this.props.interactables, ...this.rides.activeInteractables()]) {
       if (!it.enabled) continue;
       const d = Math.hypot(it.pos.x - p.x, it.pos.z - p.z);
       if (d < it.radius && Math.abs(it.pos.y - p.y) < 2.5 && d < bd) {
@@ -596,6 +632,7 @@ export class Game {
   private interact(id: string) {
     const ch = this.character;
     if (!ch || !this.body) return;
+    if (this.rides.tryInteract(id)) return;
     if (id.startsWith('atm:')) {
       const r = withdraw(this.body, this.withdrawn);
       this.ui.toast(r.title, r.sub, 3200);
@@ -987,7 +1024,7 @@ export class Game {
         this.sound.horn();
         this.cam.shake(1.5);
         const side = p.z < tr.z ? -1 : 1;
-        this.kill('train', { kind: 'ragdoll', vel: new THREE.Vector3(tr.speed * 1.4, 16, side * 6), spin: 18, bounce: 0.5 });
+        this.kill(this.rides.isRiding ? 'grindrail' : 'train', { kind: 'ragdoll', vel: new THREE.Vector3(tr.speed * 1.4, 16, side * 6), spin: 18, bounce: 0.5 });
         return;
       }
       this.hornCooldown -= dt;
@@ -1117,7 +1154,10 @@ export class Game {
       if (this.trainHold <= 0) this.props.train.update(h);
       this.props.bale.update(h);
       this.physics.step();
-      if (this.mode === 'play') this.checkHazards(h);
+      if (this.mode === 'play') {
+        this.rides.step(h);
+        this.checkHazards(h);
+      }
       this.acc -= h;
       if (first) this.latched = { jump: false, crouch: false, dive: false };
       first = false;
@@ -1160,10 +1200,15 @@ export class Game {
         stateTime: this.player.stateTime,
         airTime: this.player.airTime,
       });
-      const it = this.player.state !== 'locked' ? this.nearestInteractable() : null;
-      this.ui.prompt(it ? `<span class="key">E</span>${it.prompt}` : null);
-      if (it && inp.pressed('interact')) this.interact(it.id);
-      if (inp.pressed('scream') && this.player.state !== 'locked') this.scream();
+      this.rides.update(realDt);
+      const riding = this.rides.isRiding;
+      const it = this.player.state !== 'locked' && !riding ? this.nearestInteractable() : null;
+      this.ui.prompt(it ? `<span class="key">E</span>${it.prompt}` : riding ? '<span class="key">E</span>Hop off' : null);
+      if (inp.pressed('interact')) {
+        if (riding) this.rides.dismount();
+        else if (it) this.interact(it.id);
+      }
+      if (inp.pressed('scream') && this.player.state !== 'locked' && !this.rides.bell()) this.scream();
       if (inp.pressed('punch') && !this.ui.ledgerOpen) this.combat.punch();
       (['skill1', 'skill2', 'skill3', 'skill4', 'skill5'] as const).forEach((b, i) => {
         if (inp.pressed(b)) this.useSkill(i);
@@ -1194,6 +1239,8 @@ export class Game {
     } else {
       this.cam.update(realDt, new THREE.Vector3(90, G + 6, 80), 0, 0);
     }
+
+    if (this.mode !== 'play') this.rides.update(realDt);
 
     // Sun follows the action for crisp shadows.
     const focus = this.mode === 'play' ? this.player.position() : this.mode === 'ghost' ? this.ghostPos : this.activeRagdoll?.position() ?? this.ghostPos;

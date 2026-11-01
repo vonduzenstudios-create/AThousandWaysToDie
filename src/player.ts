@@ -18,6 +18,7 @@ export type MoveState =
   | 'groundpound'
   | 'fall'
   | 'crawl'
+  | 'ride'
   | 'locked';
 
 export type Tier = 'Feeble' | 'Normal' | 'Athlete';
@@ -53,6 +54,26 @@ export interface PlayerHooks {
   onDive?: () => void;
   /** A move this body is too weak for was attempted. */
   onDenied?: (move: string) => void;
+  /** Riding: hit a wall. `impact` is the speed straight into the wall, `normal` points out of it. */
+  onRideCrash?: (impact: number, normal: THREE.Vector3) => void;
+  /** Riding: pressed dive in the air (kickflip). */
+  onRideTrick?: () => void;
+}
+
+/** How a ridden board or bike handles. Set Player.ride to one of these while riding. */
+export interface RideHandling {
+  maxSpeed: number;
+  /** Pedal / push acceleration (units/s^2). */
+  accel: number;
+  /** Rolling slowdown with no input (units/s^2). */
+  coast: number;
+  /** Braking when pulling back (units/s^2). */
+  brake: number;
+  /** Turn rate at low speed and at top speed (rad/s). */
+  turnSlow: number;
+  turnFast: number;
+  /** Jump (ollie / bunny hop) velocity. */
+  jump: number;
 }
 
 const GRAVITY = 42;
@@ -99,6 +120,8 @@ export class Player {
   hooks: PlayerHooks = {};
   tier: Tier = 'Normal';
   legsBroken = false;
+  /** Set while on a skateboard or bike: the controller switches to momentum steering. */
+  ride: RideHandling | null = null;
 
   private get canAdvanced() {
     return this.tier !== 'Feeble';
@@ -225,6 +248,8 @@ export class Player {
       v.x = 0;
       v.z = 0;
       v.y = this.grounded ? -2 : Math.max(v.y - GRAVITY * dt, -55);
+    } else if (this.grounded && this.ride) {
+      this.rideGround(dt, inp, wx, wz, wishLen, wishYaw);
     } else if (this.grounded) {
       this.landTimer += dt;
       if (this.legsBroken) {
@@ -323,6 +348,15 @@ export class Player {
       } else {
         v.y = -6; // stick to the ground so grounded detection doesn't flicker
       }
+    } else if (this.ride) {
+      // Airborne on a ride: gravity, a little air steering, and a kickflip on dive.
+      this.airTime += dt;
+      v.y = Math.max(v.y - GRAVITY * dt, -55);
+      if (wishLen > 0.1) this.facing = turnToward(this.facing, wishYaw, 1.2 * dt);
+      if (this.diveBuf > 0) {
+        this.diveBuf = 0;
+        this.hooks.onRideTrick?.();
+      }
     } else {
       // Airborne.
       this.airTime += dt;
@@ -410,6 +444,7 @@ export class Player {
         this.wallTimer = 0.12;
         // lose speed into the wall
         const into = v.x * this.wallNormal.x + v.z * this.wallNormal.z;
+        if (into < 0 && this.ride) this.hooks.onRideCrash?.(-into, this.wallNormal.clone());
         if (into < 0) {
           v.x -= this.wallNormal.x * into;
           v.z -= this.wallNormal.z * into;
@@ -426,7 +461,7 @@ export class Player {
       const drop = this.maxY - next.y;
       if (landState === 'dive') this.setState('bellyslide');
       else if (landState === 'longjump' && inp.crouchHeld) this.setState('slide');
-      else if (landState !== 'locked') this.setState(this.legsBroken ? 'crawl' : 'ground');
+      else if (landState !== 'locked') this.setState(this.ride ? 'ride' : this.legsBroken ? 'crawl' : 'ground');
       if (landState === 'triple' || landState === 'backflip' || landState === 'sideflip') this.jumpChain = 0;
       this.landTimer = 0;
       v.y = 0;
@@ -440,7 +475,7 @@ export class Player {
     } else if (!grounded && wasGrounded && !this.jumpedThisStep) {
       // Walked off a ledge.
       this.launchState = this.state === 'slide' ? 'slide' : 'fall';
-      if (this.state !== 'bellyslide' && this.state !== 'locked' && this.state !== 'crawl') this.setState('fall');
+      if (this.state !== 'bellyslide' && this.state !== 'locked' && this.state !== 'crawl' && this.state !== 'ride') this.setState('fall');
       this.airTime = 0;
       this.maxY = next.y;
       this.launchPos.set(next.x, next.y, next.z);
@@ -450,6 +485,56 @@ export class Player {
 
   lock(on: boolean) {
     if (on) this.setState('locked');
-    else this.setState(this.legsBroken ? 'crawl' : 'ground');
+    else this.setState(this.ride ? 'ride' : this.legsBroken ? 'crawl' : 'ground');
+  }
+
+  /** Start or stop riding. Keeps momentum when hopping on, drops to a walk when hopping off. */
+  setRide(h: RideHandling | null) {
+    this.ride = h;
+    this.setState(h ? 'ride' : this.legsBroken ? 'crawl' : 'ground');
+    if (!h) {
+      const hs = this.horizSpeed();
+      if (hs > RUN_SPEED) this.vel.multiplyScalar(RUN_SPEED / hs);
+    }
+  }
+
+  /** Throw the player into the air from a ramp lip while riding. */
+  launchRide(vy: number) {
+    this.vel.y = vy;
+    this.launch('jump');
+  }
+
+  /** Grounded momentum steering for boards and bikes: turn rate is limited, speed builds up and coasts. */
+  private rideGround(dt: number, inp: PlayerInput, wx: number, wz: number, wishLen: number, wishYaw: number) {
+    const r = this.ride!;
+    const v = this.vel;
+    this.landTimer += dt;
+    if (this.state !== 'locked') this.setState('ride');
+    const maxSp = r.maxSpeed * (this.tier === 'Feeble' ? 0.75 : this.tier === 'Athlete' ? 1.1 : 1);
+    const fd = this.facingDir();
+    let speed = Math.max(0, v.x * fd.x + v.z * fd.z);
+    if (wishLen > 0.1) {
+      const dot = wx * fd.x + wz * fd.z;
+      if (dot < -0.5 && speed > 1.5) {
+        speed = Math.max(0, speed - r.brake * dt); // pulling back brakes
+      } else {
+        const t = Math.min(speed / maxSp, 1);
+        const rate = r.turnSlow + (r.turnFast - r.turnSlow) * t;
+        this.facing = turnToward(this.facing, wishYaw, rate * dt);
+        if (dot > 0) speed = Math.min(maxSp, speed + r.accel * wishLen * Math.max(dot, 0.3) * dt);
+      }
+    } else speed = Math.max(0, speed - r.coast * dt);
+    if (speed < 0.05 && inp.faceYaw != null) this.facing = inp.faceYaw;
+    const nf = this.facingDir();
+    v.x = nf.x * speed;
+    v.z = nf.z * speed;
+    this.sprinting = speed > RUN_SPEED * 1.2;
+    if (this.jumpBuf > 0) {
+      this.jumpBuf = 0;
+      v.y = r.jump;
+      this.jumpChain = 1;
+      this.launch('jump');
+      this.hooks.onJump?.('jump', 1);
+    } else v.y = -6;
   }
 }
