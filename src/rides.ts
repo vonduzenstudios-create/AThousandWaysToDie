@@ -673,7 +673,7 @@ export class Rides {
 
     // Wheelies (bike, hold crouch).
     if (r.kind === 'bicycle') {
-      const want = pl.grounded && this.host.input.held('crouch') && sp > 3;
+      const want = pl.grounded && (this.host.input.held('crouch') || this.host.input.held('sprint')) && sp > 3;
       if (want) {
         this.wheelieT += h;
         this.wheelieAngle = Math.min(0.35 + this.wheelieT * 0.28, 1.5);

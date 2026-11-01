@@ -75,7 +75,7 @@ export class Character {
   private punchT = 0;
   private punchLeft = false;
   tintColor = new THREE.Color(1, 1, 1);
-  /** Hip height: the spinner pivots here for flips and dives. */
+  /** Hip height: the spinner pivots here for poses (crawling, knocked out). */
   readonly hip: number = 0.9;
   /** Uniform scale of root at rest (pancake/cube deaths scale relative to it). */
   readonly baseScale: number = 1;
@@ -219,30 +219,23 @@ export class Character {
       kneeL = kneeR = 1.0;
       crouch = 0.85;
       elbowL = elbowR = -0.6;
-    } else if (st === 'slide' || st === 'bellyslide') {
-      pitch = st === 'slide' ? -1.2 : 1.45;
-      spinnerY = 0.35;
-      armL = armR = -2.8;
-    } else if (st === 'dive') {
-      pitch = 1.3;
-      armL = armR = -2.9;
-      legL = legR = 0.2;
-      elbowL = elbowR = -0.05;
-      kneeL = kneeR = 0.15;
-    } else if (st === 'longjump') {
-      pitch = 0.5;
-      armL = armR = -2.6;
-      legL = 0.6;
-      legR = -0.6;
-    } else if (st === 'gpFreeze' || st === 'groundpound') {
-      legL = legR = -1.4;
-      armL = armR = -1.2;
-      crouch = 0.8;
-      kneeL = kneeR = 1.8;
-      elbowL = elbowR = -1.1;
-    } else if (st === 'wallkick') {
-      armL = armR = -2.5;
-      armSpread = 0.5;
+    } else if (st === 'hang') {
+      // Both hands up on the ledge, legs dangling.
+      armL = armR = -3.0;
+      armSpread = 0.15;
+      elbowL = elbowR = -0.15;
+      legL = 0.1;
+      legR = -0.1;
+      kneeL = kneeR = 0.25;
+    } else if (st === 'climb') {
+      // Hauling up: arms push down, one knee comes up over the lip.
+      const t = Math.min(1, s.stateTime / 0.5);
+      armL = armR = -3.0 + t * 2.2;
+      elbowL = elbowR = -1.2 * Math.sin(t * Math.PI);
+      legL = -1.3 * Math.sin(t * Math.PI);
+      kneeL = 1.6 * Math.sin(t * Math.PI);
+      legR = 0.3;
+      kneeR = 0.4;
     } else {
       // generic air: arms up, legs tucked
       armL = armR = -2.7;
@@ -279,12 +272,7 @@ export class Character {
       roll = 0;
     }
 
-    // Flip spins replace the pose pitch.
-    const flipDur = 0.75;
-    if (st === 'backflip') this.spin = -Math.min(s.airTime / flipDur, 1) * Math.PI * 2;
-    else if (st === 'triple') this.spin = Math.min(s.airTime / flipDur, 1) * Math.PI * 2;
-    else if (st === 'gpFreeze') this.spin = Math.min(s.stateTime / 0.28, 1) * Math.PI * 2;
-    else this.spin = 0;
+    this.spin = 0;
 
     const k = Math.min(1, dt * 14);
     p.legL.pivot.rotation.x += (legL - p.legL.pivot.rotation.x) * k;
@@ -302,10 +290,7 @@ export class Character {
       j.elbowR.rotation.x += (elbowR - j.elbowR.rotation.x) * k;
     }
 
-    if (st === 'sideflip') {
-      roll = Math.min(s.airTime / flipDur, 1) * Math.PI * 2;
-      this.spinner.rotation.z = roll;
-    } else this.spinner.rotation.z += (0 - this.spinner.rotation.z) * k;
+    this.spinner.rotation.z += (0 - this.spinner.rotation.z) * k;
 
     if (this.spin !== 0) this.spinner.rotation.x = this.spin;
     else this.spinner.rotation.x += (pitch - this.spinner.rotation.x) * k;
