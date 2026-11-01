@@ -79,6 +79,17 @@ export class Service {
       this.from = stop.lane.from.clone();
       this.at = stop.lane.stop.clone();
       this.to = stop.lane.to.clone();
+      // A lane whose stop point leaves the door far from the platform could never be boarded:
+      // slide the whole lane so the door lines up with where passengers wait.
+      const yaw = Math.atan2(-(this.at.z - this.from.z), this.at.x - this.from.x);
+      const door = this.model.door.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw).add(this.at);
+      // Slide along the lane only, so rails and runways stay where the map put them.
+      const dir = this.at.clone().sub(this.from).setY(0).normalize();
+      const along = (stop.pos.x - door.x) * dir.x + (stop.pos.z - door.z) * dir.z;
+      if (kind !== 'boat' && Math.abs(along) > 6) {
+        console.warn(`[transit] ${stop.id}: lane stop leaves the door ${Math.abs(along).toFixed(0)} blocks down the line from the platform; sliding it`);
+        for (const p of [this.from, this.at, this.to]) p.addScaledVector(dir, along);
+      }
     } else {
       // The vehicle stops behind where the passenger steps off, so the door faces them.
       this.at = stop.pos.clone().addScaledVector(fwd, -(this.model.door.z + 0.2)).addScaledVector(right, -this.model.door.x);

@@ -6,6 +6,8 @@ import type { MapBuild, MapDef, TravelStop } from '../types';
 import { buildCity, standHeight, type CityLayout } from './build';
 import { CITY_DEATHS } from './deaths';
 import { setupCity } from './logic';
+import { HOSPITAL_DEATHS, setupHospital } from '../../places/hospital';
+import { composeRuntimes } from '../compose';
 import {
   AIRPORT_LOT,
   AIRPORT_ROAD_Z,
@@ -168,7 +170,7 @@ export const CITY_MAP: MapDef = {
   size: { x: SX, y: SY, z: SZ },
   sky: { top: 0x4a7fd0, bottom: 0xd8e6f2, fogNear: 160, fogFar: 520 },
   waterLevel: WATER,
-  deaths: CITY_DEATHS,
+  deaths: [...CITY_DEATHS, ...HOSPITAL_DEATHS],
   build(world, rng) {
     const L = buildCity(world, rng);
     const stops: TravelStop[] = [
@@ -206,7 +208,8 @@ export const CITY_MAP: MapDef = {
         name: 'Fuhgeddaboudit International',
         pos: V(AIRPORT_LOT.x + 160.5, G, AIRPORT_LOT.z + AIRPORT_LOT.sz - 34),
         facing: Math.PI,
-        lane: { from: V(AIRPORT_LOT.x + 300, G, AIRPORT_LOT.z + 40), stop: V(AIRPORT_LOT.x + 160, G, AIRPORT_LOT.z + 60), to: V(AIRPORT_LOT.x + 20, G, AIRPORT_LOT.z + 40) },
+        // Taxis along the gate row so the door opens at the gate (the plane's door is 4 blocks off its center line).
+        lane: { from: V(AIRPORT_LOT.x + 300, G, AIRPORT_LOT.z + AIRPORT_LOT.sz - 30), stop: V(AIRPORT_LOT.x + 160, G, AIRPORT_LOT.z + AIRPORT_LOT.sz - 30), to: V(AIRPORT_LOT.x + 20, G, AIRPORT_LOT.z + AIRPORT_LOT.sz - 30) },
       },
     ];
     const areas = {
@@ -218,6 +221,7 @@ export const CITY_MAP: MapDef = {
       mortalis: box(MORTALIS.x0, G, MORTALIS.z0 - 6, MORTALIS.x1, G, MORTALIS.z0 - 1),
       uptown: box(GRID.x0, G, STREETS[3], GRID.x1, G, STREETS[6]),
       railyard: box(RAIL_PLATFORM.x0, G + 1, RAIL_PLATFORM.z0, RAIL_PLATFORM.x1, G + 1, RAIL_PLATFORM.z1),
+      ...L.hospital?.areas,
     };
     return {
       spawn: V(PARK.x0 + 58, G + 3, PARK.z1 + 6),
@@ -235,7 +239,7 @@ export const CITY_MAP: MapDef = {
         { area: 'mortalis', job: 'Insurance Salesman', count: 2 },
         { area: 'uptown', count: 10 },
       ],
-      setup: (ctx) => setupCity(ctx, L),
+      setup: (ctx) => composeRuntimes([setupCity(ctx, L), L.hospital && setupHospital(ctx, L.hospital)]),
     };
   },
 };
