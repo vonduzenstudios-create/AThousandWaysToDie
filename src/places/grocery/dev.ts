@@ -22,6 +22,7 @@ import { B, VoxelWorld } from '../../voxel';
 import { mulberry32 } from '../../util';
 import type { DeathStyle, PlaceGame, PlaceRuntime } from '../types';
 import { GROCERY, GROCERY_DEATHS } from './index';
+import { PostFX, warmLighting } from '../../render/post';
 
 const G = 4;
 const params = new URLSearchParams(location.search);
@@ -43,13 +44,17 @@ async function boot() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    post?.setSize(window.innerWidth, window.innerHeight);
   });
-  scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x6a5a3a, 1.4));
+  const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x6a5a3a, 1.4);
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff2d6, 2.2);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, far: 250 });
   scene.add(sun, sun.target);
+  warmLighting(scene, renderer, { sun, hemi });
+  const post = new PostFX(renderer, scene, camera);
 
   // Test lot: grass, a road along the street side, the store in the middle.
   const S = 132;
@@ -307,7 +312,7 @@ async function boot() {
     const focus = player.position();
     sun.position.set(focus.x + 30, focus.y + 60, focus.z + 20);
     sun.target.position.copy(focus);
-    renderer.render(scene, camera);
+    post.render();
     input.endFrame();
   });
 }

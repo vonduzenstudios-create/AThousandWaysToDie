@@ -63,51 +63,9 @@ export function sign(lines: string[], w: number, h: number, bg: string, fg: stri
 
 // ---------------------------------------------------------------- shelves and products
 
-/** Every shelf in the store stocked with little product boxes, in one instanced mesh. */
+/** Aisle signs hanging from the ceiling (the shelves themselves are detail pieces, see detail.ts). */
 export function stockShelves(): THREE.Object3D {
   const g = new THREE.Group();
-  const rng = mulberry32(4242);
-  const items: { x: number; y: number; z: number; w: number; h: number; d: number; c: number }[] = [];
-  const levels = [0.08, 1.28, 2.48, 3.68];
-  // Plank shelves and products on both faces of each unit.
-  const shelfBoards: THREE.Mesh[] = [];
-  SHELF_X.forEach((sx, ui) => {
-    for (const side of [-1, 1]) {
-      const aisleN = side < 0 ? ui : ui + 1; // aisle on this face
-      const aisle = AISLES[aisleN - 1];
-      const faceX = side < 0 ? sx : sx + 2;
-      if (!aisle) continue;
-      for (const ly of levels) {
-        const board = box(0.5, 0.08, SHELF_Z1 - SHELF_Z0 + 1, 0xd8d8dc, false);
-        at(board, faceX + side * 0.25, F + ly - 0.04, (SHELF_Z0 + SHELF_Z1 + 1) / 2);
-        shelfBoards.push(board);
-        let z = SHELF_Z0 + 0.2;
-        while (z < SHELF_Z1 + 0.8) {
-          const w = 0.3 + rng() * 0.25;
-          const h = 0.45 + rng() * 0.6;
-          const c = shadeHex(pick(rng, aisle.colors), 0.85 + rng() * 0.3);
-          const count = 1 + Math.floor(rng() * 3);
-          for (let k = 0; k < count && z < SHELF_Z1 + 0.8; k++) {
-            items.push({ x: faceX + side * 0.22, y: F + ly + h / 2, z: z + w / 2, w: 0.38, h, d: w, c });
-            z += w + 0.04;
-          }
-          z += rng() < 0.1 ? 0.5 : 0.02;
-        }
-      }
-    }
-  });
-  shelfBoards.forEach((b) => g.add(b));
-  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ map: noiseTexture() }), items.length);
-  const m4 = new THREE.Matrix4();
-  const col = new THREE.Color();
-  items.forEach((it, i) => {
-    m4.makeScale(it.w, it.h, it.d).setPosition(it.x, it.y, it.z);
-    inst.setMatrixAt(i, m4);
-    inst.setColorAt(i, col.setHex(it.c));
-  });
-  inst.receiveShadow = true;
-  g.add(inst);
-
   // Aisle signs hanging from the ceiling at the front of each aisle.
   AISLES.forEach((a) => {
     const s = sign([`AISLE ${a.n}`, a.name], 3.6, 1.6, '#1f6b3a', '#ffffff');
@@ -120,25 +78,9 @@ export function stockShelves(): THREE.Object3D {
   return g;
 }
 
-/** Glass freezer doors with frozen stuff behind them, along the back of the sales floor. */
+/** The FROZEN FOODS sign (the freezer cases are detail pieces). */
 export function freezerDoors(): THREE.Object3D {
   const g = new THREE.Group();
-  const glass = new THREE.MeshLambertMaterial({ color: 0xbfe8ff, emissive: 0x2a4a5a, transparent: true, opacity: 0.55 });
-  const rng = mulberry32(77);
-  for (let x = 24; x <= 62; x += 2) {
-    if (x >= SPOT.staffDoorStock.x0 - 1 && x <= SPOT.staffDoorStock.x1) continue;
-    const door = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 4.2), glass);
-    at(door, x + 1, F + 2.4, 88.98);
-    g.add(door);
-    for (let k = 0; k < 6; k++) {
-      const item = box(0.5, 0.4, 0.05, pick(rng, [0x3a6fd8, 0xe0302a, 0xf2c230, 0xffffff, 0x6b4330]), false);
-      at(item, x + 0.4 + (k % 2) * 0.9, F + 0.8 + Math.floor(k / 2) * 1.3, 88.95);
-      g.add(item);
-    }
-    const handle = box(0.08, 1, 0.08, 0xcccccc, false);
-    at(handle, x + 1.8, F + 2.4, 88.9);
-    g.add(handle);
-  }
   const s = sign(['FROZEN FOODS'], 8, 1.2, '#2a6ab0', '#ffffff');
   at(s, 44, F + 5.5, 88.9, Math.PI);
   g.add(s);
@@ -417,21 +359,9 @@ export function disguiseMesh(i: number): THREE.Group {
   return g;
 }
 
-/** Ceiling light panels plus a few real lights so the inside isn't a cave. */
+/** A few real lights under the lit ceiling panels so the inside isn't a cave. */
 export function lights(): THREE.Object3D {
   const g = new THREE.Group();
-  const panel = new THREE.MeshBasicMaterial({ color: 0xfffbea });
-  for (let x = 10; x <= 70; x += 12)
-    for (let z = 52; z <= 86; z += 8) {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(4, 0.1, 0.8), panel);
-      at(p, x, CEIL - 0.06, z);
-      g.add(p);
-    }
-  for (let x = 12; x <= 48; x += 12) {
-    const p = new THREE.Mesh(new THREE.BoxGeometry(3, 0.1, 0.6), panel);
-    at(p, x, CEIL - 0.06, 96);
-    g.add(p);
-  }
   for (const [x, z] of [[20, 58], [56, 58], [20, 80], [56, 80], [38, 96]]) {
     const l = new THREE.PointLight(0xfff4e0, 60, 40, 1.2);
     l.position.set(x, CEIL - 1.5, z);
