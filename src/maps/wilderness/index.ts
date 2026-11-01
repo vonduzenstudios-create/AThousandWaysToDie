@@ -9,6 +9,7 @@ import { WildRuntime, type WildLayout } from './runtime';
 import { grassCover } from './scenery';
 import { buildStructures, type Spots } from './structures';
 import { blockFootprints } from './kitbuild';
+import { roadProfiles, trafficRoads } from './roads';
 import { PADS, ROADS, SX, SY, SZ, Terrain, defineWildBlocks } from './terrain';
 
 export const WILD_DEATHS: DeathDef[] = [
@@ -52,6 +53,19 @@ function floorMap(t: Terrain, world: VoxelWorld) {
       floor[z * SX + x] = y;
     }
   return floor;
+}
+
+/** Pickups and jeeps parked around the Wilds for the player to borrow. */
+function parkedVehicles(s: Spots, g: Ground) {
+  const at = (x: number, z: number, facing: number) => ({ pos: new THREE.Vector3(x, g.floor(x, z), z), facing });
+  return [
+    at(s.busStop.x - 10, s.busStop.z + 6, Math.PI / 2), // ranger station lot
+    at(204, 452, 0), // campground
+    at(466, 578, Math.PI), // lodge
+    at(300, 156, Math.PI / 2), // gas station
+    at(318, 158, Math.PI / 2),
+    at(524, 116, 0), // test site bunker
+  ];
 }
 
 const v3 = (p: THREE.Vector3): V3 => ({ x: p.x, y: p.y, z: p.z });
@@ -167,7 +181,8 @@ export const WILDERNESS: MapDef = {
       water: (x, z) => t.waterAt(x, z),
     };
     const cover = grassCover(t, world);
-    layout = { t, spots, ground, cover };
+    const roadProf = roadProfiles(t);
+    layout = { t, spots, ground, cover, roads: roadProf };
     worldRef = world;
     const life = lifeMap(t, spots, floor);
 
@@ -177,10 +192,7 @@ export const WILDERNESS: MapDef = {
       { id: 'airport', kind: 'plane', name: 'Mbali Airstrip', pos: spots.airport, facing: 0, lane: { from: spots.planeLaneFrom, stop: spots.planeLaneStop, to: spots.planeLaneTo } },
     ];
 
-    const roads = ROADS.map((r) => ({
-      width: r.width,
-      points: r.points.map(([x, z]) => new THREE.Vector3(x, t.ground(x, z), z)),
-    }));
+    const roads = trafficRoads(roadProf);
 
     const areas = {
       campground: box(178, 0, 416, 212, 0, 450),
@@ -219,6 +231,8 @@ export const WILDERNESS: MapDef = {
       areas,
       stops,
       roads,
+      // A few trucks and jeeps, not a commute.
+      traffic: { density: 0.1, maxCars: 3, speed: 9, parked: parkedVehicles(spots, ground) },
       npcs,
       life,
       setup: (ctx) => new WildRuntime(ctx, layout!),

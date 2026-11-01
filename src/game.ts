@@ -1605,7 +1605,7 @@ export class Game {
       maxPopulation: this.town ? undefined : 120,
       hooks: { deathHint: (f) => depressedHint(this.rng, f, this.mapDef.id, (id) => !!this.ledger.found[id]) },
     });
-    this.traffic = new Traffic(this.scene, this.physics, this.town ? smallvilleTraffic(this.town) : { roads: b.roads ?? [], parked: [] });
+    this.traffic = new Traffic(this.scene, this.physics, this.town ? smallvilleTraffic(this.town) : { roads: b.roads ?? [], parked: [], ...b.traffic });
     this.traffic.onHonk = (car, tag) => this.onHonk(car, tag);
     this.traffic.onShoo = (car, tag) => {
       // The honked-at townsperson hops out of the lane.
