@@ -102,5 +102,6 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/places/`: big detailed buildings a map stamps into its voxels (`PlaceDef`, the `Frame` rotation helper, scripted staff `Actor`s)
 - `src/places/grocery/`: Smallville Grocery and its 16 deaths. Dev test page: `npm run dev`, then open `/grocery.html` (keys 1-7 pick a job, 8 Feeble, 9 peanut allergy, 0 respawn)
 - `src/mapscreen/`: the full-screen map (`mapscreen.ts`), points of interest built from a map's places, stops and deaths (`pois.ts`), and GPS routing along the roads (`gps.ts`)
+- `src/guide/`: player direction. `guide.ts` works out the objective panel, the next unlock, J leads (nearest unfound death spot plus the body it needs) and per-area progress for the ledger; `coach.ts` remembers Death's one-time coaching lines and the "how this works" card (I to reopen)
 - `src/minimap.ts`: the radar (works on any VoxelWorld)
 - `src/vehicles/`: road graph and lanes (`roads.ts`), traffic AI (`traffic.ts`), drivable cars on Rapier's ray-cast vehicle controller (`car.ts`), voxel car models (`carModel.ts`), car sounds, and Smallville's roads and parked cars (`smallville.ts`)
