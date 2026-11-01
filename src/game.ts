@@ -25,7 +25,14 @@ import { Props } from './props';
 import { Ragdoll } from './ragdoll';
 import { G, SIZE, buildTown, inBox, type TownInfo } from './town';
 import { UI } from './ui';
-import { mulberry32, pick, type Rng } from './util';
+import { mulberry32, pick, turnToward, type Rng } from './util';
+import { Minimap, type Blip } from './minimap';
+import { Traffic, type Obstacle } from './vehicles/traffic';
+import { Car, sit } from './vehicles/car';
+import { DOOR_OUT, HALF, RIDE } from './vehicles/carModel';
+import { carSfx, EngineSound } from './vehicles/carSound';
+import { smallvillePois, smallvilleTraffic } from './vehicles/smallville';
+import { StoryDirector } from './story/director';
 
 type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing';
 
@@ -116,6 +123,21 @@ export class Game {
   private withdrawn = 0;
   private beam: THREE.Mesh | null = null;
   private beamT = 0;
+  // Vehicles and the radar.
+  private traffic: Traffic;
+  private minimap: Minimap;
+  private pois: Blip[];
+  /** The car Gary is driving, if any. */
+  driving: Car | null = null;
+  private engine: EngineSound;
+  private carIn = { throttle: 0, steer: 0, handbrake: false };
+  private carPrevVel = new THREE.Vector3();
+  private obstacles: Obstacle[] = [];
+  private shoutT = 0;
+  private burning: { car: Car; t: number }[] = [];
+  private drivenOnce = false;
+  /** Anime story cutscenes. The game loop pauses while one plays. */
+  readonly story = new StoryDirector(() => this.sound.ctx);
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -173,6 +195,23 @@ export class Game {
     this.skillHost = this.makeSkillHost();
     this.ui.onSkillClick = (i) => this.useSkill(i);
     this.particles = new Particles(this.scene);
+    this.traffic = new Traffic(this.scene, this.physics, smallvilleTraffic());
+    this.traffic.onHonk = (car, tag) => this.onHonk(car, tag);
+    this.traffic.onShoo = (car, tag) => {
+      // The honked-at townsperson hops out of the lane.
+      const n = this.npcs[Number(tag?.split(':')[1])];
+      if (!n) return;
+      const r = car.toWorld(new THREE.Vector3(-1, 0, 0)).sub(car.pos).setY(0).normalize();
+      const lat = r.dot(n.pos.clone().sub(car.pos));
+      const side = lat >= 0 ? 1 : -1;
+      n.pos.addScaledVector(r, side * 3 - lat);
+      n.character.kick(0.6);
+    };
+    this.minimap = new Minimap(document.getElementById('ui')!);
+    this.minimap.setWorld(this.town.world, 'Smallville', G);
+    this.minimap.setVisible(false);
+    this.pois = smallvillePois(this.town);
+    this.engine = new EngineSound(this.sound);
 
     this.input = new Input(canvas);
     this.input.onAnyGesture = () => this.sound.init();
@@ -201,6 +240,7 @@ export class Game {
     this.cam.autoOrbit = 0.08;
     this.cam.snap(new THREE.Vector3(90, G + 6, 80));
 
+    this.story.onPause = (p) => this.sound.duck(p);
     this.ui.showTitle(() => this.start());
     this.renderer.setAnimationLoop(() => this.frame());
   }
@@ -291,7 +331,12 @@ export class Game {
     this.sound.startMusic();
     this.input.requestLock();
     this.cam.autoOrbit = 0;
-    this.enterGhost(new THREE.Vector3(80.5, G + 4, 86), true);
+    const go = () => this.enterGhost(new THREE.Vector3(80.5, G + 4, 86), true);
+    // ?cutscene=<id> replays one scene (e.g. opening, smallville:25) for testing.
+    const forced = new URLSearchParams(location.search).get('cutscene');
+    if (forced) void this.story.replay(forced).then(go);
+    else if (this.story.hasSeen('opening')) go();
+    else void this.story.opening().then(go);
   }
 
   // ---------------------------------------------------------------- bodies
@@ -398,6 +443,7 @@ export class Game {
   // ---------------------------------------------------------------- death
   private kill(id: string, style: DeathStyle) {
     if (this.mode !== 'play' || !this.character || !this.body) return;
+    if (this.driving) this.leaveCar();
     const def = DEATH_BY_ID[id];
     this.mode = 'dying';
     this.peeTime = 0;
@@ -519,6 +565,7 @@ export class Game {
     at.y = Math.max(at.y, G) + 3;
     this.pendingDeath = null;
     this.enterGhost(at);
+    this.story.checkLedger(this.ledger.found);
     if (Math.random() < 0.5) setTimeout(() => this.ui.say('Death', pick(this.rng, DEATH_QUIPS), 3000), 3800);
   }
 
@@ -961,6 +1008,15 @@ export class Game {
   private checkHazards(dt: number) {
     if (this.mode !== 'play' || !this.character) return;
     const p = this.player.position();
+    const hit = this.traffic.hitTest(p, 0.8, 4); // the capsule gets shoved ahead of the bumper, so reach a little past it
+    if (hit) {
+      this.sound.splat();
+      carSfx.horn(this.sound);
+      this.cam.shake(1.2);
+      const sp = hit.vel.length();
+      this.kill('roadkill', { kind: 'ragdoll', vel: hit.vel.clone().multiplyScalar(1.4).add(new THREE.Vector3(0, 8 + sp * 0.6, 0)), spin: 16, bounce: 0.65 });
+      return;
+    }
     if (p.y < -12) {
       this.kill('edge', { kind: 'ragdoll', vel: this.player.vel.clone(), spin: 5 });
       return;
@@ -1036,6 +1092,405 @@ export class Game {
     } else this.peeTime = 0;
   }
 
+  // ---------------------------------------------------------------- vehicles
+  /** Where the action is: the player, their car, the ghost or the death cam. */
+  private focusPos() {
+    if (this.driving) return this.driving.pos.clone();
+    if (this.mode === 'play') return this.player.position();
+    if ((this.mode === 'dying' || this.mode === 'claim') && this.activeRagdoll) return this.activeRagdoll.position();
+    return this.ghostPos.clone();
+  }
+
+  /** People and trains that traffic brakes for, gathered once per frame. */
+  private buildObstacles() {
+    const o = this.obstacles;
+    o.length = 0;
+    this.npcs.forEach((n, i) => {
+      if (!n.away) o.push({ pos: n.pos, person: true, tag: `npc:${i}` });
+    });
+    if (this.mode === 'play' && !this.driving && this.character) o.push({ pos: this.player.feet(), person: true, tag: 'player' });
+    const tr = this.props.train;
+    // The train and where it will be in the next couple of seconds, like a crossing gate.
+    if (tr.moving) for (let dx = -20; dx <= 80; dx += 3) o.push({ pos: new THREE.Vector3(tr.x + dx, G, tr.z) });
+  }
+
+  private readCarInput() {
+    const inp = this.input;
+    const busy = this.ui.ledgerOpen || this.player.state === 'locked';
+    let thr = inp.moveY;
+    if (inp.held('dive')) thr += 1; // RT
+    if (inp.held('crouch')) thr -= 1; // LT / Shift
+    this.carIn.throttle = busy ? 0 : Math.max(-1, Math.min(1, thr));
+    this.carIn.steer = busy ? 0 : inp.moveX;
+    this.carIn.handbrake = !busy && inp.held('jump');
+  }
+
+  private carToSteal() {
+    return this.traffic.nearest(this.player.feet(), 4.4, (c) => c.mode !== 'driven' && !c.burnt);
+  }
+
+  private static readonly YANK_LINES = [
+    'MY CAR! I just got it detailed!',
+    "Hey! HEY! That's a lease!",
+    'Not again. That is the third time this week.',
+    'Ow. My everything.',
+    'At least take the parking tickets too!',
+    "I'm calling my insurance! ...Oh no. It's Mortalis.",
+  ];
+
+  /** Yank the driver out (if any) and take the wheel. */
+  private hijack(car: Car) {
+    const ch = this.character;
+    if (!ch) return;
+    this.ui.prompt(null);
+    this.player.lock(true);
+    const moving = car.velocity().length() > 2;
+    if (!car.vc) car.makeDynamic('wreck', new THREE.Vector3());
+    else car.mode = 'wreck';
+    if (car.upsideDown) car.flipUpright();
+    car.body.setLinvel({ x: 0, y: car.body.linvel().y, z: 0 }, true);
+    car.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    car.readBack();
+    const door = car.toWorld(DOOR_OUT);
+    door.y = Math.max(door.y, this.player.feet().y - 0.5);
+    this.player.teleport(door, car.facing - Math.PI / 2);
+    if (moving) carSfx.screech(this.sound);
+    car.openDoor(true);
+    carSfx.door(this.sound);
+    const hadDriver = !!car.driver;
+    this.runSeq([
+      {
+        at: 0.3,
+        fn: () => {
+          if (!car.driver) return;
+          const side = car.toWorld(new THREE.Vector3(1, 0, 0)).sub(car.pos).setY(0).normalize();
+          this.ejectDriver(car, side.multiplyScalar(11).add(car.forward().multiplyScalar(2)).add(new THREE.Vector3(0, 8, 0)));
+          this.sound.whoosh();
+          this.cam.shake(0.3);
+          setTimeout(() => this.ui.say('Driver', pick(this.rng, Game.YANK_LINES), 2600), 500);
+        },
+      },
+      { at: hadDriver ? 0.8 : 0.35, fn: () => this.enterCar(car) },
+    ]);
+  }
+
+  private enterCar(car: Car) {
+    const ch = this.character;
+    if (!ch || this.mode !== 'play') return;
+    this.player.lock(false);
+    this.player.setEnabled(false);
+    this.driving = car;
+    car.mode = 'driven';
+    car.airborne = false;
+    car.openDoor(false);
+    carSfx.door(this.sound);
+    car.model.root.add(ch.root);
+    sit(ch);
+    this.carPrevVel.copy(car.velocity());
+    this.cam.yaw = car.facing + Math.PI;
+    if (!this.drivenOnce) {
+      this.drivenOnce = true;
+      this.ui.toast('NICE CAR', 'W / S drive · A / D steer · Space handbrake · T horn · E get out', 4200);
+    }
+  }
+
+  /** Step out normally, or bail out if the car is going fast. */
+  private exitCar() {
+    const car = this.driving;
+    const ch = this.character;
+    if (!car || !ch) return;
+    const vel = car.velocity();
+    const fast = vel.length() > 13;
+    this.leaveCar();
+    car.openDoor(true);
+    carSfx.door(this.sound);
+    setTimeout(() => car.openDoor(false), 900);
+    if (fast) {
+      ch.root.position.copy(car.toWorld(new THREE.Vector3(HALF.x + 0.9, -0.4, 0)));
+      const side = car.toWorld(new THREE.Vector3(1, 0, 0)).sub(car.pos).setY(0).normalize();
+      this.ui.say('Death', pick(this.rng, ['Like in the movies! Except not at all.', 'You were supposed to tuck.']), 2600);
+      this.kill('bailout', { kind: 'ragdoll', vel: vel.multiplyScalar(0.95).add(side.multiplyScalar(5)).add(new THREE.Vector3(0, 4, 0)), spin: 10, bounce: 0.55 });
+      return;
+    }
+    const out = car.upsideDown ? car.pos.clone().add(new THREE.Vector3(0, 2, 0)) : car.toWorld(DOOR_OUT);
+    this.player.setEnabled(true);
+    this.player.teleport(out, car.facing + Math.PI / 2);
+  }
+
+  /** Take Gary's body out of the car (for getting out, or dying). The car is left as an empty wreck. */
+  private leaveCar() {
+    const car = this.driving;
+    if (!car) return;
+    this.driving = null;
+    car.mode = 'wreck';
+    car.braking = false;
+    const ch = this.character;
+    if (ch) {
+      this.scene.attach(ch.root);
+      ch.root.rotation.set(0, car.facing, 0);
+      ch.root.scale.setScalar(ch.app.height);
+    }
+  }
+
+  private updateDrivingFrame(dt: number, lookDX: number, lookDY: number) {
+    const car = this.driving!;
+    const inp = this.input;
+    if (inp.pressed('interact') && this.player.state !== 'locked') {
+      this.exitCar();
+      return;
+    }
+    if (inp.pressed('scream')) {
+      carSfx.horn(this.sound, 1.4);
+      for (const n of this.npcs) if (n.pos.distanceTo(car.pos) < 14) n.character.kick(0.5);
+    }
+    this.ui.prompt(car.upsideDown && Math.abs(car.speed) < 2 ? '<span class="key">E</span>Climb out of the wreck' : null);
+    // Chase camera swings in behind the car unless you're orbiting it.
+    const behind = car.facing + Math.PI;
+    if (!inp.lmb && !inp.rmb && Math.abs(inp.lookX) < 0.05) {
+      const rate = 0.5 + Math.min(Math.abs(car.speed), 24) * 0.12;
+      this.cam.yaw = turnToward(this.cam.yaw, behind, dt * rate);
+    }
+    this.cam.minDist = 8;
+    this.cam.update(dt, car.pos.clone().add(new THREE.Vector3(0, 1.4, 0)), lookDX, lookDY);
+    if (this.character) this.character.root.visible = true;
+    this.engine.set(true, car.speed, this.carIn.throttle);
+    // Handbrake turns squeal.
+    if (this.carIn.handbrake && Math.abs(car.speed) > 9 && car.wheelsOnGround > 2) {
+      car.screechT -= dt;
+      if (car.screechT <= 0) {
+        car.screechT = 0.6;
+        carSfx.screech(this.sound);
+      }
+      this.particles.emit(car.toWorld(new THREE.Vector3(0, -RIDE + 0.2, -2.2)), new THREE.Vector3(0, 1.5, 0), 0xd8d8d8, { life: 0.8, size: 0.5, gravity: -1, spread: 1 });
+    }
+  }
+
+  /** Car on car, car on train and car on pedestrian. Runs after each physics step. */
+  private carCollisions() {
+    const tr = this.props.train;
+    const focus = this.focusPos();
+    for (const car of this.traffic.cars) {
+      if (car === this.driving) continue;
+      if (tr.moving && tr.contains(car.ground(), 1.4) && car.velocity().x < tr.speed * 0.8) {
+        const side = car.pos.z < tr.z ? -1 : 1;
+        const v = new THREE.Vector3(tr.speed * 1.3, 13, side * 7);
+        this.ejectDriver(car, v.clone().add(new THREE.Vector3(0, 6, side * 4)));
+        if (!car.vc) car.makeDynamic('wreck', v);
+        else car.body.setLinvel(v, true);
+        car.mode = 'wreck';
+        car.body.setAngvel({ x: (Math.random() - 0.5) * 8, y: (Math.random() - 0.5) * 6, z: (Math.random() - 0.5) * 8 }, true);
+        if (car.pos.distanceTo(focus) < 70) {
+          carSfx.crash(this.sound, 1.6);
+          this.cam.shake(0.4);
+        }
+      }
+    }
+    // People in the way.
+    for (const n of this.npcs.slice()) {
+      if (n.away || n.controlled) continue;
+      const hit = this.traffic.hitTest(n.pos.clone().add(new THREE.Vector3(0, 0.9, 0)), 0.2, 4);
+      if (hit) this.ragdollNpc(n, hit.vel, hit.car === this.driving);
+    }
+    // Ramming traffic knocks it out of its lane.
+    const d = this.driving;
+    if (d) {
+      for (const o of this.traffic.cars) {
+        if (o === d || (o.mode !== 'traffic' && o.mode !== 'parked')) continue;
+        if (o.pos.distanceTo(d.pos) > 8) continue;
+        let touching = false;
+        this.physics.contactPair(d.collider, o.collider, (m) => {
+          if (m.numContacts() > 0) touching = true;
+        });
+        if (!touching) continue;
+        const rel = d.velocity().sub(o.velocity()).length();
+        if (rel < 6) continue;
+        o.makeDynamic('wreck', o.velocity().add(this.carPrevVel.clone().multiplyScalar(0.7)).add(new THREE.Vector3(0, 2, 0)));
+        o.body.setAngvel({ x: 0, y: (Math.random() - 0.5) * rel * 0.2, z: 0 }, true);
+        carSfx.crash(this.sound, Math.min(2, rel / 14));
+        this.cam.shake(Math.min(1, rel / 25));
+        if (o.driver && Math.random() < 0.5) setTimeout(() => this.ui.say('Driver', pick(this.rng, ['LEARN TO DRIVE!', 'My neck! My back!', "That's coming out of your insurance!"]), 2200), 400);
+      }
+    }
+  }
+
+  /** Death checks while driving. */
+  private carHazards() {
+    const car = this.driving;
+    if (!car || this.mode !== 'play') return;
+    const v = car.velocity();
+    const dv = v.distanceTo(this.carPrevVel);
+    const prevSpeed = this.carPrevVel.length();
+    this.carPrevVel.copy(v);
+    const tr = this.props.train;
+    if (tr.moving && tr.contains(car.ground(), 1.8)) {
+      const side = car.pos.z < tr.z ? -1 : 1;
+      this.carDeath('traincar', new THREE.Vector3(tr.speed * 1.5, 20, side * 9), true);
+      this.sound.horn();
+      return;
+    }
+    if (car.pos.y < -14) {
+      this.carDeath('cliff', v.clone().add(new THREE.Vector3(0, 4, 0)), false);
+      return;
+    }
+    if (car.wheelsOnGround === 0) {
+      if (!car.airborne) {
+        car.airborne = true;
+        car.airPeakY = car.pos.y;
+      } else car.airPeakY = Math.max(car.airPeakY, car.pos.y);
+    }
+    const drop = car.airPeakY - car.pos.y;
+    const landed = car.airborne && (car.wheelsOnGround > 0 || dv > 10);
+    if (landed) {
+      car.airborne = false;
+      if (drop > 8) {
+        this.carDeath('cliff', v.clone().multiplyScalar(0.5).add(new THREE.Vector3(0, 14, 0)), true);
+        return;
+      }
+      if (drop > 1.5) {
+        this.sound.land(Math.min(1, drop / 6));
+        this.cam.shake(Math.min(0.6, drop / 8));
+      }
+    }
+    if (dv > 12 && !car.airborne) {
+      if (dv > 22 && prevSpeed > 20) {
+        const fwd = car.forward().setY(0).normalize();
+        this.carDeath('windshield', fwd.multiplyScalar(prevSpeed * 0.9).add(new THREE.Vector3(0, 7, 0)), false, true);
+        return;
+      }
+      carSfx.crash(this.sound, Math.min(1.5, dv / 15));
+      this.cam.shake(Math.min(0.8, dv / 25));
+      this.character?.kick(0.5);
+    }
+  }
+
+  /** Kill Gary in his car: fling him out (through the windshield, if it comes to that). */
+  private carDeath(id: string, vel: THREE.Vector3, explode: boolean, throughWindshield = false) {
+    const car = this.driving;
+    const ch = this.character;
+    if (!car || !ch) return;
+    this.leaveCar();
+    const at = throughWindshield ? new THREE.Vector3(0, 0.45, HALF.z + 0.9) : new THREE.Vector3(0, 1.6, 0);
+    ch.root.position.copy(car.toWorld(at));
+    if (throughWindshield) {
+      carSfx.crash(this.sound, 2);
+      this.particles.burst(car.toWorld(new THREE.Vector3(0, 0.8, HALF.z - 0.6)), 30, 0xbfe6ff, 7, { life: 0.9, size: 0.15 });
+    }
+    if (explode) this.explode(car);
+    this.cam.shake(1.2);
+    this.sound.scream(1.3);
+    this.kill(id, { kind: 'ragdoll', vel, spin: 14, bounce: 0.6 });
+  }
+
+  private explode(car: Car) {
+    carSfx.boom(this.sound);
+    const c = car.pos.clone().add(new THREE.Vector3(0, 0.8, 0));
+    this.particles.burst(c, 70, 0xff8a1a, 12, { life: 1.1, size: 0.45, gravity: 2 });
+    this.particles.burst(c, 40, 0xffe24a, 8, { life: 0.7, size: 0.3, gravity: 0 });
+    this.particles.burst(c, 30, 0x2a2a2a, 5, { life: 2.2, size: 0.7, gravity: -2 });
+    this.ui.flash('#ffb060', 250);
+    this.ejectDriver(car, new THREE.Vector3(0, 16, 0));
+    if (!car.vc) car.makeDynamic('wreck', new THREE.Vector3());
+    car.mode = 'wreck';
+    const m = car.body.mass();
+    car.body.applyImpulse({ x: 0, y: m * 9, z: 0 }, true);
+    car.body.applyTorqueImpulse({ x: m * (Math.random() - 0.5) * 6, y: 0, z: m * (Math.random() - 0.5) * 6 }, true);
+    car.burnt = true;
+    car.model.paintMat.color.multiplyScalar(0.22);
+    this.burning.push({ car, t: 14 });
+  }
+
+  private updateBurning(dt: number) {
+    for (const b of this.burning) {
+      b.t -= dt;
+      if (Math.random() < dt * 30) {
+        const p = b.car.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2, 1, (Math.random() - 0.5) * 3));
+        this.particles.emit(p, new THREE.Vector3(0, 3, 0), Math.random() < 0.4 ? 0xff7a1a : 0x333333, { life: 1.4, size: 0.6, gravity: -2, spread: 0.8 });
+      }
+    }
+    this.burning = this.burning.filter((b) => b.t > 0 && this.traffic.cars.includes(b.car));
+  }
+
+  /** Throw an NPC driver out of their car as a ragdoll. */
+  private ejectDriver(car: Car, vel: THREE.Vector3) {
+    const drv = car.unseat();
+    if (!drv) return;
+    drv.root.position.copy(car.toWorld(new THREE.Vector3(HALF.x + 0.8, -0.3, 0)));
+    drv.root.rotation.set(0, car.facing, 0);
+    const rd = new Ragdoll(this.physics, this.scene, drv, vel, 15, 0.6);
+    this.scene.remove(drv.root);
+    this.pushRagdoll(rd);
+    this.sound.scream(1.2 + Math.random() * 0.4);
+  }
+
+  /** A townsperson gets hit by a car. Taking someone who wasn't due still counts against you. */
+  private ragdollNpc(n: Npc, vel: THREE.Vector3, byPlayer: boolean) {
+    if (!this.npcs.includes(n)) return;
+    this.life.take(n);
+    this.life.event({ kind: 'death', at: n.pos.clone(), victim: n.file, what: byPlayer ? 'got run over by a maniac in a stolen car' : 'got hit by a car', where: 'the road' });
+    if (this.ghostTarget === n) {
+      this.ghostTarget = null;
+      this.ui.showFile(null);
+    }
+    const sp = vel.length();
+    const rd = new Ragdoll(this.physics, this.scene, n.character, vel.clone().multiplyScalar(1.3).add(new THREE.Vector3(0, 6 + sp * 0.5, 0)), 14, 0.6);
+    this.scene.remove(n.character.root);
+    this.pushRagdoll(rd);
+    if (n.pos.distanceTo(this.focusPos()) < 60) {
+      this.sound.splat();
+      this.sound.scream(1 + Math.random() * 0.5);
+    }
+    if (!byPlayer) return;
+    if (isDeserving(n.file)) {
+      this.ui.say('Death', pick(this.rng, ['Oh, they were due anyway. Saved me a trip.', 'Efficient. I hate that I respect it.']), 3000);
+    } else {
+      this.ledger.godAnger++;
+      this.ledger.save();
+      this.ui.setHud(this.ledger, this.body);
+      this.sound.thunder();
+      this.ui.toast('THE TIMELINE TREMBLES', `${n.file.name} wasn't due yet. God saw that.`, 2600);
+    }
+  }
+
+  private pushRagdoll(rd: Ragdoll) {
+    this.ragdolls.push(rd);
+    while (this.ragdolls.length > 8) {
+      const i = this.ragdolls.findIndex((r) => r !== this.activeRagdoll);
+      this.ragdolls.splice(i, 1)[0].dispose();
+    }
+  }
+
+  private onHonk(car: Car, tag: string | undefined) {
+    const d = car.pos.distanceTo(this.focusPos());
+    if (d > 50) return;
+    carSfx.horn(this.sound, Math.max(0.2, 1 - d / 50));
+    if (tag === 'player' && this.mode === 'play' && performance.now() > this.shoutT && d < 25) {
+      this.shoutT = performance.now() + 7000;
+      this.ui.say('Driver', pick(this.rng, ['Get out of the road!', 'MOVE, genius!', 'Are you trying to die? ...Oh. Carry on.', 'I have a meeting!', 'Sidewalk! It is RIGHT THERE!']), 2400);
+    }
+  }
+
+  private drawMinimap(dt: number) {
+    if (this.mode === 'title') {
+      this.minimap.setVisible(false);
+      return;
+    }
+    this.minimap.setVisible(true);
+    const ghost = this.mode === 'ghost' || this.mode === 'possessing';
+    const c = this.focusPos();
+    const facing = this.driving ? this.driving.facing : this.mode === 'play' ? this.player.facing : this.cam.forwardFacing;
+    const blips: Blip[] = [...this.pois];
+    for (const car of this.traffic.cars) {
+      if (car === this.driving) continue;
+      const color = car.burnt ? '#ff7a2a' : car.mode === 'traffic' ? '#e8e8e8' : car.mode === 'parked' ? '#8fd0ff' : '#7a7a7a';
+      blips.push({ x: car.pos.x, z: car.pos.z, kind: 'car', facing: car.facing, color });
+    }
+    // Scythe vision shows souls on the radar: green if they're due, red if they aren't.
+    if (ghost) for (const n of this.npcs) if (!n.away) blips.push({ x: n.pos.x, z: n.pos.z, kind: 'person', color: isDeserving(n.file) ? '#7dff7a' : '#ff6a5a' });
+    const zoom = this.driving ? Math.max(1.0, 2.2 - Math.abs(this.driving.speed) * 0.035) : ghost ? 1.7 : 2.2;
+    this.minimap.draw(c.x, c.z, this.cam.yaw, facing, blips, zoom, dt);
+    this.minimap.setSpeed(this.driving ? Math.abs(this.driving.speed) * 2.237 : null);
+  }
+
   // ---------------------------------------------------------------- sequencing
   private runSeq(steps: Step[]) {
     this.seqT = 0;
@@ -1054,6 +1509,8 @@ export class Game {
     const realDt = Math.min((now - this.lastT) / 1000, 0.1);
     this.lastT = now;
     this.input.poll();
+    // A story cutscene covers the screen: freeze the game underneath it.
+    if (this.story.active) return;
     const inp = this.input;
 
     if (inp.pressed('music')) this.sound.toggleMusic();
@@ -1085,9 +1542,14 @@ export class Game {
     if (inp.pressed('dive')) this.latched.dive = true;
     let first = true;
     let steps = 0;
+    const focus0 = this.focusPos();
+    this.buildObstacles();
+    if (this.driving && this.mode === 'play') this.readCarInput();
     while (this.acc >= h && steps < 5) {
       if (this.mode === 'play' || this.mode === 'dying') {
-        if (this.mode === 'play' && this.character) {
+        if (this.mode === 'play' && this.character && this.driving) {
+          this.driving.drive(this.carIn.throttle, this.carIn.steer, this.carIn.handbrake);
+        } else if (this.mode === 'play' && this.character) {
           const peeing = (inp.held('pee') && this.player.grounded) || this.life.isTalking;
           this.player.update(h, {
             moveX: peeing || this.ui.ledgerOpen ? 0 : inp.moveX,
@@ -1105,8 +1567,15 @@ export class Game {
       }
       if (this.trainHold <= 0) this.props.train.update(h);
       this.props.bale.update(h);
+      this.traffic.step(h, this.obstacles, focus0);
       this.physics.step();
-      if (this.mode === 'play') this.checkHazards(h);
+      this.traffic.afterStep();
+      this.carCollisions();
+      if (this.driving) this.player.body.setTranslation(this.driving.ground().add(new THREE.Vector3(0, PLAYER_CENTER, 0)), true);
+      if (this.mode === 'play') {
+        if (this.driving) this.carHazards();
+        else this.checkHazards(h);
+      }
       this.acc -= h;
       if (first) this.latched = { jump: false, crouch: false, dive: false };
       first = false;
@@ -1122,6 +1591,8 @@ export class Game {
     });
     this.combat.update(dt);
     this.updateEffects(realDt);
+    this.traffic.update(dt, this.focusPos());
+    this.updateBurning(dt);
     this.props.update(dt, this.time);
     this.particles.update(dt);
 
@@ -1135,7 +1606,9 @@ export class Game {
     }
 
     // Mode-specific per-frame logic and camera.
-    if (this.mode === 'play' && this.character) {
+    if (this.mode === 'play' && this.character && this.driving) {
+      this.updateDrivingFrame(realDt, lookDX, lookDY);
+    } else if (this.mode === 'play' && this.character) {
       const ch = this.character;
       const feet = this.player.feet();
       ch.root.position.copy(feet);
@@ -1149,9 +1622,15 @@ export class Game {
       });
       const free = this.player.state !== 'locked' && !this.life.isTalking;
       const it = free ? this.nearestInteractable() : null;
-      const who = free && !it && this.player.grounded ? this.life.talkable(feet) : null;
-      this.ui.prompt(it ? `<span class="key">E</span>${it.prompt}` : who ? `<span class="key">E</span>Talk to ${who.file.name.split(' ')[0]}` : null);
+      const car = free && !it ? this.carToSteal() : null;
+      const who = free && !it && !car && this.player.grounded ? this.life.talkable(feet) : null;
+      this.ui.prompt(
+        it ? `<span class="key">E</span>${it.prompt}`
+        : car ? `<span class="key">E</span>${car.mode === 'traffic' ? 'Hijack car' : 'Get in'}`
+        : who ? `<span class="key">E</span>Talk to ${who.file.name.split(' ')[0]}` : null,
+      );
       if (it && inp.pressed('interact')) this.interact(it.id);
+      else if (car && inp.pressed('interact')) this.hijack(car);
       else if (who && inp.pressed('interact') && this.body) this.life.talkTo(who, this.body, feet);
       if (inp.pressed('scream') && this.player.state !== 'locked') this.scream();
       if (inp.pressed('punch') && !this.ui.ledgerOpen) this.combat.punch();
@@ -1189,7 +1668,9 @@ export class Game {
     const focus = this.mode === 'play' ? this.player.position() : this.mode === 'ghost' ? this.ghostPos : this.activeRagdoll?.position() ?? this.ghostPos;
     this.sun.position.set(focus.x + 30, focus.y + 60, focus.z + 20);
     this.sun.target.position.copy(focus);
+    this.drawMinimap(realDt);
 
+    if (!this.driving) this.engine.set(false, 0, 0);
     this.renderer.render(this.scene, this.camera);
     this.input.endFrame();
   }
