@@ -1,4 +1,4 @@
-export type Btn = 'jump' | 'crouch' | 'dive' | 'interact' | 'pee' | 'ledger' | 'music' | 'help' | 'confirm' | 'up' | 'down';
+export type Btn = 'jump' | 'crouch' | 'dive' | 'interact' | 'pee' | 'scream' | 'ledger' | 'music' | 'help' | 'confirm' | 'up' | 'down';
 
 const KEYMAP: Record<string, Btn[]> = {
   Space: ['jump', 'confirm'],
@@ -15,6 +15,7 @@ const KEYMAP: Record<string, Btn[]> = {
   KeyM: ['music'],
   KeyH: ['help'],
   Enter: ['confirm'],
+  KeyT: ['scream'],
   KeyR: ['up'],
   KeyV: ['down'],
 };
@@ -25,12 +26,15 @@ const PADMAP: Record<number, Btn[]> = {
   1: ['crouch'], // B
   2: ['dive'], // X
   3: ['interact', 'confirm'], // Y
-  4: ['down'], // LB
+  4: ['scream'], // LB
   5: ['pee'], // RB
   6: ['crouch'], // LT
-  7: ['up'], // RT
-  8: ['ledger'], // Back
-  9: ['help'], // Start
+  7: ['dive'], // RT
+  8: ['ledger'], // Back / View
+  9: ['help'], // Start / Menu
+  12: ['up'], // D-pad up
+  13: ['down'], // D-pad down
+  14: ['music'], // D-pad left
 };
 
 export class Input {
@@ -45,6 +49,7 @@ export class Input {
   lookX = 0;
   lookY = 0;
   locked = false;
+  padConnected = false;
   onAnyGesture: (() => void) | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -94,7 +99,9 @@ export class Input {
     this.lookX = 0;
     this.lookY = 0;
 
-    const pad = navigator.getGamepads?.()[0];
+    const pads = navigator.getGamepads?.() ?? [];
+    const pad = Array.from(pads).find((p) => p && p.connected) ?? null;
+    this.padConnected = !!pad;
     if (pad) {
       const dz = (v: number) => (Math.abs(v) < 0.18 ? 0 : v);
       mx += dz(pad.axes[0] ?? 0);

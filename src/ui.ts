@@ -1,4 +1,4 @@
-import { CATEGORIES, DEATHS, TOTAL_SLOTS, isDeserving, timeLeftLabel, type Ledger, type PersonFile } from './deaths';
+import { CATEGORIES, DEATHS, PHYSICAL_INFO, TOTAL_SLOTS, isDeserving, timeLeftLabel, type Ledger, type PersonFile } from './deaths';
 import { money } from './util';
 
 const el = (html: string) => {
@@ -52,15 +52,23 @@ export class UI {
     this.card = this.add('<div class="card hidden"></div>');
     this.ledgerEl = this.add('<div class="ledger hidden"></div>');
     this.helpEl = this.add(`<div class="help hidden">
-      <b>Controls</b> (H to hide)<br>
-      WASD move · Mouse look<br>
-      Space jump (tap again on landing for double and triple)<br>
-      Shift crouch · Shift + Space: long jump (running) or backflip (standing)<br>
-      Reverse direction + Space: side flip · Space against a wall in the air: wall kick<br>
-      Shift in air: ground pound · Shift while running: slide<br>
-      F or Left click: dive · E or Right click: interact<br>
-      Q: pee · Tab: death ledger · M: music<br>
-      Ghost: R / V or Space / Shift to rise and sink, E to possess
+      <div class="hh"><b>Controls</b> <span>H or Start to hide</span></div>
+      <table>
+        <tr><th></th><th>Keyboard</th><th>Controller</th></tr>
+        <tr><td>Move / look</td><td>WASD / mouse</td><td>Left stick / right stick</td></tr>
+        <tr><td>Jump (tap on landing to chain)</td><td>Space</td><td>A</td></tr>
+        <tr><td>Crouch, slide, ground pound</td><td>Shift</td><td>B or LT</td></tr>
+        <tr><td>Long jump (Athlete)</td><td>Run + Shift + Space</td><td>Run + B + A</td></tr>
+        <tr><td>Backflip</td><td>Shift + Space standing</td><td>B + A standing</td></tr>
+        <tr><td>Side flip</td><td>Reverse + Space</td><td>Reverse + A</td></tr>
+        <tr><td>Wall kick</td><td>Space on a wall</td><td>A on a wall</td></tr>
+        <tr><td>Dive</td><td>F or left click</td><td>X or RT</td></tr>
+        <tr><td>Interact / possess</td><td>E or right click</td><td>Y</td></tr>
+        <tr><td>Scream for help</td><td>T</td><td>LB</td></tr>
+        <tr><td>Pee</td><td>Q</td><td>RB</td></tr>
+        <tr><td>Ghost rise / sink</td><td>Space / Shift</td><td>A / B</td></tr>
+        <tr><td>Ledger · music</td><td>Tab · M</td><td>View · D-pad left</td></tr>
+      </table>
     </div>`);
     this.titleEl = this.add(`<div class="title">
       <div class="logo">C'est La Vie</div>
@@ -71,7 +79,7 @@ export class UI {
         <p class="quote">"Fine. You do it then."</p>
         <p>Now Gary has the scythe, the power to jump into anyone's body, and a ledger with 1,000 empty lines.</p>
       </div>
-      <div class="start">Click to begin</div>
+      <div class="start">Click or press A to begin</div>
       <div class="small">Keyboard + mouse or gamepad. Best with headphones.</div>
     </div>`);
   }
@@ -84,11 +92,14 @@ export class UI {
 
   showTitle(onStart: () => void) {
     const go = () => {
+      if (this.titleGo === null) return;
+      this.titleGo = null;
       this.titleEl.classList.add('hidden');
       window.removeEventListener('keydown', go);
       this.titleEl.removeEventListener('click', go);
       onStart();
     };
+    this.titleGo = go;
     this.titleEl.addEventListener('click', go);
     window.addEventListener('keydown', go);
   }
@@ -99,8 +110,8 @@ export class UI {
     this.hud.innerHTML = `
       <div class="stat"><span class="big">${ledger.foundCount}</span> / ${TOTAL_SLOTS.toLocaleString()} deaths filed</div>
       <div class="stat money">${money(ledger.balance)}</div>
-      ${body ? `<div class="body">You are <b>${body.name}</b>, ${body.age}, ${body.job}</div>` : '<div class="body">You are a ghost</div>'}
-      <div class="keys">H controls · Tab ledger · M music</div>
+      ${body ? `<div class="body">You are <b>${body.name}</b>, ${body.age}, ${body.job}</div><div class="body small">Physical: <b>${body.physical}</b> (${PHYSICAL_INFO[body.physical]}) · Mental: ${body.mental}</div>` : '<div class="body">You are a ghost</div>'}
+      <div class="keys">H controls · Tab ledger · M music · T scream</div>
       ${godBar}`;
   }
 
@@ -172,12 +183,14 @@ export class UI {
         <tr><td>Original cause</td><td>${f.cause}</td></tr>
         <tr><td>Insurance</td><td>${f.policy ? `Mortalis policy x${f.policy}` : '<span class="bad">Uninsured</span>'}</td></tr>
         <tr><td>Net worth</td><td>${money(f.netWorth)}</td></tr>
+        <tr><td>Physical health</td><td><b>${f.physical}</b> <span class="dim">(${PHYSICAL_INFO[f.physical]})</span></td></tr>
+        <tr><td>Mental health</td><td>${f.mental}</td></tr>
         <tr><td>Afterlife</td><td>${f.afterlife}</td></tr>
         <tr><td>Allergies</td><td>${f.peanutAllergy ? '<span class="bad">PEANUTS (severe)</span>' : 'None on file'}</td></tr>
         <tr><td>Note</td><td>${f.quirk}</td></tr>
       </table>
       <div class="verdict ${fair ? 'ok' : 'bad'}">${fair ? 'FAIR GAME' : 'NOT THEIR TIME. God will notice.'}</div>
-      <div class="hint">E to possess</div>`;
+      <div class="hint">E / Y to possess</div>`;
     this.fileEl.classList.remove('hidden');
   }
 
@@ -198,7 +211,7 @@ export class UI {
       </table>
       <div class="note">${d.note}</div>
       <div class="stamp ${d.approved && d.total > 0 ? 'ok' : 'bad'}">${stamp}</div>
-      <div class="cont">Press Space or E to continue</div>`;
+      <div class="cont">Press Space, E or A to continue</div>`;
     this.card.classList.remove('hidden');
     this.card.classList.remove('in');
     void this.card.offsetWidth;
@@ -227,6 +240,14 @@ export class UI {
   }
 
   pendingClaim: (() => void) | null = null;
+  titleGo: (() => void) | null = null;
+  private padMode = false;
+
+  setPadMode(on: boolean) {
+    if (on === this.padMode) return;
+    this.padMode = on;
+    document.body.classList.toggle('pad', on);
+  }
 
   toggleLedger(ledger: Ledger) {
     this.ledgerOpen = !this.ledgerOpen;

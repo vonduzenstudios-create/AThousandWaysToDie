@@ -17,7 +17,10 @@ export type MoveState =
   | 'gpFreeze'
   | 'groundpound'
   | 'fall'
+  | 'crawl'
   | 'locked';
+
+export type Tier = 'Feeble' | 'Normal' | 'Athlete';
 
 export interface PlayerInput {
   moveX: number; // right
@@ -44,6 +47,8 @@ export interface PlayerHooks {
   onWallKick?: () => void;
   onGroundPound?: () => void;
   onDive?: () => void;
+  /** A move this body is too weak for was attempted. */
+  onDenied?: (move: string) => void;
 }
 
 const GRAVITY = 42;
@@ -81,6 +86,31 @@ export class Player {
   private jumpedThisStep = false;
   private readonly filter = groups(G_PLAYER, G_WORLD | G_PROP);
   hooks: PlayerHooks = {};
+  tier: Tier = 'Normal';
+  legsBroken = false;
+
+  private get canAdvanced() {
+    return this.tier !== 'Feeble';
+  }
+  private get canAthletic() {
+    return this.tier === 'Athlete';
+  }
+
+  /** Launch the player from outside (thrown out of buildings, explosions). */
+  knock(v: THREE.Vector3) {
+    this.vel.copy(v);
+    this.launch('fall');
+  }
+
+  breakLegs() {
+    this.legsBroken = true;
+    this.setState('crawl');
+  }
+
+  healLegs() {
+    this.legsBroken = false;
+    this.setState('ground');
+  }
 
   constructor(private physics: RAPIER.World, spawn: THREE.Vector3) {
     this.body = physics.createRigidBody(
@@ -182,17 +212,26 @@ export class Player {
       v.y = this.grounded ? -2 : Math.max(v.y - GRAVITY * dt, -55);
     } else if (this.grounded) {
       this.landTimer += dt;
-      if (st === 'bellyslide' || st === 'slide') {
+      if (this.legsBroken) {
+        this.setState('crawl');
+        if (wishLen > 0.1) {
+          this.facing = turnToward(this.facing, wishYaw, 4 * dt);
+          const fd = this.facingDir();
+          approach2(v, fd.x * 1.6 * wishLen, fd.z * 1.6 * wishLen, 20 * dt);
+        } else approach2(v, 0, 0, 20 * dt);
+        this.jumpBuf = 0;
+        this.diveBuf = 0;
+      } else if (st === 'bellyslide' || st === 'slide') {
         approach2(v, 0, 0, (st === 'slide' ? 9 : 12) * dt);
         if (wishLen > 0.1) this.facing = turnToward(this.facing, wishYaw, 2 * dt);
         if (Math.hypot(v.x, v.z) < 1.5 || (st === 'slide' && !inp.crouchHeld)) this.setState(inp.crouchHeld ? 'crouch' : 'ground');
       } else {
-        if (inp.crouchHeld) {
+        if (inp.crouchHeld && this.canAdvanced) {
           if (hs > 6 && st === 'ground') this.setState('slide');
           else this.setState('crouch');
         } else this.setState('ground');
         if (this.state === 'ground' || this.state === 'crouch') {
-          const target = wishLen * (this.state === 'crouch' ? 2.5 : RUN_SPEED);
+          const target = wishLen * (this.state === 'crouch' ? 2.5 : RUN_SPEED * (this.tier === 'Feeble' ? 0.5 : 1));
           if (wishLen > 0.1) {
             const dot = hs > 0.01 ? (v.x * wx + v.z * wz) / hs : 1;
             if (hs > 5 && dot < -0.4) this.skidTimer = 0.22;
@@ -209,7 +248,17 @@ export class Player {
         this.jumpBuf = 0;
         const fd = this.facingDir();
         const cur = this.state;
-        if (cur === 'crouch' || cur === 'slide') {
+        if (!this.canAdvanced) {
+          if (this.skidTimer > 0 || inp.crouchHeld) this.hooks.onDenied?.('flips');
+          v.y = 12;
+          this.jumpChain = 1;
+          this.launch('jump');
+        } else if ((cur === 'crouch' || cur === 'slide') && hs > 4.5 && !this.canAthletic) {
+          this.hooks.onDenied?.('long jump');
+          v.y = 13.5;
+          this.jumpChain = 1;
+          this.launch('jump');
+        } else if (cur === 'crouch' || cur === 'slide') {
           if (hs > 4.5) {
             const sp = Math.min(Math.max(hs * 1.5, 14), 19);
             v.set(fd.x * sp, 10.5, fd.z * sp);
@@ -228,13 +277,17 @@ export class Player {
         } else {
           let chain = this.landTimer < 0.2 && this.jumpChain > 0 ? this.jumpChain + 1 : 1;
           if (chain === 3 && hs < 6) chain = 1;
+          if (chain === 3 && !this.canAthletic) {
+            this.hooks.onDenied?.('triple jump');
+            chain = 1;
+          }
           if (chain > 3) chain = 1;
           this.jumpChain = chain;
           v.y = [0, 13.5, 16.5, 21][chain];
           this.launch(chain === 3 ? 'triple' : 'jump');
         }
         this.hooks.onJump?.(this.state, this.jumpChain);
-      } else if (this.diveBuf > 0 && hs > 3 && this.state === 'ground') {
+      } else if (this.diveBuf > 0 && hs > 3 && this.state === 'ground' && this.canAdvanced) {
         this.diveBuf = 0;
         const fd = this.facingDir();
         const sp = Math.max(hs + 4, 13);
@@ -248,7 +301,7 @@ export class Player {
       // Airborne.
       this.airTime += dt;
       // Coyote time: a jump just after running off a ledge still counts.
-      if (st === 'fall' && this.airTime < 0.14 && this.jumpBuf > 0) {
+      if (st === 'fall' && this.airTime < 0.14 && this.jumpBuf > 0 && !this.legsBroken) {
         this.jumpBuf = 0;
         this.jumpChain = 1;
         v.y = 13.5;
@@ -288,7 +341,7 @@ export class Player {
         }
 
         // Wall kick.
-        if (this.wallTimer > 0 && this.jumpBuf > 0 && this.airTime > 0.06) {
+        if (this.wallTimer > 0 && this.jumpBuf > 0 && this.airTime > 0.06 && this.canAdvanced && !this.legsBroken) {
           this.jumpBuf = 0;
           this.wallTimer = 0;
           const n = this.wallNormal;
@@ -296,10 +349,10 @@ export class Player {
           v.set(n.x * 8.5, 16, n.z * 8.5);
           this.launch('wallkick');
           this.hooks.onWallKick?.();
-        } else if (this.crouchBuf > 0 && this.airTime > 0.1 && st !== 'dive') {
+        } else if (this.crouchBuf > 0 && this.airTime > 0.1 && st !== 'dive' && this.canAdvanced) {
           this.crouchBuf = 0;
           this.setState('gpFreeze');
-        } else if (this.diveBuf > 0 && st !== 'dive') {
+        } else if (this.diveBuf > 0 && st !== 'dive' && this.canAdvanced && !this.legsBroken) {
           this.diveBuf = 0;
           const fd = this.facingDir();
           const sp = Math.max(hs, 12);
@@ -347,7 +400,7 @@ export class Player {
       const drop = this.maxY - next.y;
       if (landState === 'dive') this.setState('bellyslide');
       else if (landState === 'longjump' && inp.crouchHeld) this.setState('slide');
-      else if (landState !== 'locked') this.setState('ground');
+      else if (landState !== 'locked') this.setState(this.legsBroken ? 'crawl' : 'ground');
       if (landState === 'triple' || landState === 'backflip' || landState === 'sideflip') this.jumpChain = 0;
       this.landTimer = 0;
       v.y = 0;
@@ -361,7 +414,7 @@ export class Player {
     } else if (!grounded && wasGrounded && !this.jumpedThisStep) {
       // Walked off a ledge.
       this.launchState = this.state === 'slide' ? 'slide' : 'fall';
-      if (this.state !== 'bellyslide' && this.state !== 'locked') this.setState('fall');
+      if (this.state !== 'bellyslide' && this.state !== 'locked' && this.state !== 'crawl') this.setState('fall');
       this.airTime = 0;
       this.maxY = next.y;
       this.launchPos.set(next.x, next.y, next.z);
@@ -371,6 +424,6 @@ export class Player {
 
   lock(on: boolean) {
     if (on) this.setState('locked');
-    else this.setState('ground');
+    else this.setState(this.legsBroken ? 'crawl' : 'ground');
   }
 }

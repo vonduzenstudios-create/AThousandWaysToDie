@@ -36,6 +36,9 @@ export const DEATHS: DeathDef[] = [
   { id: 'train', name: 'Last Train Home', category: 'Vehicles', location: 'Smallville Rail Crossing', payout: 3000, blurb: 'The train had the right of way. It always does.' },
   { id: 'faceplant', name: 'Faceplant', category: 'Gravity', location: 'Anywhere', payout: 300, blurb: 'Fell from a height with absolutely no style.' },
   { id: 'edge', name: 'Edge of the World', category: 'Stupidity', location: 'The Edge of Town', payout: 1000, blurb: 'Walked off the edge of the map. Bold.' },
+  { id: 'beatdown', name: 'Resisting Arrest', category: 'Stupidity', location: 'Smallville Police Station', payout: 2200, blurb: 'Kept walking into the police station. The police had opinions.' },
+  { id: 'taser', name: "Don't Tase Me, Bro", category: 'Electricity', location: 'Smallville Police Station', payout: 1600, blurb: 'A cop tested the department taser on himself. Thirty-one times.' },
+  { id: 'baled', name: 'Baled', category: 'Machines', location: 'Hoffman Barn', payout: 2000, blurb: 'Climbed into the hay baler. Came out as a neat, tidy cube.' },
   { id: 'peanut', name: 'Peanut Panic', category: 'Allergies', location: 'Smallville Diner', payout: 1400, blurb: 'Ate a peanut butter cookie in a body with a deadly peanut allergy.' },
 ];
 
@@ -68,7 +71,15 @@ export const ADJUSTER_NOTES = [
 const FIRST = ['Linda', 'Gary', 'Doug', 'Brenda', 'Kevin', 'Tammy', 'Earl', 'Darlene', 'Chad', 'Bev', 'Randy', 'Peggy', 'Duane', 'Crystal', 'Walt', 'Rhonda', 'Skip', 'Marge', 'Travis', 'Deb', 'Lyle', 'Shonda', 'Hank', 'Trish'];
 const LAST = ['Pruitt', 'Hoffman', 'Kowalski', 'Butts', 'McGee', 'Dinkel', 'Ferguson', 'Snodgrass', 'Plunkett', 'Wiggins', 'Sauerkraut', 'Bumgarner', 'Weatherby', 'Puckett', 'Hornswoggle', 'Fudge'];
 
-export const JOBS = ['Farmhand', 'Mechanic', 'Mail Carrier', 'Retiree', 'Banker', 'Teen', 'Dentist', 'Diner Cook', 'Insurance Salesman', 'Pastor', 'Crossing Guard', 'Influencer'] as const;
+export const JOBS = ['Farmhand', 'Mechanic', 'Mail Carrier', 'Retiree', 'Banker', 'Teen', 'Dentist', 'Diner Cook', 'Insurance Salesman', 'Pastor', 'Crossing Guard', 'Influencer', 'Cop', 'Construction Worker'] as const;
+export type Physical = 'Feeble' | 'Normal' | 'Athlete';
+export type Mental = 'Depressed' | 'Normal' | 'Medicated';
+
+export const PHYSICAL_INFO: Record<Physical, string> = {
+  Feeble: 'half speed, basic jump only',
+  Normal: 'double jump, flips, dive',
+  Athlete: 'triple jump, long jump',
+};
 export type Job = (typeof JOBS)[number];
 
 const BORING_CAUSES = [
@@ -114,17 +125,33 @@ export interface PersonFile {
   afterlife: 'Heaven' | 'Hell' | 'Undecided (leaning Hell)' | 'Undecided (leaning Heaven)';
   quirk: string;
   peanutAllergy: boolean;
+  physical: Physical;
+  mental: Mental;
+}
+
+const ATHLETIC_JOBS: readonly string[] = ['Cop', 'Construction Worker', 'Farmhand', 'Teen', 'Mail Carrier'];
+
+export function physicalFor(rng: Rng, age: number, job: string): Physical {
+  if (age >= 72) return rng() < 0.9 ? 'Feeble' : 'Normal';
+  if (age >= 58) return rng() < 0.45 ? 'Feeble' : 'Normal';
+  if (age < 45 && ATHLETIC_JOBS.includes(job)) return rng() < 0.75 ? 'Athlete' : 'Normal';
+  if (age < 35) return rng() < 0.25 ? 'Athlete' : 'Normal';
+  return rng() < 0.08 ? 'Feeble' : 'Normal';
 }
 
 export function randomFile(rng: Rng, job?: Job): PersonFile {
   const quirk = pick(rng, QUIRKS);
-  const age = Math.floor(randRange(rng, 16, 92));
+  const chosenJob = job ?? pick(rng, JOBS);
+  let age = Math.floor(randRange(rng, 16, 92));
+  if (chosenJob === 'Teen') age = Math.floor(randRange(rng, 14, 19));
+  if (chosenJob === 'Retiree') age = Math.floor(randRange(rng, 66, 95));
+  if (chosenJob === 'Cop' || chosenJob === 'Construction Worker') age = Math.floor(randRange(rng, 21, 56));
   const roll = rng();
   const daysLeft = roll < 0.45 ? Math.floor(randRange(rng, 0, 30)) : roll < 0.7 ? Math.floor(randRange(rng, 30, 900)) : Math.floor(randRange(rng, 3000, 20000));
   return {
     name: `${pick(rng, FIRST)} ${pick(rng, LAST)}`,
     age,
-    job: job ?? pick(rng, JOBS),
+    job: chosenJob,
     daysLeft,
     cause: pick(rng, BORING_CAUSES),
     policy: rng() < 0.18 ? 0 : pick(rng, [0.5, 1, 1, 1.5, 2, 3]),
@@ -132,6 +159,8 @@ export function randomFile(rng: Rng, job?: Job): PersonFile {
     afterlife: pick(rng, ['Heaven', 'Hell', 'Undecided (leaning Hell)', 'Undecided (leaning Heaven)'] as const),
     quirk,
     peanutAllergy: quirk.includes('peanut') || rng() < 0.15,
+    physical: physicalFor(rng, age, chosenJob),
+    mental: pick(rng, ['Depressed', 'Normal', 'Normal', 'Medicated'] as const),
   };
 }
 

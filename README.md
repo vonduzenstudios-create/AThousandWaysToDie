@@ -24,18 +24,22 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 | Backflip | Shift + Space while standing | B + A |
 | Side flip | Reverse direction + Space | Reverse + A |
 | Wall kick | Space while touching a wall in the air | A |
-| Dive | F or left click | X |
+| Dive | F or left click | X or RT |
 | Interact / possess | E or right click | Y |
+| Scream for help | T | LB |
 | Pee | Q | RB |
 | Death ledger | Tab | Back |
-| Ghost: rise / sink | Space or R / Shift or V | A or RT / B or LB |
+| Ghost: rise / sink | Space or R / Shift or V | A or D-pad up / B or D-pad down |
 
 ## What's in this build
 
 - Smallville: park with a giant oak treehouse, water tower with a diving board, Duke's Garage, the diner, Hoffman Farm with an electric fence and a hay hoist, Whisper Woods, houses and a railroad.
 - Ghost mode with scythe vision: read anyone's file (age, job, scheduled death, insurance, net worth, afterlife, allergies) and possess them. Taking someone who isn't due angers God.
 - Jobs matter: only a Farmhand can work the hay hoist, and only an allergic body dies from the peanut butter cookies.
-- 10 deaths: Treehouse Tumble, Antifreeze Cocktail, Shocking Behavior, Pancake Mode, Water Tower Dive, Forest Fungus, Last Train Home, Faceplant, Edge of the World, Peanut Panic.
+- 13 deaths: Treehouse Tumble, Antifreeze Cocktail, Shocking Behavior, Pancake Mode, Water Tower Dive, Forest Fungus, Last Train Home, Faceplant, Edge of the World, Peanut Panic, Resisting Arrest, Don't Tase Me Bro, Baled.
+- Physical health (Feeble, Normal, Athlete) decides run speed and which moves a body can do; mental health is shown on the file.
+- The barn is locked unless you're a Farmhand. Non-cops get thrown out of the police station, and keep coming back at your peril.
+- Medium falls break your legs: crawl, or scream for help (T / LB) and a passerby calls 911.
 - Ragdoll physics, insurance claim cards with payouts, a 1,000-slot death ledger saved in the browser.
 
 ## Tech
