@@ -61,7 +61,7 @@ export const B = {
 export const PASSABLE = new Set<number>([B.Water, B.Corn, B.Grain]);
 
 /** Base color and how much per-voxel color noise each block gets. */
-const PALETTE: Record<number, [number, number]> = {
+export const PALETTE: Record<number, [number, number]> = {
   [B.Grass]: [0x6cbf3f, 0.16],
   [B.Dirt]: [0x8a5a35, 0.14],
   [B.Stone]: [0x8a8f96, 0.12],
@@ -113,6 +113,14 @@ const PALETTE: Record<number, [number, number]> = {
   [B.Mud]: [0x5e4128, 0.12],
   [B.Ice]: [0xcdeefa, 0.04],
 };
+
+/**
+ * Register a block color. Maps own id ranges so they don't collide: Smallville < 100,
+ * beach 100-139, city 140-179, wilderness 180-219.
+ */
+export function defineBlock(id: number, hex: number, variation = 0.1) {
+  PALETTE[id] = [hex, variation];
+}
 
 const AO_CURVE = [0.42, 0.62, 0.8, 1.0];
 
@@ -322,4 +330,9 @@ export class VoxelWorld {
       .setCollisionGroups(groups(G_WORLD, G_ALL));
     physics.createCollider(cd, body);
   }
+}
+
+/** Base color of a block id (used by the minimap). */
+export function blockColor(b: number): number {
+  return PALETTE[b]?.[0] ?? 0xff00ff;
 }

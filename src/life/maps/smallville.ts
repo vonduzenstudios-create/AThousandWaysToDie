@@ -10,7 +10,7 @@ const v = (x: number, z: number): V3 => ({ x, y: G, z });
  * places in the LifePlace shape, so this only adds who lives here and what they gossip about.
  */
 export function smallvilleLife(town: TownInfo): LifeMap {
-  const places: LifePlace[] = town.places.map((p) => ({ ...p }));
+  const places: LifePlace[] = [...town.places.map((p) => ({ ...p })), ...town.grocery.lifePlaces];
   // A couple of outdoor jobs that work the streets rather than a building.
   places.push(
     { id: 'crossing', name: 'the Main Street crossing', kind: 'civic', door: v(244.5, 245.5), staffSpots: [v(244.5, 245.5)], jobs: ['Crossing Guard'] },
@@ -41,6 +41,12 @@ export function smallvilleLife(town: TownInfo): LifeMap {
         { job: 'Mail Carrier', work: 'post-office' },
         { job: 'Pastor', work: 'church', name: 'Pastor Dale' },
         { job: 'Cashier', work: 'grocery' },
+        { job: 'Cashier', work: 'grocery' },
+        { job: 'Deli Clerk', work: 'grocery' },
+        { job: 'Store Manager', work: 'grocery' },
+        { job: 'Produce Manager', work: 'grocery' },
+        { job: 'Butcher', work: 'grocery-backroom' },
+        { job: 'Stocker', work: 'grocery-backroom' },
         { job: 'Cashier', work: 'gas-station' },
         { job: 'Cashier', work: 'hardware' },
         { job: 'Cashier', work: 'fireworks', name: 'Uncle Boomer' },
@@ -59,6 +65,7 @@ export function smallvilleLife(town: TownInfo): LifeMap {
       ],
       count: 70,
     },
+    jobProfiles: town.grocery.jobProfiles,
     spawns: town.transit.map((s) => s.pos),
     smallTalk: [
       'Hoffman says the fence is on again. Do NOT pee on it.',

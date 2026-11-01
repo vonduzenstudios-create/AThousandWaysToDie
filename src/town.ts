@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { B, VoxelWorld } from './voxel';
 import { mulberry32, pick, type Rng } from './util';
+import { GROCERY } from './places/grocery';
+import type { PlaceBuild } from './places/types';
 import {
   GROUND,
   bench,
@@ -128,6 +130,8 @@ export interface TownInfo {
   spots: Record<string, THREE.Vector3>;
   /** Named zones used by the hometown deaths. */
   zones: Record<string, Box>;
+  /** The grocery store stamp (its own deaths, staff and runtime). */
+  grocery: PlaceBuild;
 }
 
 type TravelStops = TransitStop[];
@@ -245,6 +249,7 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
   const spots: Record<string, THREE.Vector3> = {};
   const zones: Record<string, Box> = {};
   const roads: RoadLine[] = [];
+  let grocery!: PlaceBuild;
 
   const place = (p: Place) => places.push(p);
   const sign = (lines: string[], x: number, y: number, z: number, rotY: number, bg: string, fg: string, wd = 6, h = 1.5) =>
@@ -626,18 +631,10 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
 
   // ================================================================ B2: grocery + hardware (x 156..244, z 156..234)
   {
-    // Placeholder for the Smallville Grocery stamp (its own thread builds the full store and its deaths).
-    // Reserved lot: x 160..239, z 130..233, entrance and parking face Main St.
-    const gx0 = 166, gz0 = 136, gx1 = 234, gz1 = 196;
-    building(w, { x0: gx0, z0: gz0, x1: gx1, z1: gz1, wall: B.WallMint, trim: B.RoofGreen, floor: B.Tile, floorH: 7, roof: 'flat', roofMat: B.Concrete, winEvery: 0, storefront: 's', doors: [{ side: 's', at: 198, width: 4, height: 4 }] });
-    for (let i = 0; i < 9; i++) shelfRow(w, rng, 172 + i * 6, 146, 173 + i * 6, 180, 3);
-    for (let x = 172; x < 196; x += 5) w.fill(x, G, 188, x + 2, G, 189, B.Black);
-    parkingLot(w, 160, 200, 239, 233);
-    for (let x = 162; x < 236; x += 4) if (rng() < 0.45) car(w, rng, x, rng() < 0.5 ? 201 : 227, false);
-    w.fill(196, G - 1, 197, 204, G - 1, 199, B.Sidewalk);
-    sign(['SMALLMART GROCERY'], 200, G + 6, gz1 + 0.6, 0, '#2f8a4a', '#ffffff', 10, 1.8);
+    // Smallville Grocery: a full store stamp (src/places/grocery) on its reserved lot,
+    // x 160..239, z 130..233, entrance and sloped parking lot facing Main St.
+    grocery = GROCERY.build(w, { x: 160, y: G, z: 130, rot: 2 }, rng);
     zones.groceryLot = box(160, G, 130, 239.99, G + 30, 233.99);
-    place({ id: 'grocery', name: 'SmallMart Grocery', kind: 'shop', door: v(200, G, 198.5), inside: inner(gx0, gz0, gx1, gz1), staffSpots: [v(174, G, 191), v(179, G, 191), v(184, G, 191)], jobs: ['Cashier', 'Stocker'], hours: [7, 22], sells: [{ item: 'bread', price: 3 }, { item: 'butter', price: 4 }, { item: 'spicy chips', price: 2 }, { item: 'peanuts', price: 3 }] });
   }
 
   // ================================================================ C1 (moved): hardware store replaces the old post office spot
@@ -873,17 +870,20 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
     w.fill(bx0, G, bz0, bx1, G + 24, bz1, B.White);
     w.fill(bx0 + 1, G, bz0 + 1, bx1 - 1, G + 23, bz1 - 1, B.Air);
     w.fill(bx0 + 3, G, bz0, bx0 + 4, G + 2, bz0, B.Air); // door (locked except on Sunday)
-    for (let i = 0; i < 18; i++) {
-      const k = i % 4;
-      const x = k === 0 ? bx0 + 1 + (i % 3) : k === 1 ? bx1 - 1 : k === 2 ? bx1 - 1 - (i % 3) : bx0 + 1;
-      const z = k === 0 ? bz0 + 1 : k === 1 ? bz0 + 1 + (i % 3) : k === 2 ? bz1 - 1 : bz1 - 1 - (i % 3);
-      w.set(x, G + i, z, B.Plank);
-    }
-    // Belfry: open arches at the top, platform under the bell.
+    // Spiral stair hugging the inside walls, starting beside the door.
+    const ring: [number, number][] = [];
+    for (let x = bx0 + 5; x <= bx1 - 1; x++) ring.push([x, bz0 + 1]);
+    for (let z = bz0 + 2; z <= bz1 - 1; z++) ring.push([bx1 - 1, z]);
+    for (let x = bx1 - 2; x >= bx0 + 1; x--) ring.push([x, bz1 - 1]);
+    for (let z = bz1 - 2; z >= bz0 + 1; z--) ring.push([bx0 + 1, z]);
+    for (let i = 0; i < 18; i++) w.fill(ring[i][0], G, ring[i][1], ring[i][0], G + i, ring[i][1], B.Plank);
+    // Belfry: open arches at the top, a floor under the bell with a hatch over the last steps.
     w.fill(bx0, G + 19, bz0 + 2, bx1, G + 22, bz1 - 2, B.Air);
     w.fill(bx0 + 2, G + 19, bz0, bx1 - 2, G + 22, bz1, B.Air);
     w.fill(bx0 + 1, G + 18, bz0 + 1, bx1 - 1, G + 18, bz1 - 1, B.Plank);
-    w.fill(bx0 + 4, G + 18, bz0 + 4, bx0 + 4, G + 18, bz0 + 4, B.Air);
+    for (let i = 14; i < 18; i++) w.set(ring[i][0], G + 18, ring[i][1], B.Air);
+    w.fill(ring[17][0], G + 18, ring[17][1], ring[17][0], G + 18, ring[17][1], B.Air);
+    w.set(ring[18][0], G + 17, ring[18][1], B.Plank);
     for (let i = 0; i < 6; i++) w.fill(bx0 - 1 + i, G + 25 + i, bz0 - 1 + i, bx1 + 1 - i, G + 25 + i, bz1 + 1 - i, B.Dark);
     w.fill(bx0 + 4, G + 31, bz0 + 4, bx0 + 4, G + 33, bz0 + 4, B.Yellow); // cross
     spots.bell = v(bx0 + 4.5, G + 19, bz0 + 4.5);
@@ -1162,7 +1162,7 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
       garage: box(306, G, 244, 345, G, 247),
       station: box(stationBox.x0 + 1.5, G, stationBox.z0 + 1.5, stationBox.x1 - 1.5, G, stationBox.z1 - 1.5),
       construction: box(300, G, 68, 342, G, 100),
-      grocery: box(162, G, 202, 238, G, 232),
+      ...grocery.areas,
       suburbs: box(352, G, 371, 505, G, 379),
       school: box(162, G, 382, 240, G, 412),
       church: box(398, G, 276, 412, G, 302),
@@ -1179,6 +1179,7 @@ export function buildTown(existing?: VoxelWorld): TownInfo {
     signs,
     spots,
     zones,
+    grocery,
   };
 }
 
