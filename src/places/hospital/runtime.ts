@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RAPIER, G_ALL, G_WORLD, groups } from '../../physics';
-import type { Job, PersonFile } from '../../deaths';
+import { sexOfName, type Job, type PersonFile } from '../../deaths';
 import type { Interactable } from '../../props';
 import type { MapContext, MapRuntime } from '../../maps/types';
 import { Npc } from '../../npc';
@@ -443,11 +443,18 @@ export function setupHospital(ctx: MapContext, info: HospitalInfo, opts: Hospita
     people.push({ job, at, facing, npc: null, respawnT: 0, idx: 0, pause: 0, ...extra });
   let seed = Math.floor(ctx.rng() * 1e9);
   const spawnPost = (pp: Post) => {
-    const n = new Npc(scene, NO_NAV, mulberry32(seed++), { job: pp.job });
+    // File edits (names, ages) go in before the body is built so the look matches them.
+    const n = new Npc(scene, NO_NAV, mulberry32(seed++), {
+      job: pp.job,
+      edit: (f) => {
+        const name = f.name;
+        pp.file?.(f);
+        if (f.name.split(' ')[0] !== name.split(' ')[0]) f.sex = sexOfName(f.name);
+      },
+    });
     n.controlled = true;
     n.pos.copy(pp.at);
     n.facing = pp.facing;
-    pp.file?.(n.file);
     pp.npc = n;
     pp.idx = 0;
     bodies.push(n);

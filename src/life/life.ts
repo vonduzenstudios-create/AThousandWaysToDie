@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PersonFile } from '../deaths';
+import { sexOfName, type PersonFile } from '../deaths';
 import { Npc } from '../npc';
 import { mulberry32, pick, type Rng } from '../util';
 import { GameClock } from './clock';
@@ -223,11 +223,18 @@ export class LifeSystem {
       const anchor = home && rng() < 0.5 ? home.door : work?.door ?? home?.door ?? this.spawnPoint(rng);
       at = this.nav.nearest({ x: anchor.x + (rng() - 0.5) * 6, z: anchor.z + (rng() - 0.5) * 6 }, 10) ?? anchor;
     }
-    const npc = new Npc(this.scene, this.nav, rng, { job: spec.job, at });
+    const npc = new Npc(this.scene, this.nav, rng, {
+      job: spec.job,
+      at,
+      edit: (f) => {
+        if (spec.name) {
+          f.name = spec.name;
+          f.sex = sexOfName(spec.name);
+        } else if (housemate) f.name = f.name.split(' ')[0] + ' ' + housemate.name.split(' ').slice(1).join(' ');
+        if (spec.age) f.age = spec.age;
+      },
+    });
     const f = npc.file;
-    if (spec.name) f.name = spec.name;
-    else if (housemate) f.name = f.name.split(' ')[0] + ' ' + housemate.name.split(' ').slice(1).join(' ');
-    if (spec.age) f.age = spec.age;
     const r = new Resident(npc, this, profile, rng, home, work, spec.patrol ?? null, spec.lines ?? [], {
       shift: spec.shift,
       lunch: spec.lunch,

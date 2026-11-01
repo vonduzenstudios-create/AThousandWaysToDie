@@ -106,7 +106,32 @@ export const ADJUSTER_NOTES = [
 
 // ---------- People and their files (seen through scythe vision) ----------
 
-const FIRST = ['Linda', 'Gary', 'Doug', 'Brenda', 'Kevin', 'Tammy', 'Earl', 'Darlene', 'Chad', 'Bev', 'Randy', 'Peggy', 'Duane', 'Crystal', 'Walt', 'Rhonda', 'Skip', 'Marge', 'Travis', 'Deb', 'Lyle', 'Shonda', 'Hank', 'Trish'];
+export type Sex = 'm' | 'f';
+const FIRST_M = ['Gary', 'Doug', 'Kevin', 'Earl', 'Chad', 'Randy', 'Duane', 'Walt', 'Skip', 'Travis', 'Lyle', 'Hank', 'Herb', 'Chip', 'Dale', 'Vern', 'Rusty', 'Clint'];
+const FIRST_F = ['Linda', 'Brenda', 'Tammy', 'Darlene', 'Bev', 'Peggy', 'Crystal', 'Rhonda', 'Marge', 'Deb', 'Shonda', 'Trish', 'Joyce', 'Lorraine', 'Wanda', 'Connie'];
+// Extra names that only show up hand-written in places and saves.
+const MORE_M = ['Bob', 'Bill', 'Jim', 'Joe', 'Frank', 'Mike', 'Ray', 'Hal', 'Mel', 'Captain', 'Mr.', 'Sir'];
+const MORE_F = ['Sue', 'Mary', 'Barb', 'Pam', 'Carol', 'Tina', 'Gloria', 'Edna', 'Mrs.', 'Ms.', 'Miss'];
+
+/**
+ * Which body a name goes with, for files written by hand or saved before files carried `sex`.
+ * Looks at every word, so "Captain Chip Lander" and "Twitchy Doug" both work; unknown names
+ * fall back to a stable coin flip.
+ */
+export function sexOfName(name: string): Sex {
+  for (const w of name.split(/\s+/)) {
+    if (FIRST_M.includes(w) || MORE_M.includes(w)) return 'm';
+    if (FIRST_F.includes(w) || MORE_F.includes(w)) return 'f';
+  }
+  let h = 0;
+  for (const ch of name) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
+  return h & 1 ? 'f' : 'm';
+}
+
+/** A first name for a new person of this sex. */
+export function firstName(rng: Rng, sex: Sex) {
+  return pick(rng, sex === 'm' ? FIRST_M : FIRST_F);
+}
 const LAST = ['Pruitt', 'Hoffman', 'Kowalski', 'Butts', 'McGee', 'Dinkel', 'Ferguson', 'Snodgrass', 'Plunkett', 'Wiggins', 'Sauerkraut', 'Bumgarner', 'Weatherby', 'Puckett', 'Hornswoggle', 'Fudge'];
 
 export const JOBS = [
@@ -212,6 +237,8 @@ function randomWallet(rng: Rng, job: string, age: number, netWorth: number): Wal
 
 export interface PersonFile {
   name: string;
+  /** Matches the first name; the body is built from it. Older saves may lack it (see sexOfName). */
+  sex?: Sex;
   age: number;
   job: Job;
   daysLeft: number; // scheduled time of death from now
@@ -250,8 +277,10 @@ export function randomFile(rng: Rng, job?: Job): PersonFile {
   const netWorth = Math.floor(Math.pow(rng(), 3) * 2_000_000) - 20000;
   const roll = rng();
   const daysLeft = roll < 0.45 ? Math.floor(randRange(rng, 0, 30)) : roll < 0.7 ? Math.floor(randRange(rng, 30, 900)) : Math.floor(randRange(rng, 3000, 20000));
+  const sex: Sex = rng() < 0.5 ? 'm' : 'f';
   return {
-    name: `${pick(rng, FIRST)} ${pick(rng, LAST)}`,
+    name: `${firstName(rng, sex)} ${pick(rng, LAST)}`,
+    sex,
     age,
     job: chosenJob,
     daysLeft,

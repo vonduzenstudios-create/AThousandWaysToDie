@@ -1,4 +1,4 @@
-import type { Job } from '../deaths';
+import { sexOfName, type Job, type Sex } from '../deaths';
 import { mulberry32, pick, type Rng } from '../util';
 
 export type Age = 'child' | 'teen' | 'adult' | 'elder';
@@ -94,6 +94,8 @@ export interface PersonSpec {
   expression: Expression;
   /** Iris color. Optional so older saved specs still build. */
   eyeColor?: number;
+  /** Body and styling to match the person's name. Optional so older saved specs still build. */
+  sex?: Sex;
 }
 
 export const SKINS = [0xf9d9bd, 0xf2c4a0, 0xe0a97e, 0xc58a5c, 0x9c6640, 0x74472b, 0x553220];
@@ -307,8 +309,8 @@ function some<T>(r: Rng, table: [T, number][]): T[] {
   return table.filter(([, p]) => r() < p).map(([t]) => t);
 }
 
-/** A random but job-appropriate townsperson. Pass `age` or `build` to force them. */
-export function specForJob(job: JobName | string, rng: Rng, age?: Age, build?: Build): PersonSpec {
+/** A random but job-appropriate townsperson. Pass `age`, `build` or `sex` to force them. */
+export function specForJob(job: JobName | string, rng: Rng, age?: Age, build?: Build, sex?: Sex): PersonSpec {
   const r = rng;
   const isTownie = !JOB_LOOKS[job as JobName];
   const base: PersonSpec = {
@@ -398,6 +400,36 @@ export function specForJob(job: JobName | string, rng: Rng, age?: Age, build?: B
     if (r() < 0.5) spec.shoeStyle = 'sneakers';
   }
   if (spec.hairStyle === 'pigtails' || spec.hairStyle === 'braids') if (spec.facial === 'beard') spec.facial = 'none';
+  spec.sex = sex ?? (r() < 0.5 ? 'm' : 'f');
+  return fitSex(spec, r);
+}
+
+/**
+ * Make the styling agree with the person's sex (and so with their name): no beards or gowns on
+ * one side, longer hair, lashes and dresses more often on the other. Job uniforms stay as they are.
+ */
+export function fitSex(spec: PersonSpec, r: Rng): PersonSpec {
+  const child = spec.age === 'child';
+  if (spec.sex === 'm') {
+    if (spec.eyes === 'lashes') spec.eyes = 'tall';
+    if (spec.outfit === 'dress' || spec.outfit === 'gown') spec.outfit = pick(r, ['casual', 'polo', 'vest', 'jacket'] as const);
+    if (spec.lower === 'skirt' || (spec.lower === 'gown' && spec.outfit !== 'robe')) spec.lower = 'pants';
+    if (spec.hat === 'tiara' || spec.hat === 'bow') spec.hat = 'none';
+    if (['pigtails', 'braids', 'bun', 'bob'].includes(spec.hairStyle)) spec.hairStyle = pick(r, ['short', 'spiky', 'slick', 'curly', 'buzz'] as const);
+    if (spec.extras.includes('earrings') && r() < 0.6) spec.extras = spec.extras.filter((e) => e !== 'earrings');
+    if (spec.extras.includes('flower')) spec.extras = spec.extras.filter((e) => e !== 'flower');
+  } else {
+    spec.facial = 'none';
+    if (['bald', 'ring', 'combover', 'buzz', 'mohawk'].includes(spec.hairStyle) || (r() < (child ? 0.5 : 0.85) && ['short', 'spiky', 'slick'].includes(spec.hairStyle)))
+      spec.hairStyle = spec.age === 'elder' ? pick(r, ['bun', 'bob', 'curly', 'short'] as const) : pick(r, ['long', 'bob', 'pony', 'bun', 'curly', 'braids'] as const);
+    if (!child && spec.eyes !== 'sleepy' && r() < 0.85) spec.eyes = 'lashes';
+    if (spec.brows === 'thick' || spec.brows === 'uni') spec.brows = 'thin';
+    if (!child && spec.job === 'Townie' && spec.outfit === 'casual' && r() < 0.25) {
+      spec.outfit = 'dress';
+      spec.lower = r() < 0.6 ? 'skirt' : 'gown';
+    }
+    if (!child && r() < 0.2 && !spec.extras.includes('earrings')) spec.extras.push('earrings');
+  }
   return spec;
 }
 
@@ -432,11 +464,12 @@ export function ageGroup(years: number): Age {
  * says. `physical` (Feeble / Normal / Athlete) and
  * `mental` (Depressed / Normal / Medicated) show on the body and face.
  */
-export function specFromFile(file: { job: string; age: number; physical?: string; mental?: string; name?: string }, seed?: number): PersonSpec {
+export function specFromFile(file: { job: string; age: number; physical?: string; mental?: string; name?: string; sex?: Sex }, seed?: number): PersonSpec {
   let h = seed ?? 0;
   for (const ch of (file.name ?? '') + file.job + file.age) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
   const rng = mulberry32(h);
-  return applyStats(specForJob(file.job, rng, ageGroup(file.age)), file.physical, file.mental);
+  const sex = (file as { sex?: Sex }).sex ?? sexOfName(file.name ?? '');
+  return applyStats(specForJob(file.job, rng, ageGroup(file.age), undefined, sex), file.physical, file.mental);
 }
 
 /** The handful of fields an older Appearance carries (see character.ts). */
@@ -463,7 +496,7 @@ export function specFromAppearance(a: AppearanceLike): PersonSpec {
   let h = 7;
   for (const v of [a.skin, a.hair, a.shirt, a.pants, a.shoes, a.hairStyle, a.hat ?? 1, a.mouth, Math.round(a.width * 100)]) h = (Math.imul(h, 31) + v) | 0;
   const rng = mulberry32(h);
-  const spec = specForJob('Townie', rng, 'adult');
+  const spec = specForJob('Townie', rng, 'adult', undefined, a.beard ? 'm' : undefined);
   spec.skin = a.skin;
   spec.hair = a.hair;
   spec.top = a.shirt;
@@ -473,7 +506,7 @@ export function specFromAppearance(a: AppearanceLike): PersonSpec {
   spec.hat = a.hat === null ? 'none' : 'cap';
   spec.hatColor = a.hat ?? spec.hatColor;
   spec.glasses = a.glasses ? 'round' : 'none';
-  spec.facial = a.beard ? 'beard' : spec.facial === 'beard' ? 'stubble' : spec.facial;
+  spec.facial = a.beard ? 'beard' : spec.facial === 'beard' ? (spec.sex === 'm' ? 'stubble' : 'none') : spec.facial;
   spec.mouth = (['flat', 'smile', 'open', 'teeth'] as const)[a.mouth] ?? 'none';
   spec.build = a.width < 1 ? 'slim' : a.width < 1.25 ? 'average' : 'heavy';
   // A plain tee in the shirt color reads closest to the old box people.

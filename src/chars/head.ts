@@ -308,7 +308,7 @@ function paintFace(g: VoxelGrid, s: PersonSpec, skin: number, expr: Expression) 
     return;
   }
   if (bearded && mouthK !== 'open' && mouthK !== 'teeth') return;
-  const lip = shade(skin, 0.8);
+  const lip = s.sex === 'f' && s.age !== 'child' ? mixHex(skin, 0xb8404a, 0.5) : shade(skin, 0.8);
   switch (mouthK) {
     case 'smile':
       g.box(6, 2, F, 9, 2, F, MOUTH);
@@ -337,7 +337,7 @@ function paintFace(g: VoxelGrid, s: PersonSpec, skin: number, expr: Expression) 
     default:
       // A quiet lip line, like the references.
       g.box(6, 3, F, 9, 3, F, lip);
-      g.box(7, 2, F, 8, 2, F, shade(skin, 0.92));
+      g.box(7, 2, F, 8, 2, F, s.sex === 'f' && s.age !== 'child' ? mixHex(skin, 0xb8404a, 0.3) : shade(skin, 0.92));
   }
 }
 

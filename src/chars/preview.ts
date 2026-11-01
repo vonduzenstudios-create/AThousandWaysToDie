@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { JOBS } from '../deaths';
+import { JOBS, randomFile } from '../deaths';
 import { RAPIER } from '../physics';
 import { Ragdoll } from '../ragdoll';
 import type { Character } from '../character';
@@ -53,16 +53,16 @@ const VARIANTS: Record<string, string[]> = {
   outfits: ['overalls', 'coveralls', 'mail', 'cardigan', 'hawaiian', 'suit', 'loudSuit', 'hoodie', 'labCoat', 'cook', 'clergy', 'hiVis', 'trendy', 'police', 'construction', 'tank', 'polo', 'sweaterVest', 'tracksuit', 'jacket', 'dress', 'graphicTee', 'plaid', 'stripes', 'vest', 'apron', 'scrubs', 'gown', 'robe', 'firefighter', 'swim', 'bandUniform', 'casual'],
 };
 const SHOWCASE: [string, string, Partial<PersonSpec>][] = [
-  ['Townie', 'Rancher', { outfit: 'vest', top: 0xc8ccbc, accent: 0x6a3a22, bottoms: 0x4a6a9a, hat: 'cowboy', hatColor: 0x2a2a26, extras: ['bandana'], shoes: 0x6a3a22, shoeStyle: 'boots', hairStyle: 'short', hair: 0x8a6a3a, facial: 'stubble', skin: 0xf2c4a0, build: 'average', lower: 'pants', eyes: 'tall', brows: 'thin', mouth: 'none', eyeColor: 0x4a3a8a, age: 'adult' }],
-  ['Townie', 'Drum major', { outfit: 'bandUniform', top: 0xb82a2a, accent: GOLD_HEX, bottoms: 0xf2f2f2, hat: 'shako', hatColor: 0x1a1a1e, shoes: 0x1a1a1e, shoeStyle: 'boots', hairStyle: 'short', hair: 0x3b2416, facial: 'handlebar', skin: 0xf9d9bd, build: 'slim', lower: 'pants', eyes: 'tall', brows: 'thick', mouth: 'smile', age: 'adult' }],
-  ['Banker', 'Banker', { outfit: 'suit', top: 0x22242c, accent: 0xa82a2a, bottoms: 0x22242c, hairStyle: 'slick', hair: 0x1c1410, facial: 'goatee', skin: 0xe0a97e, build: 'average', lower: 'pants', held: 'briefcase', eyes: 'tall', brows: 'thick', mouth: 'none', age: 'adult', hat: 'none' }],
-  ['Townie', 'Beach regular', { outfit: 'swim', bottoms: 0x2a8ac0, hairStyle: 'bald', hair: 0x6a4122, skin: 0xf2c4a0, build: 'slim', lower: 'shorts', shoeStyle: 'sandals', extras: ['bracelets'], eyes: 'small', brows: 'thin', mouth: 'none', age: 'elder', hat: 'none', facial: 'none' }],
-  ['Townie', 'Yoga teacher', { outfit: 'robe', top: 0xf2f0ea, accent: 0x4a1a14, hairStyle: 'long', hair: 0x1c1410, skin: 0xf2d0b0, build: 'slim', lower: 'gown', shoeStyle: 'sandals', eyes: 'tall', brows: 'thick', mouth: 'none', age: 'adult', hat: 'none', facial: 'none' }],
-  ['Townie', 'Lumberjack', { outfit: 'plaid', top: 0xa82a22, accent: 0xf2f2f2, bottoms: 0x1e2a4a, extras: ['suspenders'], hairStyle: 'short', hair: 0x5a2a16, facial: 'beard', skin: 0xf2c4a0, build: 'buff', lower: 'pants', shoes: 0x2a1a10, shoeStyle: 'boots', eyes: 'tall', brows: 'thick', mouth: 'none', age: 'adult', hat: 'none', held: 'axe' }],
-  ['Butcher', 'Butcher', { outfit: 'apron', top: 0xf4f4f0, accent: 0x7a6a5a, bottoms: 0x3a3a40, extras: ['gloves'], hairStyle: 'bald', hair: 0x17151a, facial: 'handlebar', skin: 0xf2c4a0, build: 'heavy', lower: 'pants', shoes: 0x3a2418, shoeStyle: 'shoes', eyes: 'tall', brows: 'thick', mouth: 'none', age: 'adult', hat: 'none' }],
-  ['Cop', 'Cop', { outfit: 'police', top: 0x3aa8e0, accent: GOLD_HEX, bottoms: 0x17151a, hat: 'police', hatColor: 0x17151a, hairStyle: 'short', hair: 0x2a1a10, facial: 'mustache', skin: 0xf2c4a0, build: 'average', lower: 'pants', shoes: 0x4a2a16, shoeStyle: 'shoes', eyes: 'tall', brows: 'thick', mouth: 'none', age: 'adult' }],
-  ['Townie', 'Gala guest', { outfit: 'gown', top: 0x2a8a3a, accent: 0x1a5a2a, hairStyle: 'long', hair: 0xe0b040, hat: 'tiara', skin: 0xf9d9bd, build: 'slim', lower: 'gown', eyes: 'lashes', brows: 'thin', mouth: 'none', eyeColor: 0x3a8ac0, age: 'adult', facial: 'none', extras: ['bracelets'] }],
-  ['Surgeon', 'Surgeon', { outfit: 'scrubs', top: 0x1e3a8a, accent: 0x3a9ad8, bottoms: 0x1e3a8a, hat: 'surgical', hatColor: 0x1e3a8a, extras: ['mask'], shoes: 0x3aa8e0, shoeStyle: 'sandals', hairStyle: 'short', hair: 0x2a1a10, skin: 0xf2c4a0, build: 'average', lower: 'pants', eyes: 'tall', brows: 'thick', age: 'adult', facial: 'none' }],
+  ['Townie', 'Rancher', { sex: 'm', outfit: 'vest', top: 0xc8ccbc, accent: 0x6a3a22, bottoms: 0x4a6a9a, hat: 'cowboy', hatColor: 0x2a2a26, extras: ['bandana'], shoes: 0x6a3a22, shoeStyle: 'boots', hairStyle: 'short', hair: 0x8a6a3a, facial: 'stubble', skin: 0xf2c4a0, build: 'average', lower: 'pants', eyes: 'tall', brows: 'thin', mouth: 'none', eyeColor: 0x4a3a8a, age: 'adult' }],
+  ['Townie', 'Drum major', { sex: 'm', outfit: 'bandUniform', top: 0xb82a2a, accent: GOLD_HEX, bottoms: 0xf2f2f2, hat: 'shako', hatColor: 0x1a1a1e, shoes: 0x1a1a1e, shoeStyle: 'boots', hairStyle: 'short', hair: 0x3b2416, facial: 'handlebar', skin: 0xf9d9bd, build: 'slim', lower: 'pants', eyes: 'tall', brows: 'thick', mouth: 'smile', age: 'adult' }],
+  ['Banker', 'Banker', { sex: 'm', outfit: 'suit', top: 0x22242c, accent: 0xa82a2a, bottoms: 0x22242c, hairStyle: 'slick', hair: 0x1c1410, facial: 'goatee', skin: 0xe0a97e, build: 'average', lower: 'pants', held: 'briefcase', eyes: 'tall', brows: 'thick', mouth: 'none', age: 'adult', hat: 'none' }],
+  ['Townie', 'Beach regular', { sex: 'm', outfit: 'swim', bottoms: 0x2a8ac0, hairStyle: 'bald', hair: 0x6a4122, skin: 0xf2c4a0, build: 'slim', lower: 'shorts', shoeStyle: 'sandals', extras: ['bracelets'], eyes: 'small', brows: 'thin', mouth: 'none', age: 'elder', hat: 'none', facial: 'none' }],
+  ['Townie', 'Yoga teacher', { sex: 'f', outfit: 'robe', top: 0xf2f0ea, accent: 0x4a1a14, hairStyle: 'long', hair: 0x1c1410, skin: 0xf2d0b0, build: 'slim', lower: 'gown', shoeStyle: 'sandals', eyes: 'tall', brows: 'thick', mouth: 'none', age: 'adult', hat: 'none', facial: 'none' }],
+  ['Townie', 'Lumberjack', { sex: 'm', outfit: 'plaid', top: 0xa82a22, accent: 0xf2f2f2, bottoms: 0x1e2a4a, extras: ['suspenders'], hairStyle: 'short', hair: 0x5a2a16, facial: 'beard', skin: 0xf2c4a0, build: 'buff', lower: 'pants', shoes: 0x2a1a10, shoeStyle: 'boots', eyes: 'tall', brows: 'thick', mouth: 'none', age: 'adult', hat: 'none', held: 'axe' }],
+  ['Butcher', 'Butcher', { sex: 'm', outfit: 'apron', top: 0xf4f4f0, accent: 0x7a6a5a, bottoms: 0x3a3a40, extras: ['gloves'], hairStyle: 'bald', hair: 0x17151a, facial: 'handlebar', skin: 0xf2c4a0, build: 'heavy', lower: 'pants', shoes: 0x3a2418, shoeStyle: 'shoes', eyes: 'tall', brows: 'thick', mouth: 'none', age: 'adult', hat: 'none' }],
+  ['Cop', 'Cop', { sex: 'm', outfit: 'police', top: 0x3aa8e0, accent: GOLD_HEX, bottoms: 0x17151a, hat: 'police', hatColor: 0x17151a, hairStyle: 'short', hair: 0x2a1a10, facial: 'mustache', skin: 0xf2c4a0, build: 'average', lower: 'pants', shoes: 0x4a2a16, shoeStyle: 'shoes', eyes: 'tall', brows: 'thick', mouth: 'none', age: 'adult' }],
+  ['Townie', 'Gala guest', { sex: 'f', outfit: 'gown', top: 0x2a8a3a, accent: 0x1a5a2a, hairStyle: 'long', hair: 0xe0b040, hat: 'tiara', skin: 0xf9d9bd, build: 'slim', lower: 'gown', eyes: 'lashes', brows: 'thin', mouth: 'none', eyeColor: 0x3a8ac0, age: 'adult', facial: 'none', extras: ['bracelets'] }],
+  ['Surgeon', 'Surgeon', { sex: 'm', outfit: 'scrubs', top: 0x1e3a8a, accent: 0x3a9ad8, bottoms: 0x1e3a8a, hat: 'surgical', hatColor: 0x1e3a8a, extras: ['mask'], shoes: 0x3aa8e0, shoeStyle: 'sandals', hairStyle: 'short', hair: 0x2a1a10, skin: 0xf2c4a0, build: 'average', lower: 'pants', eyes: 'tall', brows: 'thick', age: 'adult', facial: 'none' }],
 ];
 interface Cell {
   vb: VoxelBody;
@@ -159,9 +159,10 @@ function build() {
       if (age < 13) job = 'Townie';
       const physical = age > 70 ? 'Feeble' : rng() < 0.25 ? 'Athlete' : rng() < 0.1 ? 'Feeble' : 'Normal';
       const mental = rng() < 0.2 ? 'Depressed' : rng() < 0.2 ? 'Medicated' : 'Normal';
-      const spec = specFromFile({ job, age, physical, mental }, Math.floor(rng() * 1e9));
+      const file = randomFile(rng, job as never);
+      const spec = specFromFile({ ...file, job, age, physical, mental }, Math.floor(rng() * 1e9));
       const stat = [physical, mental].filter((x) => x !== 'Normal').join(', ');
-      addCell(spec, `${job === 'Townie' ? 'Townie' : job}, ${age}${stat ? ' · ' + stat : ''}`);
+      addCell(spec, `${file.name.split(' ')[0]}, ${job}, ${age}${stat ? ' · ' + stat : ''}`);
     }
   } else {
     const jobs = [...new Set<string>([...JOBS, 'Cop', 'Construction Worker'])];
