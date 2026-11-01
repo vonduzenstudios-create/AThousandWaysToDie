@@ -56,7 +56,44 @@ export const HOMETOWN_DEATHS: DeathDef[] = [
   { id: 'bell', name: 'For Whom the Bell Tolls', category: 'Crushing', location: 'First Church Bell Tower', payout: 2400, blurb: 'Rang the church bell from inside it. Twelve times. It rang back.' },
   { id: 'bathtub', name: 'Bathtub Toaster', category: 'Electricity', location: '12 Maple St', payout: 2600, blurb: 'Chained three extension cords through the house to take a bath with a toaster.' },
   { id: 'forktoast', name: "Forkin' Toast", category: 'Electricity', location: '12 Maple St', payout: 600, blurb: 'Got the stuck toast out with a fork. The toast is fine.' },
+  // Job perks: each of these needs a body with the right job (see JOB_SKILLS in skills.ts).
+  { id: 'carlift', name: 'Oil Change', category: 'Crushing', location: "Duke's Garage", payout: 2200, blurb: 'A mechanic lay under the car and hit "down" on the lift. Now he is the oil change.' },
+  { id: 'vault', name: 'Safe Deposit', category: 'Stupidity', location: 'First Bank of Smallville', payout: 2600, blurb: 'Locked himself in the vault to count it all. Ran out of air at $1.2 million.' },
+  { id: 'fryer', name: 'Extra Crispy', category: 'Fire & Explosions', location: 'Smallville Diner', payout: 1800, blurb: 'Fished the spatula out of the deep fryer by hand. Then the rest of him went in after it.' },
+  { id: 'pharmacy', name: 'Prescription for Everything', category: 'Food & Drink', location: 'Rx Pharmacy', payout: 2000, blurb: 'Wrote himself a prescription for one of everything. Took them all with a Mountain Dew.' },
+  { id: 'mailself', name: 'Return to Sender', category: 'Machines', location: 'Post Office', payout: 2400, blurb: 'Mailed himself overnight in a crate marked FRAGILE. It was not handled as fragile.' },
+  { id: 'dodgeball', name: 'Varsity Dodgeball', category: 'Sports', location: 'School Gym', payout: 1500, blurb: 'Joined gym class dodgeball. The varsity team aimed for the head. Forty-seven times.' },
+  { id: 'crossingarm', name: 'Gate Crasher', category: 'Gravity', location: 'Smallville Rail Crossing', payout: 2300, blurb: "Sat on the railroad crossing arm and hit 'raise'. The arm is spring-loaded. Was." },
+  { id: 'plot', name: 'Try Before You Die', category: 'Stupidity', location: 'Smallville Cemetery', payout: 1700, blurb: 'Lay down in the pre-paid plot to try it out. The gravedigger was paid by the hour.' },
+  { id: 'coffin', name: 'Display Model', category: 'Stupidity', location: 'Smallville Cemetery', payout: 1900, blurb: 'Climbed into the display coffin to show a customer how roomy it is. It locks from the outside.' },
 ];
+
+/**
+ * Where the job-perk deaths are. The coordinates come from the buildings in town.ts
+ * (Duke's Garage lift, bank vault, diner fryer, pharmacy counter, post office counter,
+ * cemetery sales office); the gym, crossing and open grave reuse town spots.
+ */
+const PERK_AT = {
+  carlift: new THREE.Vector3(324.5, G, 264),
+  vault: new THREE.Vector3(336.5, G, 210.8),
+  fryer: new THREE.Vector3(262.5, G, 211.6),
+  pharmacy: new THREE.Vector3(303.5, G, 211.6),
+  mailself: new THREE.Vector3(376, G, 166.4),
+  coffin: new THREE.Vector3(300, G, 491),
+};
+
+/** Which jobs open each perk death, and what everyone else is told. */
+const PERKS: Record<string, { jobs: string[]; title: string; no: string }> = {
+  carlift: { jobs: ['Mechanic'], title: 'LOCKED OUT', no: "The lift controls need Duke's key. Only a Mechanic carries one." },
+  vault: { jobs: ['Banker'], title: 'ACCESS DENIED', no: 'The vault wants a combination. Only a Banker would know it.' },
+  fryer: { jobs: ['Diner Cook'], title: 'KITCHEN STAFF ONLY', no: 'The cook throws a ladle at you. The fryer belongs to the Diner Cook.' },
+  pharmacy: { jobs: ['Dentist', 'Doctor', 'Surgeon'], title: 'PRESCRIPTION REQUIRED', no: '"And who is your doctor?" Only a Dentist or a Doctor can write the scrip.' },
+  mailself: { jobs: ['Mail Carrier'], title: 'EMPLOYEES ONLY', no: 'Behind the counter is for the Mail Carrier. The clerk is very firm about it.' },
+  dodgeball: { jobs: ['Teen'], title: "YOU'RE NOT A STUDENT", no: 'A grown-up wandering into a school gym ends up on a list. This needs a Teen.' },
+  crossingarm: { jobs: ['Crossing Guard'], title: 'LOCKED', no: 'The crossing arm control box takes a key. The Crossing Guard has it.' },
+  plot: { jobs: ['Retiree'], title: 'RESERVED', no: 'This plot is pre-paid. By a Retiree, judging by the laminated order form.' },
+  coffin: { jobs: ['Insurance Salesman'], title: 'BY APPOINTMENT ONLY', no: 'The pre-need sales office. Only the Insurance Salesman has the key.' },
+};
 
 const lambert = (color: number) => new THREE.MeshLambertMaterial({ color });
 
@@ -139,6 +176,7 @@ export class Hometown {
   private pianoVy = 0;
   private bell: THREE.Group;
   private bellSwing = 0;
+  private crossArm: THREE.Group;
   private time = 0;
 
   constructor(private scene: THREE.Scene, private physics: RAPIER.World, private town: TownInfo, private api: HometownApi) {
@@ -236,6 +274,25 @@ export class Hometown {
     toaster.add(box(0.3, 0.1, 0.05, 0xd9a050, 0, 0.4, 0));
     this.add(this.prop(toaster, s.toaster, 'toaster', 'Get the stuck toast out with a fork', 2));
     this.interactables.push({ id: 'tub', pos: s.bathtub.clone(), radius: 2.2, prompt: 'Take a nice bath with the toaster', enabled: true });
+
+    // ---- Job perks: one death per job that only that job can reach.
+    const perk = (id: string, pos: THREE.Vector3, prompt: string, radius = 2.4) => this.interactables.push({ id, pos, radius, prompt, enabled: true });
+    perk('carlift', PERK_AT.carlift, 'Lie under the car and lower the lift', 3);
+    perk('vault', PERK_AT.vault, 'Step into the vault and pull the door shut', 2.8);
+    perk('fryer', PERK_AT.fryer, 'Fish the dropped spatula out of the fryer', 2.2);
+    perk('pharmacy', PERK_AT.pharmacy, 'Write yourself a prescription for everything');
+    perk('mailself', PERK_AT.mailself, 'Hop the counter and mail yourself overnight');
+    perk('dodgeball', s.dodgeball.clone(), 'Join the dodgeball game', 3);
+    perk('plot', s.openGrave.clone().setY(G).setZ(s.openGrave.z - 2.5), 'Lie down in your pre-paid plot to try it out', 2.6);
+    const coffin = new THREE.Group();
+    coffin.add(box(0.9, 0.6, 2.2, 0x5a3418, 0, 0.3, 0), box(0.95, 0.12, 2.25, 0x7a4a24, 0, 0.66, 0));
+    this.add(this.prop(coffin, PERK_AT.coffin, 'coffin', 'Climb into the display coffin', 3));
+    // The railroad crossing gets an arm (just the visible bit; trains still don't care).
+    this.crossArm = new THREE.Group();
+    for (let i = 0; i < 6; i++) this.crossArm.add(box(1, 0.25, 0.25, i % 2 ? 0xf2f2f2 : 0xd02a2a, -0.5 - i, 0, 0));
+    this.crossArm.position.copy(town.crossing).setY(G + 1.1);
+    this.add(this.crossArm);
+    perk('crossingarm', town.crossing.clone().setY(G), "Sit on the crossing arm and hit 'raise'", 3);
   }
 
   private add(o: THREE.Object3D) {
@@ -549,7 +606,120 @@ export class Hometown {
         ]);
         return true;
     }
+    const perk = PERKS[id];
+    if (perk) {
+      if (!perk.jobs.includes(body.job)) {
+        api.sound.denied();
+        api.toast(perk.title, perk.no, 3000);
+        return true;
+      }
+      p.lock(true);
+      this.perkDeath(id, ragdoll, pos);
+      return true;
+    }
     return false;
+  }
+
+  /** The job-perk deaths. The body has already been checked for the right job. */
+  private perkDeath(id: string, ragdoll: (vel: THREE.Vector3, spin?: number, bounce?: number) => DeathStyle, pos: () => THREE.Vector3) {
+    const api = this.api;
+    const ch = api.character!;
+    const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+    switch (id) {
+      case 'carlift':
+        api.runSeq([
+          { at: 0.2, fn: () => (api.toast('*hssssss*', 'The lift comes down slowly. Then not slowly.', 1800), api.sound.creak()) },
+          { at: 1.0, fn: () => api.sound.creak() },
+          { at: 1.6, fn: () => (api.sound.slam(), api.shake(1.2), api.particles.burst(pos(), 30, 0x2a2a2a, 6, { life: 0.8, size: 0.2 })) },
+          { at: 1.7, fn: () => api.kill('carlift', { kind: 'pancake' }) },
+        ]);
+        return;
+      case 'vault':
+        api.runSeq([
+          { at: 0.2, fn: () => (api.sound.slam(), api.shake(0.5), api.toast('*CLUNK*', 'The vault door seals. You start counting.', 1800)) },
+          { at: 1.8, fn: () => (api.sound.cash(), api.toast('$400,000...', 'The air is getting a little thin.', 1600)) },
+          { at: 3.2, fn: () => (api.sound.cash(), ch.tint(0x4060ff, 0.4), api.toast('$1,200,000...', 'Worth it.', 1500)) },
+          { at: 4.2, fn: () => api.kill('vault', ragdoll(V(0, 2, 0), 2, 0.2)) },
+        ]);
+        return;
+      case 'fryer':
+        api.runSeq([
+          ...Array.from({ length: 14 }, (_, i) => ({
+            at: 0.2 + i * 0.1,
+            fn: () => {
+              api.sound.noise({ dur: 0.12, vol: 0.4, freq: 3000 + i * 100, type: 'highpass' });
+              ch.tint(0xc08030, i / 18);
+              ch.kick(i % 2 ? 0.4 : -0.4);
+              api.particles.emit(pos().add(V(0, 1, 0)), V(0, 3, 0), 0xf2e6c8, { life: 0.5, size: 0.12, gravity: -2, spread: 1 });
+            },
+          })),
+          { at: 1.8, fn: () => api.toast('GOLDEN BROWN', 'Nobody orders the special anymore.', 1600) },
+          { at: 2.2, fn: () => api.kill('fryer', ragdoll(V(0, 4, 3), 4, 0.3)) },
+        ]);
+        return;
+      case 'pharmacy':
+        api.sound.gulp();
+        api.runSeq([
+          { at: 0.3, fn: () => api.toast('TAKE TWO OF EVERYTHING', 'With food. Is Mountain Dew food?', 1800) },
+          ...Array.from({ length: 24 }, (_, i) => ({ at: 0.6 + i * 0.09, fn: () => (ch.tint([0xff6ad5, 0x6affc8, 0xfff06a][i % 3], 0.2 + i / 40), ch.kick(i % 2 ? 0.3 : -0.3)) })),
+          { at: 2.9, fn: () => api.kill('pharmacy', ragdoll(V(0, 3, 0), 6, 0.3)) },
+        ]);
+        return;
+      case 'mailself':
+        api.runSeq([
+          { at: 0.2, fn: () => (api.sound.pull(), api.toast('PRIORITY OVERNIGHT', 'You tape yourself into a crate marked FRAGILE.', 1800)) },
+          ...[0, 1, 2, 3].map((k) => ({ at: 1.2 + k * 0.35, fn: () => (api.sound.slam(), api.shake(0.5 + k * 0.2), ch.kick(0.5)) })),
+          { at: 2.4, fn: () => api.toast('RETURN TO SENDER', 'Insufficient postage.', 1500) },
+          { at: 2.6, fn: () => api.kill('mailself', ragdoll(V(-18, 14, 6), 16, 0.5)) },
+        ]);
+        return;
+      case 'dodgeball':
+        api.say('Coach', 'NEW KID! Varsity, you know what to do.', 2400);
+        api.runSeq([
+          ...Array.from({ length: 16 }, (_, i) => ({
+            at: 0.9 + i * 0.13,
+            fn: () => {
+              api.sound.boing();
+              ch.kick(i % 2 ? 0.6 : -0.6);
+              api.particles.burst(pos().add(V(0, 1.4, 0)), 5, 0xd02a2a, 5, { life: 0.3, size: 0.18, gravity: 4 });
+            },
+          })),
+          { at: 3.1, fn: () => api.kill('dodgeball', ragdoll(V(6, 7, 0), 10, 0.5)) },
+        ]);
+        return;
+      case 'crossingarm':
+        api.runSeq([
+          { at: 0.2, fn: () => api.toast('*ding ding ding*', "You sit on the arm and turn the key to 'raise'.", 1600) },
+          ...Array.from({ length: 6 }, (_, i) => ({ at: 1.2 + i * 0.03, fn: () => (this.crossArm.rotation.z = -((i + 1) / 6) * 1.4) })),
+          { at: 1.25, fn: () => (api.sound.boing(), api.sound.whoosh(), api.shake(0.8)) },
+          { at: 1.3, fn: () => api.kill('crossingarm', ragdoll(V(-22, 30, 4), 14, 0.5)) },
+          { at: 6, fn: () => (this.crossArm.rotation.z = 0) },
+        ]);
+        return;
+      case 'plot':
+        api.runSeq([
+          { at: 0.3, fn: () => api.toast('COMFY', 'Good drainage. Nice view of the sky.', 1800) },
+          ...Array.from({ length: 10 }, (_, i) => ({
+            at: 1.6 + i * 0.22,
+            fn: () => {
+              api.sound.noise({ dur: 0.15, vol: 0.4, freq: 250 });
+              api.particles.burst(pos().add(V(0, 2, 0)), 12, 0x5a4030, 4, { life: 0.7, size: 0.25, gravity: 9 });
+              ch.tint(0x5a4030, i / 12);
+            },
+          })),
+          { at: 1.8, fn: () => api.say('Gravedigger', "Somebody's in the 2 o'clock already? Great, I'm early.", 2600) },
+          { at: 4, fn: () => api.kill('plot', ragdoll(V(0, 0.5, 0), 1, 0.1)) },
+        ]);
+        return;
+      case 'coffin':
+        api.runSeq([
+          { at: 0.2, fn: () => api.toast('VERY ROOMY', 'Satin lining. Memory foam. Lid on a soft close.', 1800) },
+          { at: 1.4, fn: () => (api.sound.slam(), api.toast('*click*', 'It locks from the outside. Display model. No air holes.', 2200)) },
+          { at: 3.4, fn: () => ch.tint(0x4060ff, 0.5) },
+          { at: 4, fn: () => api.kill('coffin', ragdoll(V(0, 1, 0), 1, 0.1)) },
+        ]);
+        return;
+    }
   }
 
   // ------------------------------------------------------------------ falls

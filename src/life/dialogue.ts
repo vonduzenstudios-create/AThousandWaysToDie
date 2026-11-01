@@ -147,9 +147,7 @@ export function greetPlayer(r: Rng, me: Talker, body: { first: string; job: stri
     neighbor: ['Oh, hi {other}! Your dog got out again.', 'Morning, neighbor!'],
     stranger: ['Can I help you?', 'Uh, hi?', 'Do I know you?', 'Yeah?'],
   };
-  let line = fill(r, lines[rel], { other: body.first });
-  if (body.job === 'Cop' && rel === 'stranger') line = pick(r, ['Officer! I didn\'t do anything!', 'Evening, officer. Lovely uniform.', 'Is there a problem, officer?']);
-  return line;
+  return fill(r, lines[rel], { other: body.first });
 }
 
 export function howAreYou(r: Rng, me: Talker) {
@@ -157,26 +155,37 @@ export function howAreYou(r: Rng, me: Talker) {
   return fill(r, MOOD_LINES[m], {}) + ' ' + fill(r, DOING_LINES, { doing: me.doing });
 }
 
-export function noGossip(r: Rng, smallTalk: readonly string[]) {
-  return fill(r, ['Nothing new. Boring town.', 'Not really. Somebody should die or something.', ...SMALL_TALK, ...smallTalk], {});
-}
-
 export function tellGossip(r: Rng, g: Gossip) {
   return fill(r, GOSSIP_TELL, { who: g.who, what: g.what, where: g.where });
 }
 
-export function ghostConfession(r: Rng, rel: RelKind, body: { first: string }) {
-  const lines: Line[] =
-    rel === 'stranger'
-      ? ['Okay. I\'m going to walk away now.', 'Cool. Cool cool cool. Bye.', 'Sir, this is a public sidewalk.', 'That\'s the third one today.']
-      : ['Ha! Good one, {other}. Lay off the antifreeze.', '{other}, if you\'re in there, blink twice.', 'You\'ve always been dramatic, {other}.', 'I\'m telling Mom.'];
-  return fill(r, lines, { other: body.first });
-}
+/** What people say about the job of the body the player is wearing. Null for jobs nobody has opinions on. */
+const ABOUT_JOB: Record<string, Line[]> = {
+  Cop: ["Officer! I didn't do anything!", 'Evening, officer. Lovely uniform.', 'Is there a problem, officer? Is it the sprinkler? It\'s the sprinkler.'],
+  Pastor: ["Pastor! I've been meaning to come back to church. I've been busy. Sinning, mostly.", 'Bless me, Pastor, for I have... no, never mind.'],
+  'Mail Carrier': ['Anything for me? Is it a check? It\'s a bill, isn\'t it.', "You're late. You're always late."],
+  'Insurance Salesman': ["I'm not buying a policy. I don't care how good the dental is.", 'Oh no. Oh no, it\'s the insurance guy. Act natural.'],
+  Banker: ['My loan application! Any news? No? You never call.', "Must be nice, banker. Must be real nice."],
+  Dentist: ["Doc! I've been flossing! ...Mostly.", "Please don't look at my teeth. I'm begging you."],
+  Teen: ["Shouldn't you be in school?", 'Get off my lawn. Or any lawn. In general.'],
+  Influencer: ['Are you filming me right now? Am I in it?', 'Oh, it\'s you. Smash that like button, I guess.'],
+  Retiree: ['Afternoon! Hot enough for ya?', 'Did you just get here, or have you been standing there since 1974?'],
+  'Diner Cook': ["My eggs were runny this morning. I'm not mad. I'm disappointed."],
+  Mechanic: ['My truck is making the noise again. The clunk. Not the clank.', "You're the guy who charged me $400 to tighten a cap."],
+  Farmhand: ['You smell like the barn.', 'How are the cows? Do they know?'],
+  'Crossing Guard': ['Do you stop traffic everywhere, or just at the school?'],
+  'Construction Worker': ["When's the road work going to be done? It's been eleven years."],
+  Nurse: ['Can you look at this rash real quick?'],
+  Doctor: ["Doc, while I've got you. This mole. Is it a mole?"],
+  Inmate: ["Don't look at me. I don't know you."],
+  'Prison Guard': ["I didn't see nothing, boss."],
+};
 
-export const PLAYER_BYE: Line[] = ['See you around.', 'Okay. Bye.', 'Don\'t do anything stupid.', 'Later.', 'Try not to die.'];
-
-export function bye(r: Rng) {
-  return fill(r, PLAYER_BYE, {});
+/** Something someone says because of who the player is (their job), not who they are. */
+export function aboutYou(r: Rng, job: string, rel: RelKind): string | null {
+  if (rel !== 'stranger' && rel !== 'neighbor') return null;
+  const lines = ABOUT_JOB[job];
+  return lines ? fill(r, lines, {}) : null;
 }
 
 // ---------------------------------------------------------------- reactions

@@ -3,22 +3,12 @@ import { sexOfName, type PersonFile } from '../deaths';
 import { Npc } from '../npc';
 import { mulberry32, pick, type Rng } from '../util';
 import { GameClock } from './clock';
-import {
-  bye,
-  conversation,
-  ghostConfession,
-  greetPlayer,
-  howAreYou,
-  noGossip,
-  tellGossip,
-  type Gossip,
-  type RelKind,
-} from './dialogue';
+import { aboutYou, conversation, greetPlayer, howAreYou, tellGossip, type Gossip, type RelKind } from './dialogue';
 import { NavGrid } from './nav';
 import { Resident, center } from './resident';
 import { DEFAULT_PROFILES } from './schedule';
 import type { JobProfile, LifeMap, LifePlace, PlaceKind, ResidentSpec, V3 } from './types';
-import { Bubbles, ClockHud, TalkPanel, type TalkOption } from './ui';
+import { Bubbles, ClockHud, TalkPanel } from './ui';
 
 export interface LifeHooks {
   /** A saver reached the player while the danger was still on. The game decides what the save does. */
@@ -27,8 +17,11 @@ export interface LifeHooks {
   onCall911?(caller: Npc, at: V3): void;
   /** Someone picked up the cash the player dropped. */
   onLurePickup?(npc: Npc, at: V3): void;
-  /** The player tries to buy from a clerk. Return true if the purchase went through. */
-  onBuy?(clerk: Npc, item: string, price: number): boolean;
+  /**
+   * A depressed townsperson, talking to the player, wishes out loud about a death on this map
+   * ("I'm not a nurse, but if I was..."). Return null for nothing to say.
+   */
+  deathHint?(speaker: PersonFile): string | null;
 }
 
 export interface LifeOptions {
@@ -643,7 +636,11 @@ export class LifeSystem {
     return best;
   }
 
-  /** Open the talk box with someone. `body` is the file of whoever the player is wearing. */
+  /**
+   * Talk to someone. There are no choices: they say one thing, picked from who they are
+   * (job, mood, what they've heard) and who you're wearing (job, how they know you).
+   * Depressed people may wish out loud about a way to die on this map.
+   */
   talkTo(npc: Npc, body: PersonFile, bodyPos: V3, onClose?: () => void) {
     const r = this.byNpc.get(npc);
     if (!r) return;
@@ -653,51 +650,37 @@ export class LifeSystem {
     this.talking = r;
     const me = this.byFile.get(body);
     const rel: RelKind = (me && r.relations.get(me)) || 'stranger';
-    const bodyFirst = body.name.split(' ')[0];
-    const greeting = greetPlayer(this.rng, r.talker(), { first: bodyFirst, job: body.job }, rel);
+    const line = this.lineFor(r, body, rel);
     this.talk.onClose = () => {
       if (this.talking === r) this.talking = null;
       if (r.interrupt?.kind === 'player') r.resume();
       onClose?.();
     };
-    const respond = (text: string, end = false) => {
-      npc.pose = 'talk';
-      this.talk.say(text);
-      if (end) {
-        this.talk.setOptions([]);
-        this.later(2.2, () => this.talk.close());
-      }
-    };
-    const options: TalkOption[] = [
-      { label: "How's it going?", pick: () => respond(howAreYou(this.rng, r.talker())) },
-      {
-        label: 'Heard anything interesting?',
-        pick: () => {
-          const g = [...this.gossip].reverse().find((x) => r.knows.has(x.id) && x.who !== body.name);
-          respond(g ? tellGossip(this.rng, g) : noGossip(this.rng, this.map.smallTalk ?? []));
-        },
-      },
-      { label: "What's around here?", pick: () => respond(this.directions(r)) },
-    ];
-    const jobLines = [...(r.lines ?? []), ...(r.profile.talkLines ?? [])];
-    if (jobLines.length) options.push({ label: `What's it like being a ${r.job.toLowerCase()}?`, pick: () => respond(pick(this.rng, jobLines)) });
-    const shop = r.work && r.block?.act === 'work' && r.work.sells?.length ? r.work : null;
-    if (shop && this.hooks.onBuy) {
-      const item = pick(this.rng, shop.sells!);
-      options.push({
-        label: `Buy ${item.item} ($${item.price})`,
-        pick: () => respond(this.hooks.onBuy!(npc, item.item, item.price) ? pick(this.rng, ['Here you go.', 'Enjoy!', 'Pleasure doing business.']) : "You can't afford that, pal."),
-      });
-    }
-    options.push({
-      label: `"I'm a ghost wearing ${bodyFirst}."`,
-      pick: () => {
-        respond(ghostConfession(this.rng, rel, { first: bodyFirst }), true);
-        r.mood -= 0.1;
-      },
+    this.talk.show(r.name, REL_LABEL[rel] ? `· ${REL_LABEL[rel]}` : `· ${r.job}`, line);
+    // Long enough to read, then they get on with their day.
+    const shownFor = 2.5 + line.length * 0.055;
+    this.later(shownFor, () => {
+      if (this.talking === r) this.talk.close();
     });
-    options.push({ label: 'Bye.', pick: () => respond(bye(this.rng), true) });
-    this.talk.show(r.name, REL_LABEL[rel] ? `· ${REL_LABEL[rel]}` : `· ${r.job}`, greeting, options);
+  }
+
+  /** The one thing this person says to whoever the player is wearing. */
+  private lineFor(r: Resident, body: PersonFile, rel: RelKind): string {
+    const rng = this.rng;
+    const first = body.name.split(' ')[0];
+    const greeting = greetPlayer(rng, r.talker(), { first, job: body.job }, rel);
+    if (r.npc.file.mental === 'Depressed' && rng() < 0.75) {
+      const hint = this.hooks.deathHint?.(r.npc.file);
+      if (hint) return hint;
+    }
+    const g = [...this.gossip].reverse().find((x) => r.knows.has(x.id) && x.who !== body.name);
+    if (g && rng() < 0.5) return `${greeting} ${tellGossip(rng, g)}`;
+    const you = aboutYou(rng, body.job, rel);
+    if (you && rng() < 0.5) return you;
+    const jobLines = [...(r.lines ?? []), ...(r.profile.talkLines ?? [])];
+    if (jobLines.length && rng() < 0.5) return `${greeting} ${pick(rng, jobLines)}`;
+    if (rel === 'stranger' && rng() < 0.35) return this.directions(r);
+    return `${greeting} ${howAreYou(rng, r.talker())}`;
   }
 
   closeTalk() {
@@ -770,8 +753,6 @@ export class LifeSystem {
     this.updateDanger();
     if (this.talking) {
       const m = f.menu;
-      if (m?.up) this.talk.move(-1);
-      if (m?.down) this.talk.move(1);
       if (m?.confirm) this.talk.confirm();
       if (m?.back) this.talk.close();
       if (f.player && Math.hypot(this.talking.npc.pos.x - f.player.pos.x, this.talking.npc.pos.z - f.player.pos.z) > 5) this.talk.close();

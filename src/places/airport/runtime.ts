@@ -116,7 +116,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
   door('apronE', STAFF_DOORS.apronE.x + 1, 0, TERM.z1 + 0.5, true, 2, 3, 0xe0b030, () => isJob(RAMP), 'Ramp access. Ground crew, baggage and pilots only.', 'RAMP');
   door('tsaoffice', TSA_OFFICE.doorX + 1, 0, TSA_OFFICE.z0 - 0.5, true, 2, 3, 0x3a6fd8, () => isJob(['TSA Agent']), 'TSA personnel only. There is a sticker that says "WE SEE YOU".', 'TSA');
   door('tower', TOWER.x0 + 4, 0, TOWER.z0 + 0.5, true, 2, 3, 0x9aa3ad, () => isJob(['Air Traffic Controller']), 'Air traffic control only. The keypad wants a code you do not have.', 'ATC');
-  door('lounge', LOUNGE.x0 - 0.5, UP, LOUNGE.doorZ + 1, false, 2, 3, 0x6b4330, () => bs.lounge || isJob(['Pilot', 'Flight Attendant']), 'Sky Lounge members only. Day passes at the desk.', 'SKY LOUNGE');
+  door('lounge', LOUNGE.x0 - 0.5, UP, LOUNGE.doorZ + 1, false, 2, 3, 0x6b4330, () => bs.lounge || isJob(['Pilot', 'Flight Attendant', 'Influencer']), 'Sky Lounge members only. Day passes at the desk.', 'SKY LOUNGE');
   for (const g of GATES)
     door(`gate${g.id}`, g.x + 2, UP, TERM.z1 + 0.5, true, 4, 3, 0x3b5fa8, () => bs.pass || isJob(CREW), 'You need a boarding pass to board. Kiosks are downstairs in the main hall.', `GATE ${g.id}`);
   // TSA lanes: invisible gates that open for ticketed passengers and staff.
@@ -436,7 +436,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
         return;
       }
       case 'loungedesk':
-        if (bs.lounge || isJob(['Pilot', 'Flight Attendant'])) return game.toast('Welcome in', 'Your access is already on file.', 1600);
+        if (bs.lounge || isJob(['Pilot', 'Flight Attendant', 'Influencer'])) return game.toast('Welcome in', 'Your access is already on file.', 1600);
         if (game.spend(200, 'Sky Lounge day pass')) {
           bs.lounge = true;
           s.cash();
