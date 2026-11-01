@@ -36,8 +36,51 @@ export interface Shop {
   sign: { pos: THREE.Vector3; rotY: number; bg: string; fg: string; lines: string[] };
 }
 
+/** A cottage the street kit builds (solid, with a front door facing `face`). */
+export interface KitHouse {
+  x0: number;
+  z0: number;
+  wd: number;
+  dp: number;
+  face: 'n' | 's';
+  floors: number;
+  wall: number;
+  roof: number;
+  seed: number;
+}
+
+/** A walk-in shop shell the runtime builds from the street kit (see town.ts). */
+export interface KitShop {
+  id: string;
+  x0: number;
+  z0: number;
+  wd: number;
+  dp: number;
+  face: 'n' | 's';
+  floors: number;
+  /** Floor height (boardwalk shops sit at deck level). */
+  y: number;
+}
+
+export interface KitProp {
+  kind: 'lamp' | 'bench' | 'planter' | 'pottedTree' | 'cafeTable' | 'umbrellaTable' | 'bin' | 'bollard' | 'hydrant' | 'crates' | 'barrel' | 'flowerPot' | 'mailbox' | 'newsStand' | 'signPost';
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+}
+
 export interface BeachLayout {
   water: Float32Array;
+  /** Columns NPCs must not walk through (building walls and solid cottages). */
+  solid: Uint8Array;
+  kit: {
+    houses: KitHouse[];
+    shops: KitShop[];
+    props: KitProp[];
+    bunting: [THREE.Vector3, THREE.Vector3][];
+    paving: { x0: number; z0: number; x1: number; z1: number; y: number; kind: 'cobble' | 'sidewalk' | 'pavers' | 'plaza'; curb?: ('n' | 's' | 'e' | 'w')[] }[];
+  };
   spawn: THREE.Vector3;
   areas: Record<string, Box>;
   shops: Shop[];
@@ -87,6 +130,12 @@ export function buildBeach(w: VoxelWorld, seed = 4242): BeachLayout {
   const palms: THREE.Vector3[] = [];
   const towels: THREE.Vector3[] = [];
   const benches: THREE.Vector3[] = [];
+  const solid = new Uint8Array(SX * SZ);
+  const markSolid = (x0: number, z0: number, x1: number, z1: number) => {
+    for (let x = Math.max(0, x0); x <= Math.min(SX - 1, x1); x++) for (let z = Math.max(0, z0); z <= Math.min(SZ - 1, z1); z++) solid[z * SX + x] = 1;
+  };
+  const kit: BeachLayout['kit'] = { houses: [], shops: [], props: [], bunting: [], paving: [] };
+  const prop = (kind: KitProp['kind'], x: number, y: number, z: number, rotY = 0) => kit.props.push({ kind, x, y, z, rotY });
 
   const harborX = 610;
   const harborZ = 232;
@@ -212,6 +261,15 @@ export function buildBeach(w: VoxelWorld, seed = 4242): BeachLayout {
     w.fill(sx + 4, GL - 1, 60, sx + 5, GL - 1, HWY - 7, B.Sidewalk);
     roads.push({ points: [v(sx, GL, 62), v(sx, GL, HWY)], width: 6 });
   }
+  for (const sx of [240, 360, 480, 600, 700]) {
+    kit.paving.push({ x0: sx - 5, z0: 67, x1: sx - 3, z1: HWY - 6, y: GL, kind: 'sidewalk', curb: ['e'] });
+    kit.paving.push({ x0: sx + 4, z0: 67, x1: sx + 6, z1: HWY - 6, y: GL, kind: 'sidewalk', curb: ['w'] });
+    for (let z = 74; z < HWY - 8; z += 16) {
+      prop('lamp', sx - 4.5, GL, z + 0.5);
+      prop('lamp', sx + 5.5, GL, z + 8.5);
+    }
+    prop('hydrant', sx + 5.4, GL, 100.5);
+  }
   w.fill(240, GL - 1, 60, 703, GL - 1, 66, B.Asphalt);
   roads.push({ points: [v(240, GL, 63), v(700, GL, 63)], width: 6 });
   // Harbor road and parking.
@@ -219,40 +277,24 @@ export function buildBeach(w: VoxelWorld, seed = 4242): BeachLayout {
   for (let x = 620; x < 760; x += 6) w.fill(x, GL - 1, 175, x, GL - 1, 182, B.White);
 
   // ---------------------------------------------------------------- town
-  const wallPick = [B.WallBlue, B.WallMint, B.WallPeach, B.White, BB.Turquoise, BB.Coral, BB.Lemon, BB.Stucco];
-  const roofPick = [B.RoofRed, B.RoofBlue, B.RoofGreen, B.RoofBrown, BB.Thatch];
-  const building = (x0: number, z0: number, wd: number, dp: number, h: number, wall: number, roof: number, door: 'n' | 's' | 'e' | 'w', gable = true) => {
+  const HOUSE_WALLS = [0x8fd6d0, 0xf4a38c, 0xf2dc7a, 0xa8dcb4, 0xf3efe6, 0xf6c49a, 0x9cc4e4, 0xd8b8e0];
+  const HOUSE_ROOFS = [0xb4553b, 0x35578f, 0x3f7a4a, 0x6b4a3a, 0xc8a46a, 0x5f6066];
+  /** Clear a lot and leave the visible building to the street kit (houses are solid). */
+  const clearLot = (x0: number, z0: number, wd: number, dp: number, h: number) => {
     const x1 = x0 + wd - 1, z1 = z0 + dp - 1;
     w.fill(x0, GL - 1, z0, x1, GL - 1, z1, B.Plank);
     w.fill(x0, GL, z0, x1, GL + h + 8, z1, B.Air);
-    for (let y = GL; y < GL + h; y++)
-      for (let x = x0; x <= x1; x++)
-        for (let z = z0; z <= z1; z++) {
-          if (!(x === x0 || x === x1 || z === z0 || z === z1)) continue;
-          const corner = (x === x0 || x === x1) && (z === z0 || z === z1);
-          const win = !corner && y === GL + 2 && (x + z) % 3 === 0;
-          w.set(x, y, z, corner ? B.Wood : win ? B.Glass : wall);
-        }
-    const cx = Math.floor((x0 + x1) / 2), cz = Math.floor((z0 + z1) / 2);
-    const hole = (x: number, z: number) => w.fill(x, GL, z, x, GL + 2, z, B.Air);
-    let doorPos: THREE.Vector3;
-    if (door === 'n') (hole(cx, z0), hole(cx + 1, z0), (doorPos = v(cx + 1, GL, z0 - 1.5)));
-    else if (door === 's') (hole(cx, z1), hole(cx + 1, z1), (doorPos = v(cx + 1, GL, z1 + 2)));
-    else if (door === 'e') (hole(x1, cz), hole(x1, cz + 1), (doorPos = v(x1 + 2, GL, cz + 1)));
-    else (hole(x0, cz), hole(x0, cz + 1), (doorPos = v(x0 - 1.5, GL, cz + 1)));
-    if (gable) {
-      const half = Math.ceil(dp / 2);
-      for (let i = 0; i <= half; i++) {
-        const y = GL + h + i;
-        w.fill(x0 - 1, y, z0 - 1 + i, x1 + 1, y, z0 - 1 + i, roof);
-        w.fill(x0 - 1, y, z1 + 1 - i, x1 + 1, y, z1 + 1 - i, roof);
-        if (i > 0) {
-          w.fill(x0, y, z0 + i, x0, y, z1 - i, wall);
-          w.fill(x1, y, z0 + i, x1, y, z1 - i, wall);
-        }
-      }
-    } else w.fill(x0 - 1, GL + h, z0 - 1, x1 + 1, GL + h, z1 + 1, roof);
-    return { door: doorPos, inside: box(x0 + 1, GL, z0 + 1, x1 - 1, GL, z1 - 1) };
+  };
+  const house = (x0: number, z0: number, wd: number, dp: number, face: 'n' | 's') => {
+    clearLot(x0, z0, wd, dp, 4);
+    const x1 = x0 + wd - 1, z1 = z0 + dp - 1;
+    kit.houses.push({ x0, z0, wd, dp, face, floors: rng() < 0.45 ? 2 : 1, wall: pick(rng, HOUSE_WALLS), roof: pick(rng, HOUSE_ROOFS), seed: Math.floor(rng() * 1e9) });
+    markSolid(x0, z0, x1, z1);
+    const dx = x0 + wd / 2;
+    const door = face === 'n' ? v(dx, GL, z0 - 1.5) : v(dx, GL, z1 + 2);
+    // Mailbox by the path.
+    prop('mailbox', dx + 2.2, GL, face === 'n' ? z0 - 2.5 : z1 + 3, face === 'n' ? Math.PI : 0);
+    return { door, inside: box(x0 + 1, GL, z0 + 1, x1 - 1, GL, z1 - 1) };
   };
 
   // Beach cottages in the residential blocks between the streets.
@@ -262,7 +304,7 @@ export function buildBeach(w: VoxelWorld, seed = 4242): BeachLayout {
       for (let x0 = bx0 + 2; x0 + 11 < bx1; x0 += 15) {
         if (rng() < 0.12) continue;
         const wd = 10 + Math.floor(rng() * 3), dp = 9 + Math.floor(rng() * 3);
-        const h = building(x0, z0, wd, dp, 4, pick(rng, wallPick), pick(rng, roofPick), row === 2 ? 's' : 'n');
+        const h = house(x0, z0, wd, dp, row === 2 ? 's' : 'n');
         houses.push(h);
         // Little fence and garden.
         if (rng() < 0.5) for (let x = x0; x < x0 + wd; x += 2) w.set(x, GL, z0 + dp + 1, B.White);
@@ -278,27 +320,38 @@ export function buildBeach(w: VoxelWorld, seed = 4242): BeachLayout {
       for (let yy = GL; yy < y + 12; yy++) w.set(x, yy, z, B.Air);
       w.set(x, GL - 1, z, B.Grass);
     }
-    houses.push(building(x0, z0, 10, 9, 4, pick(rng, wallPick), pick(rng, roofPick), 's'));
+    houses.push(house(x0, z0, 10, 9, 's'));
   }
 
   // Shops and civic buildings along the highway's north side.
-  const shop = (id: string, name: string, x0: number, z0: number, wd: number, dp: number, h: number, wall: number, roof: number, door: 'n' | 's' | 'e' | 'w', bg: string, fg: string, lines: string[]) => {
-    const b = building(x0, z0, wd, dp, h, wall, roof, door, false);
+  const shop = (id: string, name: string, x0: number, z0: number, wd: number, dp: number, h: number, _wall: number, _roof: number, door: 'n' | 's', bg: string, fg: string, lines: string[], fy = GL) => {
+    clearLot(x0, z0, wd, dp, h);
+    if (fy > GL) w.fill(x0, GL, z0, x0 + wd - 1, fy - 1, z0 + dp - 1, B.Plank);
+    const floors = h >= 7 ? 3 : 2;
+    kit.shops.push({ id, x0, z0, wd, dp, face: door, floors, y: fy });
     const x1 = x0 + wd - 1, z1 = z0 + dp - 1;
-    const cx = (x0 + x1) / 2 + 0.5;
-    let counter = v(cx, GL, (z0 + z1) / 2 + 0.5);
-    let sign: Shop['sign'];
-    if (door === 's') {
-      w.fill(x0 + 2, GL, z0 + 3, x1 - 2, GL, z0 + 3, B.Wood);
-      counter = v(cx, GL, z0 + 4.5);
-      sign = { pos: v(cx, GL + h - 0.6, z1 + 1.06), rotY: 0, bg, fg, lines };
-    } else {
-      w.fill(x0 + 2, GL, z1 - 3, x1 - 2, GL, z1 - 3, B.Wood);
-      counter = v(cx, GL, z1 - 4.5);
-      sign = { pos: v(cx, GL + h - 0.6, z0 - 0.06), rotY: Math.PI, bg, fg, lines };
-    }
-    shops.push({ id, name, door: b.door, inside: b.inside, counter, sign });
-    return b;
+    const cx = x0 + wd / 2;
+    // Walls block NPC paths, except the doorway.
+    markSolid(x0, z0, x1, z0);
+    markSolid(x0, z1, x1, z1);
+    markSolid(x0, z0, x0, z1);
+    markSolid(x1, z0, x1, z1);
+    const dz = door === 's' ? z1 : z0;
+    solid[dz * SX + Math.floor(cx) - 1] = 0;
+    solid[dz * SX + Math.floor(cx)] = 0;
+    // The counter runs along the back wall; customers stand in front of it.
+    const backZ = door === 's' ? z0 + 3 : z1 - 3;
+    markSolid(x0 + 2, backZ, x1 - 2, backZ);
+    const counter = door === 's' ? v(cx, fy, z0 + 4.5) : v(cx, fy, z1 - 4.5);
+    const roofY = fy + floors * 3 + 1.05;
+    // Gable roofs overhang the facade, so their rooftop signs stand out past the eaves.
+    const out = id === 'tikibar' || id === 'harbormaster' || id === 'charters' ? 1.4 : 0;
+    const sign: Shop['sign'] = door === 's'
+      ? { pos: v(cx, roofY, z1 + 1.1 + out), rotY: 0, bg, fg, lines }
+      : { pos: v(cx, roofY, z0 - 0.1 - out), rotY: Math.PI, bg, fg, lines };
+    const doorPos = door === 's' ? v(cx, fy, z1 + 2) : v(cx, fy, z0 - 1.5);
+    shops.push({ id, name, door: doorPos, inside: box(x0 + 1, fy, z0 + 1, x1 - 1, fy, z1 - 1), counter, sign });
+    return { door: doorPos };
   };
   shop('steakhouse', "Big Al's Surf & Turf", 250, 126, 22, 18, 6, B.Brick, B.Dark, 's', '#3a1a0a', '#ffcc66', ["BIG AL'S", 'SURF & TURF']);
   shop('urgentcare', 'Sandy Shores Urgent Care', 372, 126, 24, 18, 7, B.White, B.RoofBlue, 's', '#ffffff', '#d01818', ['URGENT CARE', 'we do our best']);
@@ -308,7 +361,7 @@ export function buildBeach(w: VoxelWorld, seed = 4242): BeachLayout {
 
   // Boardwalk shops (south-facing, between the highway and the boardwalk).
   const bwShop = (id: string, name: string, x0: number, wd: number, wall: number, bg: string, fg: string, lines: string[]) =>
-    shop(id, name, x0, 166, wd, 22, 5, wall, BB.Thatch, 's', bg, fg, lines);
+    shop(id, name, x0, 166, wd, 22, 5, wall, BB.Thatch, 's', bg, fg, lines, DECK);
   bwShop('surfshop', 'Gnarly Pete\'s Surf Shop', 160, 22, BB.Turquoise, '#0a6a8a', '#ffffff', ["GNARLY PETE'S", 'SURF · TUBES · BROCHURES']);
   bwShop('fryshack', 'Fry Shack', 200, 16, BB.Lemon, '#e0302a', '#ffe46a', ['FRY SHACK', 'JUMBO BUCKET $12']);
   bwShop('scoops', 'Scoops Ahoy', 236, 16, B.WallPeach, '#ff7fb0', '#ffffff', ['SCOOPS AHOY', 'ice cream']);
@@ -329,16 +382,26 @@ export function buildBeach(w: VoxelWorld, seed = 4242): BeachLayout {
   for (let x = bwX0 + 20; x < bwX1; x += 40) w.fill(x, GL, 207, x + 3, GL, 207, BB.Boardwalk);
   // Railing on the sand side with gaps at the steps.
   for (let x = bwX0; x <= bwX1; x++) if ((x - bwX0 - 20) % 40 > 4) w.set(x, DECK, 206, B.Wood);
-  // Lamps.
-  for (let x = bwX0 + 10; x < bwX1; x += 30) {
-    w.fill(x, DECK, 205, x, DECK + 3, 205, B.Dark);
-    w.set(x, DECK + 4, 205, BB.Lamp);
+  // Lamps, with bunting strung lamp to lamp along the sea rail.
+  let lastLamp: THREE.Vector3 | null = null;
+  for (let x = bwX0 + 10; x < bwX1; x += 15) {
+    if (x > 510 && x < 540) continue; // Ferris wheel platform
+    prop('lamp', x + 0.5, DECK, 205.5);
+    const top = v(x + 0.5, DECK + 3.9, 205.5);
+    if (lastLamp && x - lastLamp.x < 20) kit.bunting.push([lastLamp, top]);
+    lastLamp = top;
   }
-  // Benches facing the sea.
+  // Benches facing the sea, with bins between them.
   for (let x = bwX0 + 26; x < bwX1; x += 30) {
-    w.fill(x, DECK, 203, x + 2, DECK, 203, B.Wood);
-    benches.push(v(x + 1.5, DECK, 202.5));
+    if (x > 505 && x < 545) continue;
+    prop('bench', x + 1.5, DECK, 203.2, Math.PI);
+    benches.push(v(x + 1.5, DECK, 202.6));
+    prop('bin', x + 5, DECK, 204.6);
+    prop('planter', x - 6, DECK, 189.4);
   }
+  // Cafe tables outside the food stands, on the deck in front of the shops.
+  for (const [x0, x1] of [[200, 216], [236, 252], [300, 322], [560, 576]] as const)
+    for (let x = x0 + 2; x < x1 - 1; x += 4) prop('umbrellaTable', x + 0.5, DECK, 192.5);
   const payphone = v(285.5, DECK, 190.5);
   w.fill(285, DECK, 189, 285, DECK + 2, 189, B.Metal);
   const ferris = v(525, DECK, 196);
@@ -683,6 +746,8 @@ export function buildBeach(w: VoxelWorld, seed = 4242): BeachLayout {
     payphone,
     ferris,
     roads,
+    solid,
+    kit,
   };
 }
 

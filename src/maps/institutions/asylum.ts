@@ -30,6 +30,7 @@ import {
   type InstitutionApi,
   type Gate,
 } from './common';
+import { asylumDecor, asylumLots, ASYLUM_LOTS, type Decor } from './decor';
 import { asylumLife } from './life';
 
 /**
@@ -227,8 +228,10 @@ function buildAsylum(w: VoxelWorld, rng: Rng) {
   for (let i = 0; i < 30; i++) {
     const x = Math.floor(rng() * SX), z = 40 + Math.floor(rng() * 136);
     const inside = x > WALL.x0 - 4 && x < WALL.x1 + 4 && z < WALL.z1 + 4;
-    if (!inside && x > 3 && x < SX - 4) tree(w, rng, x, z);
+    const onLot = ASYLUM_LOTS.some(([x0, z0, x1, z1]) => x > x0 - 3 && x < x1 + 3 && z > z0 - 3 && z < z1 + 3);
+    if (!inside && !onLot && x > 3 && x < SX - 4) tree(w, rng, x, z);
   }
+  asylumLots(w);
 }
 
 // ------------------------------------------------------------------ runtime
@@ -251,6 +254,7 @@ function asylumZones(): AccessZone[] {
 
 class AsylumRuntime implements MapRuntime {
   private kit: PropKit;
+  private decor: Decor;
   private game: GameApi;
   private rng = mulberry32(9172);
   private access = new AccessControl(asylumZones());
@@ -289,6 +293,7 @@ class AsylumRuntime implements MapRuntime {
   constructor(private ctx: MapContext) {
     this.game = ctx.game;
     const kit = (this.kit = new PropKit(ctx));
+    this.decor = asylumDecor(ctx, WALL);
     this.interactables = kit.interactables;
     const rng = this.rng;
 
@@ -944,6 +949,7 @@ class AsylumRuntime implements MapRuntime {
   dispose() {
     for (const a of [...this.actors, ...this.mob]) a.dispose();
     this.kit.dispose();
+    this.decor.dispose();
   }
 }
 
