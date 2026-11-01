@@ -103,7 +103,15 @@ export const ADJUSTER_NOTES = [
 const FIRST = ['Linda', 'Gary', 'Doug', 'Brenda', 'Kevin', 'Tammy', 'Earl', 'Darlene', 'Chad', 'Bev', 'Randy', 'Peggy', 'Duane', 'Crystal', 'Walt', 'Rhonda', 'Skip', 'Marge', 'Travis', 'Deb', 'Lyle', 'Shonda', 'Hank', 'Trish'];
 const LAST = ['Pruitt', 'Hoffman', 'Kowalski', 'Butts', 'McGee', 'Dinkel', 'Ferguson', 'Snodgrass', 'Plunkett', 'Wiggins', 'Sauerkraut', 'Bumgarner', 'Weatherby', 'Puckett', 'Hornswoggle', 'Fudge'];
 
-export const JOBS = ['Farmhand', 'Mechanic', 'Mail Carrier', 'Retiree', 'Banker', 'Teen', 'Dentist', 'Diner Cook', 'Insurance Salesman', 'Pastor', 'Crossing Guard', 'Influencer', 'Cop', 'Construction Worker'] as const;
+export const JOBS = [
+  'Farmhand', 'Mechanic', 'Mail Carrier', 'Retiree', 'Banker', 'Teen', 'Dentist', 'Diner Cook', 'Insurance Salesman', 'Pastor', 'Crossing Guard', 'Influencer', 'Cop', 'Construction Worker',
+  // Smallville Grocery staff (src/places/grocery).
+  'Butcher', 'Stocker', 'Cashier', 'Deli Clerk', 'Produce Manager', 'Store Manager',
+  // City General Hospital staff (src/places/hospital).
+  'Doctor', 'Nurse', 'EMT', 'Firefighter', 'Janitor', 'Security Guard',
+] as const;
+/** Jobs that only exist at their workplace (never rolled for random townsfolk). */
+export const SPECIAL_JOBS = ['Surgeon', 'Patient'] as const;
 export type Physical = 'Feeble' | 'Normal' | 'Athlete';
 export type Mental = 'Depressed' | 'Normal' | 'Medicated';
 
@@ -112,7 +120,7 @@ export const PHYSICAL_INFO: Record<Physical, string> = {
   Normal: 'double jump, flips, dive',
   Athlete: 'triple jump, long jump',
 };
-export type Job = (typeof JOBS)[number];
+export type Job = (typeof JOBS)[number] | (typeof SPECIAL_JOBS)[number];
 
 const BORING_CAUSES = [
   'choking on a vitamin',
@@ -208,7 +216,7 @@ export interface PersonFile {
   wallet: Wallet;
 }
 
-const ATHLETIC_JOBS: readonly string[] = ['Cop', 'Construction Worker', 'Farmhand', 'Teen', 'Mail Carrier'];
+const ATHLETIC_JOBS: readonly string[] = ['Cop', 'Construction Worker', 'Farmhand', 'Teen', 'Mail Carrier', 'Firefighter', 'EMT'];
 
 export function physicalFor(rng: Rng, age: number, job: string): Physical {
   if (age >= 72) return rng() < 0.9 ? 'Feeble' : 'Normal';
@@ -224,6 +232,7 @@ export function randomFile(rng: Rng, job?: Job): PersonFile {
   let age = Math.floor(randRange(rng, 16, 92));
   if (chosenJob === 'Teen') age = Math.floor(randRange(rng, 14, 19));
   if (chosenJob === 'Retiree') age = Math.floor(randRange(rng, 66, 95));
+  if (['Doctor', 'Surgeon', 'Nurse', 'EMT', 'Firefighter', 'Security Guard'].includes(chosenJob)) age = Math.floor(randRange(rng, 24, 64));
   if (chosenJob === 'Cop' || chosenJob === 'Construction Worker') age = Math.floor(randRange(rng, 21, 56));
   const netWorth = Math.floor(Math.pow(rng(), 3) * 2_000_000) - 20000;
   const roll = rng();
