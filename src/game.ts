@@ -32,6 +32,7 @@ import { HOMETOWN_DEATHS, Hometown } from './hometown';
 import { GROCERY } from './places/grocery';
 import type { PlaceRuntime } from './places/types';
 import { PostFX, warmLighting } from './render/post';
+import { StreetKit } from './kit';
 import { UI } from './ui';
 import { mulberry32, pick, turnToward, type Rng } from './util';
 import { Minimap, type Blip } from './minimap';
@@ -215,6 +216,10 @@ export class Game {
     this.start0 = this.town.spawn.clone().setY(G + 4);
     if (devPlace === 'hospital') this.start0 = hospital.entrance.clone().add(new THREE.Vector3(0, 4, -8));
     this.town.world.build(this.scene, this.physics);
+    // Detailed exterior-only buildings from the building kit (docs/building-kit.md).
+    const kit = new StreetKit({ parent: this.scene, physics: this.physics });
+    for (const b of this.town.kitBuildings) kit.building(b);
+    kit.finish();
     this.props = new Props(this.scene, this.physics, this.town);
     this.atms = new Atms(this.scene, this.physics, this.town.world, this.town.areas.downtown, this.props.interactables);
     this.combat = this.makeCombat();
