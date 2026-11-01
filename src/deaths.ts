@@ -43,6 +43,15 @@ export const DEATHS: DeathDef[] = [
 ];
 
 export const DEATH_BY_ID: Record<string, DeathDef> = Object.fromEntries(DEATHS.map((d) => [d.id, d]));
+
+/** Add a map's deaths to the ledger. Ids must be globally unique; repeats are ignored. */
+export function registerDeaths(defs: DeathDef[]) {
+  for (const d of defs) {
+    if (DEATH_BY_ID[d.id]) continue;
+    DEATHS.push(d);
+    DEATH_BY_ID[d.id] = d;
+  }
+}
 export const TOTAL_SLOTS = 1000;
 
 export const DENIAL_REASONS = [

@@ -11,6 +11,7 @@ import {
   Ledger,
   UNINSURED_LINES,
   isDeserving,
+  registerDeaths,
   type PersonFile,
 } from './deaths';
 import { Input } from './input';
@@ -20,8 +21,12 @@ import { Player, PLAYER_CENTER, type LandEvent } from './player';
 import { Props } from './props';
 import { Ragdoll } from './ragdoll';
 import { G, SIZE, buildTown, inBox, type TownInfo } from './town';
+import { HOMETOWN_DEATHS, Hometown } from './hometown';
 import { UI } from './ui';
 import { mulberry32, pick, type Rng } from './util';
+
+/** How many townspeople walk around Smallville. */
+const TOWN_POPULATION = 44;
 
 type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'possessing';
 
@@ -94,6 +99,7 @@ export class Game {
   private crosshair: HTMLElement;
   private hornCooldown = 0;
   private npcRespawnT = 0;
+  private hometown: Hometown;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -112,7 +118,7 @@ export class Game {
 
     // Sky dome and lighting.
     const skyColor = new THREE.Color(0x9fd3ff);
-    this.scene.fog = new THREE.Fog(skyColor, 90, 260);
+    this.scene.fog = new THREE.Fog(skyColor, 110, 320);
     const sky = new THREE.Mesh(
       new THREE.SphereGeometry(400, 24, 12),
       new THREE.ShaderMaterial({
@@ -147,6 +153,28 @@ export class Game {
     this.town.world.build(this.scene, this.physics);
     this.props = new Props(this.scene, this.physics, this.town);
     this.particles = new Particles(this.scene);
+    registerDeaths(HOMETOWN_DEATHS);
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const game = this;
+    this.hometown = new Hometown(this.scene, this.physics, this.town, {
+      get player() {
+        return game.player;
+      },
+      get body() {
+        return game.body;
+      },
+      get character() {
+        return game.character;
+      },
+      sound: this.sound,
+      particles: this.particles,
+      kill: (id, style) => this.kill(id, style),
+      runSeq: (steps) => this.runSeq(steps),
+      toast: (t, b, ms) => this.ui.toast(t, b, ms),
+      say: (who, line, ms) => this.ui.say(who, line, ms),
+      shake: (a) => this.cam.shake(a),
+    });
+    this.props.interactables.push(...this.hometown.interactables);
 
     this.input = new Input(canvas);
     this.input.onAnyGesture = () => this.sound.init();
@@ -173,7 +201,7 @@ export class Game {
     this.cam.pitch = 0.45;
     this.cam.dist = 26;
     this.cam.autoOrbit = 0.08;
-    this.cam.snap(new THREE.Vector3(90, G + 6, 80));
+    this.cam.snap(this.town.spawn.clone().setY(G + 6));
 
     this.ui.showTitle(() => this.start());
     this.renderer.setAnimationLoop(() => this.frame());
@@ -245,6 +273,8 @@ export class Game {
       if (i === 4) n.file.physical = 'Feeble';
       this.npcs.push(n);
     });
+    // Fill the bigger town: a few more people in every neighborhood.
+    while (this.npcs.length < TOWN_POPULATION) this.spawnRandomNpc();
   }
 
   private spawnRandomNpc() {
@@ -282,7 +312,7 @@ export class Game {
     this.sound.startMusic();
     this.input.requestLock();
     this.cam.autoOrbit = 0;
-    this.enterGhost(new THREE.Vector3(80.5, G + 4, 86), true);
+    this.enterGhost(this.town.spawn.clone().setY(G + 4), true);
   }
 
   // ---------------------------------------------------------------- bodies
@@ -299,6 +329,7 @@ export class Game {
     this.player.healLegs();
     this.player.lock(false);
     this.props.setBarnOpen(file.job === 'Farmhand');
+    this.hometown.onBody(file);
     this.barnTries = 0;
     this.stationVisits = 0;
     this.ui.setHud(this.ledger, file);
@@ -499,6 +530,7 @@ export class Game {
   private onLand(e: LandEvent) {
     const ch = this.character;
     if (!ch) return;
+    if (this.mode === 'play' && this.hometown.onLand(e)) return;
     const heavy = Math.min(e.drop / 12, 1);
     if (e.landState === 'groundpound') {
       this.sound.slam();
@@ -526,6 +558,7 @@ export class Game {
       let id = 'faceplant';
       if (inBox(e.launchPos, this.town.treeZone)) id = 'treehouse';
       else if (inBox(e.launchPos, this.town.towerZone) && e.launchState === 'longjump') id = 'watertower';
+      id = this.hometown.fallDeathId(e, this.player.feet()) ?? id;
       this.sound.splat();
       this.cam.shake(0.8);
       this.kill(id, { kind: 'ragdoll', vel: v, spin: 12, bounce: 0.6 });
@@ -552,6 +585,7 @@ export class Game {
   private interact(id: string) {
     const ch = this.character;
     if (!ch || !this.body) return;
+    if (this.hometown.interact(id)) return;
     if (id === 'barndoor') {
       if (this.body.job === 'Farmhand') {
         this.ui.toast('Door is open', "You're the farmer. Walk right in.", 1600);
@@ -889,8 +923,10 @@ export class Game {
       }
       this.props.train.update(h);
       this.props.bale.update(h);
+      this.hometown.step(h);
       this.physics.step();
       if (this.mode === 'play') this.checkHazards(h);
+      if (this.mode === 'play' && this.character) this.hometown.checkHazards(h);
       this.acc -= h;
       if (first) this.latched = { jump: false, crouch: false, dive: false };
       first = false;
@@ -901,6 +937,7 @@ export class Game {
     for (const r of this.ragdolls) r.update();
     for (const n of this.npcs) n.update(dt);
     this.props.update(dt, this.time);
+    this.hometown.update(dt, this.time);
     this.particles.update(dt);
 
     // Train smoke.
@@ -915,7 +952,7 @@ export class Game {
     // Keep the town populated.
     if (this.npcRespawnT > 0) {
       this.npcRespawnT -= dt;
-      if (this.npcRespawnT <= 0 && this.npcs.length < 14) this.spawnRandomNpc();
+      if (this.npcRespawnT <= 0 && this.npcs.length < TOWN_POPULATION) this.spawnRandomNpc();
     }
 
     // Mode-specific per-frame logic and camera.
@@ -953,7 +990,7 @@ export class Game {
       this.ghost.position.y += Math.sin(this.time * 3) * 0.15;
       this.ghost.rotation.y = this.cam.yaw + Math.PI;
     } else {
-      this.cam.update(realDt, new THREE.Vector3(90, G + 6, 80), 0, 0);
+      this.cam.update(realDt, this.town.spawn.clone().setY(G + 6), 0, 0);
     }
 
     // Sun follows the action for crisp shadows.
@@ -979,7 +1016,7 @@ export class Game {
     this.ghostPos.y += vy * sp * 0.7 * dt;
     this.ghostPos.x = Math.min(Math.max(this.ghostPos.x, 2), SIZE - 2);
     this.ghostPos.z = Math.min(Math.max(this.ghostPos.z, 2), SIZE - 2);
-    this.ghostPos.y = Math.min(Math.max(this.ghostPos.y, G + 0.5), 50);
+    this.ghostPos.y = Math.min(Math.max(this.ghostPos.y, G + 0.5), G + 60);
     const gEye = this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0));
     this.cam.update(dt, gEye, lookDX, lookDY, gEye);
 
