@@ -81,6 +81,9 @@ export class Player {
   floatT = 0;
   state: MoveState = 'ground';
   grounded = false;
+  /** Steepest walkable surface touched last step, for walking along slopes. */
+  private groundN = new THREE.Vector3(0, 1, 0);
+  private onSlope = false;
   stateTime = 0;
   airTime = 0;
   private jumpChain = 0;
@@ -322,6 +325,13 @@ export class Player {
         this.hooks.onDive?.();
       } else {
         v.y = -6; // stick to the ground so grounded detection doesn't flicker
+        // On a slope (ramps over stairs, hills), move along the surface instead of pushing
+        // straight down into it, or walking uphill stalls at low speeds.
+        const n = this.groundN;
+        if (n.y > 0.5 && n.y < 0.995) {
+          v.y = -(v.x * n.x + v.z * n.z) / n.y - 3;
+          this.onSlope = true;
+        }
       }
     } else {
       // Airborne.
@@ -399,7 +409,9 @@ export class Player {
 
     const wasGrounded = this.grounded;
     let grounded = this.kcc.computedGrounded();
-    if (this.jumpedThisStep || v.y > 0.5) grounded = false;
+    if (this.jumpedThisStep || (v.y > 0.5 && !this.onSlope)) grounded = false;
+    this.onSlope = false;
+    this.groundN.set(0, 1, 0);
 
     for (let i = 0; i < this.kcc.numComputedCollisions(); i++) {
       const c = this.kcc.computedCollision(i);
@@ -414,6 +426,8 @@ export class Player {
           v.x -= this.wallNormal.x * into;
           v.z -= this.wallNormal.z * into;
         }
+      } else if (n.y > 0.5 && n.y < this.groundN.y) {
+        this.groundN.set(n.x, n.y, n.z);
       } else if (n.y < -0.6 && v.y > 0) {
         v.y = 0;
       }

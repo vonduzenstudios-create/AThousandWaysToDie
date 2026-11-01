@@ -180,8 +180,9 @@ function fillBuilding(w: VoxelWorld, x0: number, z0: number, x1: number, z1: num
   w.fill(x0 - 1, G + h, z0 - 1, x1 + 1, G + h, z1 + 1, roof);
 }
 
-export function buildTown(): TownInfo {
-  const w = new VoxelWorld(SIZE, 64, SIZE);
+/** extraZ: empty space added past the south edge (dev annexes such as ?place=hospital). */
+export function buildTown(extraZ = 0): TownInfo {
+  const w = new VoxelWorld(SIZE, 64, SIZE + extraZ);
   const rng = mulberry32(1337);
   const treeTops: THREE.Vector3[] = [];
 
