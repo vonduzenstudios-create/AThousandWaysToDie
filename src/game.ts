@@ -42,6 +42,7 @@ import { DOOR_OUT, HALF, RIDE } from './vehicles/carModel';
 import { carSfx, EngineSound } from './vehicles/carSound';
 import { smallvillePois, smallvilleTraffic } from './vehicles/smallville';
 import { StoryDirector } from './story/director';
+import { arrest, commit } from './maps/institutions/common';
 import { TitleMenu, type DevMap } from './titlemenu';
 import { loadOptions, saveOptions, type Options } from './options';
 
@@ -125,6 +126,8 @@ export class Game {
   private ghostTarget: Npc | null = null;
   private peeTime = 0;
   private peeSoundT = 0;
+  /** Times (ms) of recent screams that turned out to be about nothing. Three in a minute gets you committed. */
+  private falseAlarms: number[] = [];
   private pendingDeath: { id: string; victim: PersonFile; startPos: THREE.Vector3 } | null = null;
   private crosshair: HTMLElement;
   private hornCooldown = 0;
@@ -1223,7 +1226,26 @@ export class Game {
             this.ui.toast('PATCHED UP', 'The paramedics put casts on both legs. Somehow you can run.', 2600);
           }, 3500);
         } else {
-          this.ui.say(n.file.name, pick(this.rng, ["What? What happened? ...You look fine.", 'Was that you screaming? Weirdo.', "I'm calling the cops if you do that again."]), 2600);
+          // Screaming at people for no reason: twice is weird, three times in a minute gets you committed
+          // (or arrested, if the person who came running is a cop).
+          const now = performance.now();
+          this.falseAlarms = this.falseAlarms.filter((t) => now - t < 60000);
+          this.falseAlarms.push(now);
+          const strikes = this.falseAlarms.length;
+          if (strikes >= 3) {
+            this.falseAlarms = [];
+            if (n.file.job === 'Cop') {
+              this.ui.say(n.file.name, "Third time. That's disturbing the peace, pal.", 2600);
+              arrest(this.api(), 'Disturbing the peace (screaming at nothing, three times)');
+            } else {
+              this.ui.say(n.file.name, "Okay, I'm calling someone. Not the cops. The OTHER someone.", 2600);
+              setTimeout(() => this.mode === 'play' && commit(this.api(), 'Screamed at strangers three times for no reason'), 1800);
+            }
+          } else if (strikes === 2) {
+            this.ui.say(n.file.name, "Again? Do that one more time and I'm calling somebody.", 2600);
+          } else {
+            this.ui.say(n.file.name, pick(this.rng, ["What? What happened? ...You look fine.", 'Was that you screaming? Weirdo.']), 2600);
+          }
         }
       });
   }
@@ -1286,7 +1308,17 @@ export class Game {
     // Peeing.
     if (this.input.held('pee') && this.player.grounded && (this.player.state === 'ground' || this.player.state === 'locked')) {
       this.peeTime += dt;
-      if (this.peeTime >= 0.4 && this.peeTime - dt < 0.4) this.life.event({ kind: 'pee', at: this.player.feet(), radius: 12 });
+      if (this.peeTime >= 0.4 && this.peeTime - dt < 0.4) {
+        this.life.event({ kind: 'pee', at: this.player.feet(), radius: 12 });
+        // Peeing in front of a cop is a crime. Cops peeing in front of cops is professional courtesy.
+        const p = this.player.feet();
+        const cop = this.body?.job !== 'Cop' && this.npcs.find((n) => n.file.job === 'Cop' && !n.away && !n.controlled && n.pos.distanceTo(p) < 14);
+        if (cop) {
+          this.ui.say(cop.file.name, 'Whoa, WHOA. Zip it up. You are under arrest.', 2600);
+          this.peeTime = 0;
+          arrest(this.api(), 'Indecent exposure in front of an officer');
+        }
+      }
       const fd = new THREE.Vector3(Math.sin(this.player.facing), 0, Math.cos(this.player.facing));
       const origin = this.player.feet().add(new THREE.Vector3(0, 0.75, 0)).addScaledVector(fd, 0.3);
       for (let i = 0; i < 2; i++)
