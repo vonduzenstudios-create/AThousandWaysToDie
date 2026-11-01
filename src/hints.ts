@@ -357,5 +357,8 @@ export function wishLine(r: Rng, speaker: PersonFile, h: DeathHint): string {
 export function depressedHint(r: Rng, speaker: PersonFile, mapId: string, found?: (id: string) => boolean): string | null {
   const ids = onMap(mapId, found);
   if (!ids.length) return null;
-  return wishLine(r, speaker, DEATH_HINTS[pick(r, ids)]);
+  // Job-locked deaths make the best wishes ("I'm not a nurse, but if I was..."), so they come up half the time.
+  const jobbed = ids.filter((id) => DEATH_HINTS[id].needs?.jobs);
+  const id = jobbed.length && r() < 0.5 ? pick(r, jobbed) : pick(r, ids);
+  return wishLine(r, speaker, DEATH_HINTS[id]);
 }
