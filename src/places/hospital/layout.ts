@@ -168,13 +168,9 @@ export function buildHospital(w: VoxelWorld, origin: { x: number; y: number; z: 
   // ================= F1: lobby, cafeteria, ER =================
   {
     const f = 0;
-    // Front entrance and canopy.
+    // Front entrance.
     air(28, 0, 0, 35, 3, 0);
-    fill(26, 5, -3, 37, 5, -1, T.trim);
-    fill(26, 6, -3, 37, 6, -3, T.ext);
-    // Red cross on the facade above the door.
-    fill(31, 8, 0, 32, 12, 0, B.RedPaint);
-    fill(29, 9, 0, 34, 11, 0, B.RedPaint);
+    // The canopy, red cross and name sign are detail voxels (facade.ts).
     // Welcome mat and floor pattern.
     fill(28, -1, 1, 35, -1, 3, B.Dark);
     for (let lx = 2; lx < 62; lx += 4) for (let lz = 2; lz < 18; lz += 4) set(lx, -1, lz, B.WallBlue);

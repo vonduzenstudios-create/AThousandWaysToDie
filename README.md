@@ -91,7 +91,7 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/maps/city/`: Big Apple City, a 512 x 640 New York style map (see `docs/city.md`); `src/maps/compose.ts` merges sub-places like the airport and hospital into a map
 - `src/maps/wilderness/`: The Wilds, a 640 x 640 forest, savanna and desert map with animals and 19 deaths (see `docs/wilderness.md`)
 - `src/maps/institutions/`: the prison and asylum maps (`prison.ts`, `asylum.ts`), shared voxel/prop/access-control helpers and `arrest`/`commit` (`common.ts`), building-kit exteriors (`decor.ts`), and their NPC life tables (`life.ts`). `src/dev/maptest.ts` is a stand-alone harness that loads any MapDef
-- `src/places/hospital/`: City General Hospital, a drop-in place for any map (`buildHospital`, `setupHospital`, `HOSPITAL_DEATHS`)
+- `src/places/hospital/`: City General Hospital, a drop-in place for any map (`buildHospital`, `setupHospital`, `HOSPITAL_DEATHS`); its exterior and vehicles use the building kit (`facade.ts`, `models.ts`)
 - `src/places/airport/`: the airport place module the city stamps into its airport lot (see `docs/airport.md`); preview it alone at `/place.html?map=airport&job=Pilot` (`src/dev/place.ts`)
 - `src/audio.ts`: synthesized sound effects and the chiptune sequencer
 - `src/story/`: cutscene player (`cutscene.ts`), canvas anime art (`art.ts`), synth stings and voices (`sfx.ts`), scripts (`scenes.ts`) and the director that picks and saves scenes (`director.ts`)
