@@ -20,7 +20,7 @@ export class FollowCam {
   /** Forces third person at least this far out (death cams, title). */
   minDist = 0;
 
-  constructor(readonly camera: THREE.PerspectiveCamera, private physics: RAPIER.World) {}
+  constructor(readonly camera: THREE.PerspectiveCamera, public physics: RAPIER.World) {}
 
   get firstPerson() {
     return Math.max(this.dist, this.minDist) < FP_THRESHOLD;

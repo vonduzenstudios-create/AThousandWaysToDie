@@ -91,6 +91,14 @@ export interface GameApi {
   spend(amount: number, label: string): boolean;
   /** Hue-rotate the screen (degrees, 0 = off). */
   setHueShift(deg: number): void;
+  /**
+   * Send the player (in their current body) to another map's stop without a ticket, e.g. an arrest
+   * to 'prison:intake'. Fades out, shows a trip card with `line`, loads the map and arrives on that
+   * stop's vehicle (or just appears at the stop if it has no service). No-op unless alive in a body.
+   */
+  travelTo(stopKey: string, opts?: { line?: string; title?: string }): void;
+  /** Id of the loaded map. */
+  readonly mapId: string;
 }
 
 /** Things a map can do at runtime once it is loaded. All optional except dispose. */
@@ -101,7 +109,7 @@ export interface MapRuntime {
   interact?(id: string): void;
   /** Per-frame update (animated props). */
   update?(dt: number, time: number): void;
-  /** Fixed 60 Hz step, before physics. */
+  /** Fixed 60 Hz step: after the player has moved (player.update) and before physics.step(). */
   step?(h: number): void;
   /** Fixed-step hazard checks while the player is alive in a body. */
   checkHazards?(h: number): void;

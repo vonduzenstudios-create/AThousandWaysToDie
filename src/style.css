@@ -99,3 +99,27 @@ body.pad .help td:nth-child(2), body.pad .help th:nth-child(2) { opacity: 0.45; 
 body:not(.pad) .help td:nth-child(3), body:not(.pad) .help th:nth-child(3) { opacity: 0.45; }
 .hud .body.small { font-size: 12px; margin-top: 2px; }
 .file .dim { color: #999; font-size: 11px; }
+
+/* Travel: ticket window, black-out, trip card */
+.ticket { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(520px, 94vw); background: #f4efe1; color: #222; border-radius: 8px; padding: 14px 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); font-family: 'Courier New', monospace; pointer-events: auto; border-top: 10px dashed #c23b30; }
+.ticket .th { display: flex; justify-content: space-between; font-weight: bold; border-bottom: 2px solid #222; padding-bottom: 6px; font-size: 14px; gap: 10px; }
+.ticket .tbal { margin: 8px 0; font-size: 14px; }
+.ticket .tbal b { color: #1d8a2a; }
+.ticket .trow { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; cursor: pointer; border: 2px solid transparent; }
+.ticket .trow.sel { border-color: #222; background: #fff8d8; }
+.ticket .trow.locked, .ticket .trow.poor { opacity: 0.55; cursor: default; }
+.ticket .ic { font-size: 24px; }
+.ticket .dest { flex: 1; display: flex; flex-direction: column; }
+.ticket .dest small { color: #666; }
+.ticket .fare { text-align: right; font-size: 14px; }
+.ticket .lock { color: #a33; font-size: 12px; }
+.ticket .thelp { margin-top: 10px; font-size: 12px; color: #555; text-align: center; }
+.ticket .thelp .key { background: #222; color: #ffd84a; border-radius: 3px; padding: 0 5px; }
+.ticket .tclose { text-decoration: underline; cursor: pointer; }
+.travelfade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
+.travelcard { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-1.5deg); width: min(480px, 92vw); background: #f4efe1; color: #222; padding: 18px 22px; border-radius: 6px; font-family: 'Courier New', monospace; box-shadow: 0 0 60px rgba(255,216,74,0.25); border-left: 10px dashed #c23b30; }
+.travelcard .tc-k { font-size: 12px; letter-spacing: 3px; color: #666; }
+.travelcard .tc-route { font-family: Impact, 'Arial Black', sans-serif; font-size: 34px; margin: 4px 0; }
+.travelcard .tc-route span { color: #c23b30; }
+.travelcard .tc-stop { font-weight: bold; }
+.travelcard .tc-line { margin-top: 8px; font-style: italic; color: #444; }

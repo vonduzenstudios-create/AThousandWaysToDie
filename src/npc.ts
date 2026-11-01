@@ -21,7 +21,7 @@ export class Npc {
   /** Run toward someone screaming for help. */
   summon(target: THREE.Vector3, onArrive: () => void) {
     this.helpTarget = target.clone();
-    this.helpTarget.y = G;
+    this.helpTarget.y = this.groundY;
     this.onArrive = onArrive;
     this.pause = 0;
   }
@@ -30,7 +30,7 @@ export class Npc {
     return this.helpTarget !== null;
   }
 
-  constructor(scene: THREE.Scene, private world: VoxelWorld, private area: Box, private rng: Rng, job?: Job) {
+  constructor(scene: THREE.Scene, private world: VoxelWorld, private area: Box, private rng: Rng, job?: Job, private groundY = G) {
     this.app = randomAppearance(rng);
     this.file = randomFile(rng, job);
     this.character = new Character(this.app);
@@ -41,16 +41,16 @@ export class Npc {
   }
 
   private walkable(x: number, z: number) {
-    return this.world.topY(x, z) === G;
+    return this.world.topY(x, z) === this.groundY;
   }
 
   private randomPoint(): THREE.Vector3 {
     for (let i = 0; i < 40; i++) {
       const x = this.area.min.x + this.rng() * (this.area.max.x - this.area.min.x);
       const z = this.area.min.z + this.rng() * (this.area.max.z - this.area.min.z);
-      if (this.walkable(x, z)) return new THREE.Vector3(x, G, z);
+      if (this.walkable(x, z)) return new THREE.Vector3(x, this.groundY, z);
     }
-    return new THREE.Vector3((this.area.min.x + this.area.max.x) / 2, G, (this.area.min.z + this.area.max.z) / 2);
+    return new THREE.Vector3((this.area.min.x + this.area.max.x) / 2, this.groundY, (this.area.min.z + this.area.max.z) / 2);
   }
 
   private clearPath(a: THREE.Vector3, b: THREE.Vector3) {

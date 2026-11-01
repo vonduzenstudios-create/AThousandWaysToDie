@@ -39,6 +39,12 @@ export const DEATHS: DeathDef[] = [
   { id: 'beatdown', name: 'Resisting Arrest', category: 'Stupidity', location: 'Smallville Police Station', payout: 2200, blurb: 'Kept walking into the police station. The police had opinions.' },
   { id: 'taser', name: "Don't Tase Me, Bro", category: 'Electricity', location: 'Smallville Police Station', payout: 1600, blurb: 'A cop tested the department taser on himself. Thirty-one times.' },
   { id: 'baled', name: 'Baled', category: 'Machines', location: 'Hoffman Barn', payout: 2000, blurb: 'Climbed into the hay baler. Came out as a neat, tidy cube.' },
+  { id: 'bus', name: 'Bus Stop Bowling', category: 'Vehicles', location: 'Any Bus Stop', payout: 1700, blurb: 'Stood in the bus lane to "flag it down". It stopped. Eventually.' },
+  { id: 'express', name: 'Express Delivery', category: 'Vehicles', location: 'Any Train Platform', payout: 3200, blurb: 'Got stuck to the front of the express. Peeled off two towns over, right on schedule.' },
+  { id: 'runway', name: 'Cleared for Landing', category: 'Vehicles', location: 'Any Airport', payout: 4200, blurb: 'Waved at a landing plane from the middle of the runway. The pilot waved back.' },
+  { id: 'ferry', name: 'Wake Up Call', category: 'Water', location: 'Any Harbor', payout: 2800, blurb: 'Went for a swim in the ferry lane. The ferry did not swerve.' },
+  { id: 'exitrow', name: 'Exit Row', category: 'Gravity', location: 'Any Flight', payout: 5200, blurb: 'Opened the emergency door at 30,000 feet to "get some air". Got all of it.' },
+  { id: 'wheelwell', name: 'Wheel Well', category: 'Gravity', location: 'Any Airport', payout: 5000, blurb: 'Stowed away in the landing gear. Arrived frozen solid, then in several pieces.' },
   { id: 'peanut', name: 'Peanut Panic', category: 'Allergies', location: 'Smallville Diner', payout: 1400, blurb: 'Ate a peanut butter cookie in a body with a deadly peanut allergy.' },
 ];
 
@@ -182,6 +188,8 @@ export interface Found {
   count: number;
   payout: number;
   first: number;
+  /** Map id where it was first found. Unique deaths per map unlock new routes. */
+  map?: string;
 }
 
 const SAVE_KEY = 'death-benefits-save-v1';
