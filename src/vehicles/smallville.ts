@@ -9,13 +9,13 @@ export function smallvilleTraffic(t: TownInfo): TrafficConfig {
   return {
     roads: t.roads.map((r) => ({ points: r.points.map((p) => p.clone()), width: r.width })),
     parked: [
-      { pos: v(320.5, 244), facing: Math.PI }, // Duke's Garage, on Main St
-      { pos: v(203, 265), facing: 0 }, // police lot
-      { pos: v(264, 236), facing: Math.PI / 2 }, // outside the diner
-      { pos: v(112, 200), facing: 0 }, // farm truck by the barn
-      { pos: v(470, 210), facing: Math.PI / 2 }, // Honest Al's lot
-      { pos: v(400, 236), facing: Math.PI / 2 }, // town hall
-      { pos: v(372, 371), facing: Math.PI / 2 }, // 12 Maple St
+      { pos: v(320.5, 244), facing: Math.PI, kind: 'muscle' }, // Duke's Garage, on Main St
+      { pos: v(203, 265), facing: 0, kind: 'sedan' }, // police lot
+      { pos: v(264, 236), facing: Math.PI / 2, kind: 'hatch' }, // outside the diner
+      { pos: v(112, 200), facing: 0, kind: 'pickup' }, // farm truck by the barn
+      { pos: v(470, 210), facing: Math.PI / 2, kind: 'sport' }, // Honest Al's lot: the one with the price tag
+      { pos: v(400, 236), facing: Math.PI / 2, kind: 'van' }, // town hall
+      { pos: v(372, 371), facing: Math.PI / 2, kind: 'jeep' }, // 12 Maple St
     ],
     // A sleepy small town: a car every few blocks, not a traffic jam.
     density: 0.3,

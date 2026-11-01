@@ -38,7 +38,7 @@ import { mulberry32, pick, turnToward, type Rng } from './util';
 import { Minimap, type Blip } from './minimap';
 import { Traffic, type Obstacle } from './vehicles/traffic';
 import { Car, sit } from './vehicles/car';
-import { DOOR_OUT, HALF, RIDE } from './vehicles/carModel';
+import { CarHud } from './vehicles/carHud';
 import { carSfx, EngineSound } from './vehicles/carSound';
 import { smallvillePois, smallvilleTraffic } from './vehicles/smallville';
 import { StoryDirector } from './story/director';
@@ -156,7 +156,10 @@ export class Game {
   /** The car Gary is driving, if any. */
   driving: Car | null = null;
   private engine: EngineSound;
+  private carHud!: CarHud;
   private carIn = { throttle: 0, steer: 0, handbrake: false };
+  /** Cooldown after being bumped by a car, so one shove isn't counted every frame. */
+  private carBumpT = 0;
   private carPrevVel = new THREE.Vector3();
   private obstacles: Obstacle[] = [];
   private shoutT = 0;
@@ -270,6 +273,7 @@ export class Game {
       n.character.kick(0.6);
     };
     this.minimap = new Minimap(document.getElementById('ui')!);
+    this.carHud = new CarHud(document.getElementById('ui')!);
     this.minimap.setWorld(this.town.world, 'Smallville', G);
     this.minimap.setVisible(false);
     this.pois = smallvillePois(this.town);
@@ -1261,14 +1265,33 @@ export class Game {
   private checkHazards(dt: number) {
     if (this.mode !== 'play' || !this.character) return;
     const p = this.player.position();
-    const hit = this.traffic.hitTest(p, 0.8, 4); // the capsule gets shoved ahead of the bumper, so reach a little past it
+    this.carBumpT -= dt;
+    const hit = this.carBumpT > 0 ? null : this.traffic.hitTest(p, 0.8, 1.5); // the capsule gets shoved ahead of the bumper, so reach a little past it
     if (hit) {
-      this.sound.splat();
-      carSfx.horn(this.sound);
-      this.cam.shake(1.2);
+      // Damage grows with the square of speed and with the vehicle's weight: a bump shoves you,
+      // a fender at 15 mph hurts, and anything near 25+ mph (less for a truck) is the end.
       const sp = hit.vel.length();
-      this.kill(this.rides.isRiding ? 'sharetheroad' : 'roadkill', { kind: 'ragdoll', vel: hit.vel.clone().multiplyScalar(1.4).add(new THREE.Vector3(0, 8 + sp * 0.6, 0)), spin: 16, bounce: 0.65 });
-      return;
+      const heavy = Math.min(2.2, Math.max(0.5, Math.sqrt(hit.car.spec.handling.mass / 1500)));
+      const dmg = Math.max(0, sp - 3) ** 2 * 1.6 * heavy;
+      const fatal = sp * heavy > 13 || (dmg > 0 && this.combat.hurt(dmg));
+      if (fatal) {
+        this.sound.splat();
+        carSfx.horn(this.sound);
+        this.cam.shake(1.2);
+        this.kill(this.rides.isRiding ? 'sharetheroad' : 'roadkill', { kind: 'ragdoll', vel: hit.vel.clone().multiplyScalar(1.4).add(new THREE.Vector3(0, 8 + sp * 0.6, 0)), spin: 16, bounce: 0.65 });
+        return;
+      }
+      this.carBumpT = 0.9;
+      const away = p.clone().sub(hit.car.pos).setY(0).normalize();
+      const push = hit.vel.clone().setY(0).multiplyScalar(1.1).add(away.multiplyScalar(2 + sp * 0.4));
+      if (this.player.state !== 'locked') this.player.knock(push.setY(2 + sp * 0.5));
+      if (dmg > 0) {
+        this.sound.noise({ dur: 0.15, vol: 0.7, freq: 400, type: 'lowpass', q: 1 });
+        this.cam.shake(Math.min(0.8, 0.2 + dmg / 80));
+        this.character?.kick(-0.4);
+      }
+      carSfx.horn(this.sound, 0.7);
+      if (hit.car.mode === 'traffic' && this.rng() < 0.6) this.ui.say('Driver', pick(this.rng, ['WATCH IT!', 'Get out of the road!', 'Sidewalks exist, pal!', 'I barely touched you!']), 2000);
     }
     if (p.y < -12) {
       this.kill('edge', { kind: 'ragdoll', vel: this.player.vel.clone(), spin: 5 });
@@ -1418,7 +1441,7 @@ export class Game {
     car.body.setLinvel({ x: 0, y: car.body.linvel().y, z: 0 }, true);
     car.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     car.readBack();
-    const door = car.toWorld(DOOR_OUT);
+    const door = car.toWorld(car.spec.doorOut);
     door.y = Math.max(door.y, this.player.feet().y - 0.5);
     this.player.teleport(door, car.facing - Math.PI / 2);
     if (moving) carSfx.screech(this.sound);
@@ -1452,7 +1475,7 @@ export class Game {
     car.openDoor(false);
     carSfx.door(this.sound);
     car.model.root.add(ch.root);
-    sit(ch);
+    sit(ch, car.spec.seat, car.spec.straddle);
     this.carPrevVel.copy(car.velocity());
     this.cam.yaw = car.facing + Math.PI;
     if (!this.drivenOnce) {
@@ -1473,13 +1496,13 @@ export class Game {
     carSfx.door(this.sound);
     setTimeout(() => car.openDoor(false), 900);
     if (fast) {
-      ch.root.position.copy(car.toWorld(new THREE.Vector3(HALF.x + 0.9, -0.4, 0)));
+      ch.root.position.copy(car.toWorld(new THREE.Vector3(car.spec.half.x + 0.9, car.spec.seat.y, 0)));
       const side = car.toWorld(new THREE.Vector3(1, 0, 0)).sub(car.pos).setY(0).normalize();
       this.ui.say('Death', pick(this.rng, ['Like in the movies! Except not at all.', 'You were supposed to tuck.']), 2600);
       this.kill('bailout', { kind: 'ragdoll', vel: vel.multiplyScalar(0.95).add(side.multiplyScalar(5)).add(new THREE.Vector3(0, 4, 0)), spin: 10, bounce: 0.55 });
       return;
     }
-    const out = car.upsideDown ? car.pos.clone().add(new THREE.Vector3(0, 2, 0)) : car.toWorld(DOOR_OUT);
+    const out = car.upsideDown ? car.pos.clone().add(new THREE.Vector3(0, car.spec.half.y + 1.5, 0)) : car.toWorld(car.spec.doorOut);
     this.player.setEnabled(true);
     this.player.teleport(out, car.facing + Math.PI / 2);
   }
@@ -1517,18 +1540,24 @@ export class Game {
       const rate = 0.5 + Math.min(Math.abs(car.speed), 24) * 0.12;
       this.cam.yaw = turnToward(this.cam.yaw, behind, dt * rate);
     }
-    this.cam.minDist = 8;
-    this.cam.update(dt, car.pos.clone().add(new THREE.Vector3(0, 1.4, 0)), lookDX, lookDY);
+    // Bigger vehicles get a camera that sits further back and higher.
+    const sz = car.spec.half.z;
+    this.cam.minDist = 5 + sz * 1.2;
+    this.cam.update(dt, car.pos.clone().add(new THREE.Vector3(0, car.spec.half.y + 0.4, 0)), lookDX, lookDY);
     if (this.character) this.character.root.visible = true;
-    this.engine.set(true, car.speed, this.carIn.throttle);
-    // Handbrake turns squeal.
-    if (this.carIn.handbrake && Math.abs(car.speed) > 9 && car.wheelsOnGround > 2) {
+    this.engine.set(true, car.speed, this.carIn.throttle, car.rpm, car.spec.handling);
+    this.carHud.update(dt, car, this.carIn.throttle, this.carIn.handbrake);
+    // Handbrake turns and burnouts squeal and smoke.
+    const sliding = this.carIn.handbrake && Math.abs(car.speed) > 9;
+    if ((sliding || car.wheelspin > 0) && car.wheelsOnGround > 2) {
       car.screechT -= dt;
       if (car.screechT <= 0) {
         car.screechT = 0.6;
         carSfx.screech(this.sound);
       }
-      this.particles.emit(car.toWorld(new THREE.Vector3(0, -RIDE + 0.2, -2.2)), new THREE.Vector3(0, 1.5, 0), 0xd8d8d8, { life: 0.8, size: 0.5, gravity: -1, spread: 1 });
+      const r = car.spec.wheels[car.spec.wheels.length - 1];
+      for (const side of [1, -1])
+        this.particles.emit(car.toWorld(new THREE.Vector3(r.x * side, -car.spec.ride + 0.2, r.z - 0.2)), new THREE.Vector3(0, 1.5, 0), 0xd8d8d8, { life: 0.8, size: 0.5, gravity: -1, spread: 1 });
     }
   }
 
@@ -1555,7 +1584,7 @@ export class Game {
     // People in the way.
     for (const n of this.npcs.slice()) {
       if (n.away || n.controlled) continue;
-      const hit = this.traffic.hitTest(n.pos.clone().add(new THREE.Vector3(0, 0.9, 0)), 0.2, 4);
+      const hit = this.traffic.hitTest(n.pos.clone().add(new THREE.Vector3(0, 0.9, 0)), 0.2, 8); // townsfolk shrug off slow bumps too
       if (hit) this.ragdollNpc(n, hit.vel, hit.car === this.driving);
     }
     // Ramming traffic knocks it out of its lane.
@@ -1636,11 +1665,11 @@ export class Game {
     const ch = this.character;
     if (!car || !ch) return;
     this.leaveCar();
-    const at = throughWindshield ? new THREE.Vector3(0, 0.45, HALF.z + 0.9) : new THREE.Vector3(0, 1.6, 0);
+    const at = throughWindshield ? new THREE.Vector3(0, car.spec.seat.y + 0.6, car.spec.half.z + 0.9) : new THREE.Vector3(0, car.spec.half.y + 1, 0);
     ch.root.position.copy(car.toWorld(at));
     if (throughWindshield) {
       carSfx.crash(this.sound, 2);
-      this.particles.burst(car.toWorld(new THREE.Vector3(0, 0.8, HALF.z - 0.6)), 30, 0xbfe6ff, 7, { life: 0.9, size: 0.15 });
+      this.particles.burst(car.toWorld(new THREE.Vector3(0, car.spec.seat.y + 1, car.spec.half.z - 0.6)), 30, 0xbfe6ff, 7, { life: 0.9, size: 0.15 });
     }
     if (explode) this.explode(car);
     this.cam.shake(1.2);
@@ -1662,7 +1691,7 @@ export class Game {
     car.body.applyImpulse({ x: 0, y: m * 9, z: 0 }, true);
     car.body.applyTorqueImpulse({ x: m * (Math.random() - 0.5) * 6, y: 0, z: m * (Math.random() - 0.5) * 6 }, true);
     car.burnt = true;
-    car.model.paintMat.color.multiplyScalar(0.22);
+    car.model.burn();
     this.burning.push({ car, t: 14 });
   }
 
@@ -1681,7 +1710,7 @@ export class Game {
   private ejectDriver(car: Car, vel: THREE.Vector3) {
     const drv = car.unseat();
     if (!drv) return;
-    drv.root.position.copy(car.toWorld(new THREE.Vector3(HALF.x + 0.8, -0.3, 0)));
+    drv.root.position.copy(car.toWorld(new THREE.Vector3(car.spec.half.x + 0.8, car.spec.seat.y, 0)));
     drv.root.rotation.set(0, car.facing, 0);
     const rd = new Ragdoll(this.physics, this.scene, drv, vel, 15, 0.6);
     this.scene.remove(drv.root);
@@ -1755,7 +1784,7 @@ export class Game {
     if (ghost) for (const n of this.npcs) if (!n.away) blips.push({ x: n.pos.x, z: n.pos.z, kind: 'person', color: isDeserving(n.file) ? '#7dff7a' : '#ff6a5a' });
     const zoom = this.driving ? Math.max(1.0, 2.2 - Math.abs(this.driving.speed) * 0.035) : ghost ? 1.7 : 2.2;
     this.minimap.draw(c.x, c.z, this.cam.yaw, facing, blips, zoom, dt);
-    this.minimap.setSpeed(this.driving ? Math.abs(this.driving.speed) * 2.237 : null);
+    this.minimap.setSpeed(null); // the dashboard shows speed now
   }
 
   // ---------------------------------------------------------------- sequencing
@@ -1963,7 +1992,10 @@ export class Game {
     this.sun.target.position.copy(focus);
     this.drawMinimap(realDt);
 
-    if (!this.driving) this.engine.set(false, 0, 0);
+    if (!this.driving) {
+      this.engine.set(false, 0, 0);
+      this.carHud.hide();
+    }
     this.post.render();
     this.input.endFrame();
   }

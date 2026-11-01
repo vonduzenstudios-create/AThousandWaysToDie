@@ -1,4 +1,5 @@
 import type { Sound } from '../audio';
+import type { Handling } from './handling';
 
 /** Car sounds, all synthesized. */
 export const carSfx = {
@@ -33,7 +34,8 @@ export class EngineSound {
 
   constructor(private sound: Sound) {}
 
-  set(on: boolean, speed: number, throttle: number) {
+  /** `rpm` is 0..1 from the car's gearbox; `h` gives each model its own voice. */
+  set(on: boolean, speed: number, throttle: number, rpm?: number, h?: Handling) {
     const ctx = this.sound.ctx;
     if (!ctx) return;
     if (!this.osc) {
@@ -53,11 +55,15 @@ export class EngineSound {
       this.osc.start();
       this.osc2.start();
     }
-    // Fake gears: pitch climbs, drops, climbs again.
-    const sp = Math.abs(speed);
-    const gear = Math.min(3, Math.floor(sp / 11));
-    const inGear = (sp - gear * 11) / 11;
-    const f = 42 + inGear * 55 + gear * 8 + throttle * 6;
+    let f: number;
+    if (rpm !== undefined && h) f = h.idleHz + rpm * h.revHz * 1.6 + Math.abs(throttle) * 5;
+    else {
+      // Fake gears: pitch climbs, drops, climbs again.
+      const sp = Math.abs(speed);
+      const gear = Math.min(3, Math.floor(sp / 11));
+      const inGear = (sp - gear * 11) / 11;
+      f = 42 + inGear * 55 + gear * 8 + throttle * 6;
+    }
     const t = ctx.currentTime;
     this.osc.frequency.setTargetAtTime(f, t, 0.05);
     this.osc2!.frequency.setTargetAtTime(f * 0.5, t, 0.05);

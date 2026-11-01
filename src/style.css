@@ -155,3 +155,5 @@ body:not(.pad) .help td:nth-child(3), body:not(.pad) .help th:nth-child(3) { opa
 .title .mi .mv { color: #ffd84a; font-size: 18px; }
 .title .mi .mh { flex-basis: 100%; font-size: 13px; font-weight: normal; color: #ccc; text-align: left; }
 .title { z-index: 900; }
+.carhud { position: absolute; right: 18px; bottom: 18px; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.5)); }
+.carhud canvas { display: block; }
