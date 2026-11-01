@@ -4,7 +4,8 @@ import { setOutline } from './outline';
 import { Sound } from './audio';
 import { FollowCam } from './camera';
 import { Atms, withdraw } from './economy';
-import { SkillBar, hasPassive, type SkillHost } from './skills';
+import { SkillBar, type SkillHost } from './skills';
+import { depressedHint, intrusiveThought } from './hints';
 import { Combat } from './combat';
 import { Character } from './character';
 import {
@@ -213,8 +214,6 @@ export class Game {
   private payoutMul = 1;
   private payoutWhy = '';
   private withdrawn = 0;
-  private beam: THREE.Mesh | null = null;
-  private beamT = 0;
   // Vehicles and the radar.
   private traffic!: Traffic;
   private minimap: Minimap;
@@ -822,7 +821,6 @@ export class Game {
     // Heights are measured from the top of the arc. An athlete's jump peaks at about 3.4,
     // so ordinary platforming (even off a small ledge) never breaks legs; only real drops do.
     let [breakH, fatalH] = this.player.tier === 'Feeble' ? [6, 9] : this.player.tier === 'Athlete' ? [9, 13] : [7.5, 11];
-    if (this.body && hasPassive(this.body, 'hardhat')) fatalH += 2;
     if (this.numbT > 0) {
       breakH += 3;
       fatalH += 3;
@@ -1073,44 +1071,6 @@ export class Game {
     }
     this.numbT -= realDt;
     this.trainHold -= realDt;
-    if (this.beam) {
-      this.beamT -= realDt;
-      const m = this.beam.material as THREE.MeshBasicMaterial;
-      m.opacity = Math.max(0, Math.min(0.45, this.beamT * 0.4)) * (0.8 + Math.sin(this.time * 8) * 0.2);
-      if (this.beamT <= 0) {
-        this.scene.remove(this.beam);
-        this.beam.geometry.dispose();
-        m.dispose();
-        this.beam = null;
-      }
-    }
-  }
-
-  private revealNearestHazard(seconds: number) {
-    const p = this.player.feet();
-    let best: THREE.Vector3 | null = null;
-    let bd = Infinity;
-    const cands = [...(this.props?.interactables ?? []), ...(this.runtime?.interactables ?? [])].filter((it) => it.enabled && !it.id.startsWith('atm')).map((it) => it.pos);
-    const t = this.town;
-    const center = (b: { min: THREE.Vector3; max: THREE.Vector3 }) => b.min.clone().add(b.max).multiplyScalar(0.5);
-    if (t) cands.push(center(t.treeZone), center(t.towerZone), new THREE.Vector3(p.x, G, t.trackZ + 0.5));
-    for (const c of cands) {
-      const d = Math.hypot(c.x - p.x, c.z - p.z);
-      if (d > 2.5 && d < bd) {
-        bd = d;
-        best = c;
-      }
-    }
-    if (!best) return false;
-    if (this.beam) this.scene.remove(this.beam);
-    this.beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.9, 0.9, 80, 12, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0x9a7cff, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
-    );
-    this.beam.position.set(best.x, G + 40, best.z);
-    this.scene.add(this.beam);
-    this.beamT = seconds;
-    return true;
   }
 
   private makeSkillHost(): SkillHost {
@@ -1159,7 +1119,7 @@ export class Game {
         this.sound.horn();
         return true;
       },
-      revealNearestHazard: (sec) => this.revealNearestHazard(sec),
+      intrusiveThought: () => intrusiveThought(this.rng, this.body!, this.mapDef.id, (id) => !!this.ledger.found[id])?.line ?? null,
       numb: (sec) => (this.numbT = sec),
       payoutBonus: (mult, why) => {
         this.payoutMul = Math.max(this.payoutMul, mult);
@@ -1172,7 +1132,6 @@ export class Game {
         this.ui.setHud(this.ledger, this.body);
       },
       godAngerLevel: () => this.ledger.godAnger,
-      trigger: (id) => this.interact(id),
     };
   }
 
@@ -1626,6 +1585,7 @@ export class Game {
       seed: 500 + (Date.now() % 1000),
       blip: () => this.sound.blip(0.6),
       maxPopulation: this.town ? undefined : 120,
+      hooks: { deathHint: (f) => depressedHint(this.rng, f, this.mapDef.id, (id) => !!this.ledger.found[id]) },
     });
     this.traffic = new Traffic(this.scene, this.physics, this.town ? smallvilleTraffic(this.town) : { roads: b.roads ?? [], parked: [] });
     this.traffic.onHonk = (car, tag) => this.onHonk(car, tag);
@@ -2656,7 +2616,8 @@ export class Game {
         : riding && free ? '<span class="key">E</span>Hop off' : this.tickets.open ? null : this.ticketPrompt(),
       );
       if (inp.pressed('interact')) {
-        if (riding && free) this.rides.dismount();
+        if (this.life.isTalking) this.life.closeTalk();
+        else if (riding && free) this.rides.dismount();
         else if (it) this.interact(it.id);
         else if (car) this.hijack(car);
         else if (who && this.body) this.life.talkTo(who, this.body, feet);

@@ -12,11 +12,8 @@ const CSS = `
 .life-talk { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); width: min(620px, calc(100vw - 32px)); background: rgba(8,8,16,0.9); border: 2px solid #ffd84a; border-radius: 12px; padding: 12px 16px 10px; pointer-events: auto; }
 .life-talk .who { font-weight: bold; color: #ffd84a; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; }
 .life-talk .rel { color: #aaa; font-weight: normal; letter-spacing: 0; text-transform: none; margin-left: 6px; }
-.life-talk .line { font-size: 19px; margin: 4px 0 10px; min-height: 26px; }
-.life-talk ol { list-style: none; margin: 0; padding: 0; }
-.life-talk li { padding: 5px 10px; border-radius: 6px; font-size: 16px; cursor: pointer; color: #ddd; }
-.life-talk li .k { display: inline-block; min-width: 20px; color: #ffd84a; font-weight: bold; }
-.life-talk li.sel { background: rgba(255,216,74,0.18); color: #fff; }
+.life-talk .line { font-size: 19px; margin: 4px 0 6px; min-height: 26px; }
+.life-talk .hint { font-size: 11px; color: #888; text-align: right; letter-spacing: 1px; text-transform: uppercase; }
 `;
 
 let styled = false;
@@ -111,19 +108,12 @@ export class ClockHud {
   }
 }
 
-export interface TalkOption {
-  label: string;
-  pick: () => void;
-}
-
-/** The dialogue box when the player talks to someone. */
+/** The box that shows what someone says to the player. One line, no choices. */
 export class TalkPanel {
   private el: HTMLElement;
   private who: HTMLElement;
   private line: HTMLElement;
-  private list: HTMLElement;
-  private opts: TalkOption[] = [];
-  private sel = 0;
+  private text = '';
   private typer: number | null = null;
   open = false;
   onClose: (() => void) | null = null;
@@ -133,23 +123,20 @@ export class TalkPanel {
     style();
     this.el = document.createElement('div');
     this.el.className = 'life-talk hidden';
-    this.el.innerHTML = '<div class="who"></div><div class="line"></div><ol></ol>';
+    this.el.innerHTML = '<div class="who"></div><div class="line"></div><div class="hint">E to close</div>';
     this.who = this.el.querySelector('.who')!;
     this.line = this.el.querySelector('.line')!;
-    this.list = this.el.querySelector('ol')!;
     host.appendChild(this.el);
+    this.el.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      this.confirm();
+    });
     window.addEventListener('keydown', (e) => {
-      if (!this.open) return;
-      if (e.code.startsWith('Digit')) {
-        const n = Number(e.code.slice(5)) - 1;
-        if (n >= 0 && n < this.opts.length) this.choose(n);
-      } else if (e.code === 'ArrowUp' || e.code === 'KeyW') this.move(-1);
-      else if (e.code === 'ArrowDown' || e.code === 'KeyS') this.move(1);
-      else if (e.code === 'Escape') this.close();
+      if (this.open && e.code === 'Escape') this.close();
     });
   }
 
-  show(who: string, rel: string, text: string, options: TalkOption[]) {
+  show(who: string, rel: string, text: string) {
     this.open = true;
     this.el.classList.remove('hidden');
     this.who.innerHTML = '';
@@ -161,12 +148,12 @@ export class TalkPanel {
       this.who.appendChild(r);
     }
     this.say(text);
-    this.setOptions(options);
   }
 
   say(text: string) {
     if (this.typer) clearInterval(this.typer);
     let i = 0;
+    this.text = text;
     this.line.textContent = '';
     this.typer = window.setInterval(() => {
       this.line.textContent = text.slice(0, ++i);
@@ -178,41 +165,15 @@ export class TalkPanel {
     }, 22);
   }
 
-  setOptions(options: TalkOption[]) {
-    this.opts = options;
-    this.sel = 0;
-    this.list.innerHTML = '';
-    options.forEach((o, i) => {
-      const li = document.createElement('li');
-      li.innerHTML = `<span class="k">${i + 1}</span>`;
-      li.appendChild(document.createTextNode(o.label));
-      li.addEventListener('mouseenter', () => this.highlight(i));
-      li.addEventListener('mousedown', (e) => {
-        e.stopPropagation();
-        this.choose(i);
-      });
-      this.list.appendChild(li);
-    });
-    this.highlight(0);
-  }
-
-  private highlight(i: number) {
-    this.sel = i;
-    [...this.list.children].forEach((c, k) => c.classList.toggle('sel', k === i));
-  }
-
-  move(d: number) {
-    if (!this.opts.length) return;
-    this.highlight((this.sel + d + this.opts.length) % this.opts.length);
-  }
-
+  /** First press finishes the typing; the next one closes the box. */
   confirm() {
-    this.choose(this.sel);
-  }
-
-  private choose(i: number) {
-    const o = this.opts[i];
-    if (o) o.pick();
+    if (this.typer) {
+      clearInterval(this.typer);
+      this.typer = null;
+      this.line.textContent = this.text;
+      return;
+    }
+    this.close();
   }
 
   close() {
@@ -220,6 +181,7 @@ export class TalkPanel {
     this.open = false;
     this.el.classList.add('hidden');
     if (this.typer) clearInterval(this.typer);
+    this.typer = null;
     const cb = this.onClose;
     this.onClose = null;
     cb?.();
