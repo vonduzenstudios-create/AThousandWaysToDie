@@ -1231,7 +1231,7 @@ export class Game {
       if (trip.special === 'express') stuck();
       if (svc && svc.phase === 'departing') trip.phase = 'departing';
       // Exit Row: the emergency door, at altitude.
-      const flying = svc && svc.kind === 'plane' && svc.phase === 'departing' && svc.pos.y > svc.at.y + 12 && !trip.special;
+      const flying = svc && svc.kind === 'plane' && svc.phase === 'departing' && svc.pos.y > svc.at.y + 6 && !trip.special;
       this.ui.prompt(flying ? '<span class="key">E</span>Open the emergency exit door' : null);
       if (flying && this.input.pressed('interact')) {
         if (this.body?.physical === 'Feeble') {
@@ -1247,7 +1247,8 @@ export class Game {
           return;
         }
       }
-      if (trip.phase === 'departing' && svc && (svc.t > Math.min(svc.dur * 0.7, 6) || svc.phase === 'idle')) {
+      const leaveAt = svc?.kind === 'plane' ? svc.dur * 0.97 : Math.min(svc ? svc.dur * 0.7 : 0, 6);
+      if (trip.phase === 'departing' && svc && (svc.t > leaveAt || svc.phase === 'idle')) {
         trip.phase = 'black';
         trip.t = 0;
         this.ui.prompt(null);

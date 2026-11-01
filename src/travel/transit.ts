@@ -82,7 +82,7 @@ export class Service {
     } else {
       // The vehicle stops behind where the passenger steps off, so the door faces them.
       this.at = stop.pos.clone().addScaledVector(fwd, -(this.model.door.z + 0.2)).addScaledVector(right, -this.model.door.x);
-      const reach = kind === 'plane' ? 260 : 140;
+      const reach = kind === 'plane' ? 360 : 140;
       this.from = this.at.clone().addScaledVector(right, -reach);
       this.to = this.at.clone().addScaledVector(right, reach);
     }
@@ -186,7 +186,7 @@ export class Service {
     } else if (this.phase === 'departing') {
       const u = Math.min(1, this.t / this.dur);
       const p = this.at.clone().lerp(this.to, easeIn(u));
-      if (this.kind === 'plane') p.y = this.at.y + Math.pow(Math.max(0, (u - 0.5) / 0.5), 2) * 80;
+      if (this.kind === 'plane') p.y = this.at.y + Math.pow(Math.max(0, (u - 0.45) / 0.55), 1.6) * 90;
       this.place(p, this.to.clone().sub(this.at));
       if (u >= 1) {
         this.begin('idle');
