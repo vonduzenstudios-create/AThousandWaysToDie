@@ -130,6 +130,7 @@ export class Combat {
     f.idle = 0;
     if (n.hp <= 0) {
       f.ko = 7;
+      n.character.setExpression('dead');
       this.h.hit('ko');
       this.h.say(n.file.name, pick(Math.random, KO_LINES), 1800);
     }
@@ -161,6 +162,7 @@ export class Combat {
         if (Math.random() < dt * 3) this.h.burst(n.pos.clone().add(new THREE.Vector3(0, 0.8, 0)), 1, 0xffe14a, 1, { life: 0.6, size: 0.15, gravity: -1 });
         if (f.ko <= 0) {
           n.hp = Math.ceil(n.maxHp * 0.5);
+          n.character.setExpression('normal');
           this.fighters.splice(i, 1);
           n.release();
         }

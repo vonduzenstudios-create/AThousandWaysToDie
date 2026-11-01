@@ -32,10 +32,15 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 | Punch | F | X |
 | Dive | G | RT |
 | Skills | 1–5 (or click the bar) | D-pad up/down to pick, right to use |
-| Interact / possess | E | Y |
+| Interact / possess / talk to townsfolk | E | Y |
 | Scream for help | T | LB |
 | Pee | Q | RB |
 | Death ledger | Tab | Back |
+| Ride / hop off a skateboard or bike | E | Y |
+| Ollie (board) / bunny hop (bike) | Space | A |
+| Kickflip (board, in the air) | G | RT |
+| Wheelie (bike, hold) | Shift | B or LT |
+| Bike bell | T | LB |
 | Ghost: rise / sink | Space or R / Shift or V | A or D-pad up / B or D-pad down |
 
 ## What's in this build
@@ -43,13 +48,16 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 - Smallville: park with a giant oak treehouse, water tower with a diving board, Duke's Garage, the diner, Hoffman Farm with an electric fence and a hay hoist, Whisper Woods, houses and a railroad.
 - Ghost mode with scythe vision: read anyone's file (age, job, scheduled death, insurance, net worth, afterlife, allergies) and possess them. Taking someone who isn't due angers God.
 - Jobs matter: only a Farmhand can work the hay hoist, and only an allergic body dies from the peanut butter cookies.
-- 15 deaths: Treehouse Tumble, Antifreeze Cocktail, Shocking Behavior, Pancake Mode, Water Tower Dive, Forest Fungus, Last Train Home, Faceplant, Edge of the World, Peanut Panic, Resisting Arrest, Don't Tase Me Bro, Baled, Picked the Wrong Fight, Beaten by a Senior.
+- 21 deaths: Treehouse Tumble, Antifreeze Cocktail, Shocking Behavior, Pancake Mode, Water Tower Dive, Forest Fungus, Last Train Home, Faceplant, Edge of the World, Peanut Panic, Resisting Arrest, Don't Tase Me Bro, Baled, Picked the Wrong Fight, Beaten by a Senior, Over the Handlebars, Board Meeting, Evel Kneecap, Grind Rail, Act Your Age, Wheelie Bad Idea.
+- Skateboards and bicycles lie around town (outside the diner, Duke's Garage, the park, the police station, the farm road and the rail line). Ride them for speed with momentum steering. Hit the Dare Ramp on the east-west road flat out, kickflip off the park kicker, grind the rails, and try not to wheelie too long. Feeble bodies should not skateboard.
 - Physical health (Feeble, Normal, Athlete) decides run speed and which moves a body can do; mental health is shown on the file.
 - The barn is locked unless you're a Farmhand. Non-cops get thrown out of the police station, and keep coming back at your peril.
 - Medium falls break your legs: crawl, or scream for help (T / LB) and a passerby calls 911.
 - Everyone carries a wallet (cash plus a bank card with a PIN and balance). Rifle your own wallet with skill 1, or withdraw from the card at the downtown ATMs.
 - A 1–5 skill bar: slot 1 is the wallet, and slots 2–5 unlock from the body's job, physical health, mental health and afterlife (Tase Self, Laughing Gas, Adrenaline, Morbid Curiosity, Pray, Hellfire Fart and more).
+- Living townsfolk: everyone has a home, a job and a daily routine on an in-game clock. They walk to work, order at the diner, sleep at night, chat and gossip about deaths, gawk at accidents, and you can talk to them (E). Family and friends recognize the body you are wearing.
 - Fist fights: F punches, punched people fight back (cops nearby join in), and the HUD health bar decides how long you last.
+- Anime-style story cutscenes drawn in code: the opening (Gary's turkey-fryer death, the DENIED stamp, and Death's "Fine. You do it then!"), plus a scene from Death on his day off each time 25 deaths in an area opens the next route (bus to downtown, the harbor boats, the airport). Click, Space, E or A advances; Esc or Start twice skips. Add `?cutscene=opening` (or `smallville:25`, `city:25`, `city:50`) to the URL to replay one.
 - Ragdoll physics, insurance claim cards with payouts, a 1,000-slot death ledger saved in the browser.
 
 ## Tech
@@ -62,11 +70,14 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/player.ts`: platformer controller and moveset
 - `src/character.ts`: procedural voxel people and animation
 - `src/ragdoll.ts`: jointed physics ragdolls
+- `src/rides.ts`: skateboards, bicycles, ramps, tricks and their deaths (Player.ride switches the controller to momentum steering)
 - `src/town.ts`, `src/voxel.ts`: town generator, voxel mesher with ambient occlusion
 - `src/props.ts`: train, hay bale, signs, hazards
 - `src/npc.ts`, `src/deaths.ts`: townspeople, their files, the death list and save data
+- `src/life/`: NPC life: daily schedules, shops, chatting, gossip, talking to townsfolk (see `docs/npc-life.md`)
 - `src/skills.ts`: skill definitions and the per-body skill bar
 - `src/economy.ts`: ATMs and card withdrawals
 - `src/combat.ts`: punching, angry NPCs, player health
 - `src/audio.ts`: synthesized sound effects and the chiptune sequencer
+- `src/story/`: cutscene player (`cutscene.ts`), canvas anime art (`art.ts`), synth stings and voices (`sfx.ts`), scripts (`scenes.ts`) and the director that picks and saves scenes (`director.ts`)
 - `src/ui.ts`: HUD, scythe vision panel, claim card, ledger

@@ -247,8 +247,15 @@ export class Sound {
 
   toggleMusic() {
     this.musicOn = !this.musicOn;
-    if (this.music) this.music.gain.value = this.musicOn ? 0.22 : 0;
+    if (this.music) this.music.gain.value = this.musicOn && !this.ducked ? 0.22 : 0;
   }
+
+  /** Quiet the game music while a cutscene plays its own. */
+  duck(on: boolean) {
+    this.ducked = on;
+    if (this.music) this.music.gain.value = this.musicOn && !on ? 0.22 : 0;
+  }
+  private ducked = false;
 
   private schedule() {
     if (!this.ctx) return;
