@@ -39,6 +39,11 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 | Scream for help | T | LB |
 | Pee | Q | RB |
 | Death ledger | Tab | Back |
+| Ride / hop off a skateboard or bike | E | Y |
+| Ollie (board) / bunny hop (bike) | Space | A |
+| Kickflip (board, in the air) | G | RT |
+| Wheelie (bike, hold) | Shift | B or LT |
+| Bike bell | T | LB |
 | Ghost: rise / sink | Space or R / Shift or V | A or D-pad up / B or D-pad down |
 
 ## What's in this build
@@ -46,7 +51,8 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 - Smallville: park with a giant oak treehouse, water tower with a diving board, Duke's Garage, the diner, Hoffman Farm with an electric fence and a hay hoist, Whisper Woods, houses and a railroad.
 - Ghost mode with scythe vision: read anyone's file (age, job, scheduled death, insurance, net worth, afterlife, allergies) and possess them. Taking someone who isn't due angers God.
 - Jobs matter: only a Farmhand can work the hay hoist, and only an allergic body dies from the peanut butter cookies.
-- 20 deaths: Treehouse Tumble, Antifreeze Cocktail, Shocking Behavior, Pancake Mode, Water Tower Dive, Forest Fungus, Last Train Home, Faceplant, Edge of the World, Peanut Panic, Resisting Arrest, Don't Tase Me Bro, Baled, Picked the Wrong Fight, Beaten by a Senior, Jaywalker, Cliffhanger, No Seatbelt, Tuck and Roll, Beat the Train.
+- 27 deaths: Treehouse Tumble, Antifreeze Cocktail, Shocking Behavior, Pancake Mode, Water Tower Dive, Forest Fungus, Last Train Home, Faceplant, Edge of the World, Peanut Panic, Resisting Arrest, Don't Tase Me Bro, Baled, Picked the Wrong Fight, Beaten by a Senior, Jaywalker, Cliffhanger, No Seatbelt, Tuck and Roll, Beat the Train, Over the Handlebars, Board Meeting, Evel Kneecap, Grind Rail, Act Your Age, Wheelie Bad Idea, Share the Road.
+- Skateboards and bicycles lie around town (outside the diner, Duke's Garage, the park, the police station, the farm road and the rail line). Ride them for speed with momentum steering. Hit the Dare Ramp in the open field by the rail line flat out, kickflip off the park kicker, grind the rails, try not to wheelie too long, and watch out for traffic. Feeble bodies should not skateboard.
 - Physical health (Feeble, Normal, Athlete) decides run speed and which moves a body can do; mental health is shown on the file.
 - The barn is locked unless you're a Farmhand. Non-cops get thrown out of the police station, and keep coming back at your peril.
 - Medium falls break your legs: crawl, or scream for help (T / LB) and a passerby calls 911.
@@ -69,6 +75,7 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/player.ts`: platformer controller and moveset
 - `src/character.ts`: procedural voxel people and animation
 - `src/ragdoll.ts`: jointed physics ragdolls
+- `src/rides.ts`: skateboards, bicycles, ramps, tricks and their deaths (Player.ride switches the controller to momentum steering)
 - `src/town.ts`, `src/voxel.ts`: town generator, voxel mesher with ambient occlusion
 - `src/props.ts`: train, hay bale, signs, hazards
 - `src/npc.ts`, `src/deaths.ts`: townspeople, their files, the death list and save data
