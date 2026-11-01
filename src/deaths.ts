@@ -31,7 +31,7 @@ export const DEATHS: DeathDef[] = [
   { id: 'antifreeze', name: 'Antifreeze Cocktail', category: 'Food & Drink', location: "Duke's Garage", payout: 1200, blurb: 'It looked like a sports drink. It was not.' },
   { id: 'shocking', name: 'Shocking Behavior', category: 'Electricity', location: 'Hoffman Farm', payout: 1500, blurb: 'Relieved himself on an electric fence.' },
   { id: 'pancake', name: 'Pancake Mode', category: 'Crushing', location: 'Hoffman Farm', payout: 1800, blurb: 'Flattened by a 900 lb hay bale. Now fits under doors.' },
-  { id: 'watertower', name: 'Water Tower Dive', category: 'Gravity', location: 'Smallville Water Tower', payout: 2500, blurb: 'A perfect long jump. Zero water in the landing zone.' },
+  { id: 'watertower', name: 'Water Tower Dive', category: 'Gravity', location: 'Smallville Water Tower', payout: 2500, blurb: 'A perfect running leap. Zero water in the landing zone.' },
   { id: 'fungus', name: 'Forest Fungus', category: 'Food & Drink', location: 'Whisper Woods', payout: 900, blurb: 'Ate the spotted mushroom. Saw colors. Then saw nothing.' },
   { id: 'train', name: 'Last Train Home', category: 'Vehicles', location: 'Smallville Rail Crossing', payout: 3000, blurb: 'The train had the right of way. It always does.' },
   { id: 'faceplant', name: 'Faceplant', category: 'Gravity', location: 'Anywhere', payout: 300, blurb: 'Fell from a height with absolutely no style.' },
@@ -149,9 +149,9 @@ export type Physical = 'Feeble' | 'Normal' | 'Athlete';
 export type Mental = 'Depressed' | 'Normal' | 'Medicated';
 
 export const PHYSICAL_INFO: Record<Physical, string> = {
-  Feeble: 'half speed, basic jump only',
-  Normal: 'double jump, flips, dive',
-  Athlete: 'triple jump, long jump',
+  Feeble: 'slow, small jump, weak grip',
+  Normal: 'normal sprint and jump',
+  Athlete: 'fast sprint, big jump, long reach',
 };
 /** Jobs that only exist inside the prison and the asylum. Never rolled for random townsfolk. */
 export const INSTITUTION_JOBS = ['Inmate', 'Prison Guard', 'Warden', 'Visitor', 'Patient', 'Orderly', 'Nurse', 'Psychiatrist'] as const;

@@ -2021,7 +2021,7 @@ export class BeachRuntime implements MapRuntime {
     } else if (this.subPhase === 'dive') {
       const inp = g.input;
       let vy = 0;
-      if (inp.held('crouch')) vy -= 6;
+      if (inp.held('crouch') || inp.held('sprint')) vy -= 6;
       if (inp.held('jump')) vy += 6;
       this.subPos.y = Math.min(this.tide - 1, this.subPos.y + vy * dt);
       const depth = (SEA - this.subPos.y) * 4;

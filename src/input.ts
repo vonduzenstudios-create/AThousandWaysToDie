@@ -1,15 +1,14 @@
 export type Btn =
-  | 'jump' | 'crouch' | 'dive' | 'punch' | 'interact' | 'pee' | 'scream' | 'ledger' | 'music' | 'help' | 'confirm' | 'up' | 'down'
+  | 'jump' | 'crouch' | 'sprint' | 'dive' | 'punch' | 'interact' | 'pee' | 'scream' | 'ledger' | 'music' | 'help' | 'confirm' | 'up' | 'down'
   | 'skill1' | 'skill2' | 'skill3' | 'skill4' | 'skill5' | 'skillUse'
   | 'menuUp' | 'menuDown' | 'menuLeft' | 'menuRight' | 'back'
   | 'map' | 'zoomIn' | 'zoomOut' | 'prevPoi' | 'nextPoi';
 
 const KEYMAP: Record<string, Btn[]> = {
   Space: ['jump', 'confirm'],
-  ShiftLeft: ['crouch'],
-  ShiftRight: ['crouch'],
+  ShiftLeft: ['sprint'],
+  ShiftRight: ['sprint'],
   KeyC: ['crouch'],
-  ControlLeft: ['crouch'],
   KeyF: ['punch'],
   KeyG: ['dive'],
   Digit1: ['skill1'],
@@ -82,7 +81,7 @@ export class Input {
   moveY = 0;
   lookX = 0;
   lookY = 0;
-  /** Double-tap-and-hold W (or click the left stick) to sprint. */
+  /** Hold Shift, double-tap-and-hold W, or click the left stick to sprint. */
   sprint = false;
   locked = false;
   padConnected = false;
@@ -94,6 +93,14 @@ export class Input {
   constructor(private canvas: HTMLCanvasElement) {
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Tab' || e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+      // Ctrl / Cmd + a game key is a browser shortcut (Ctrl+W closes the tab, Ctrl+S saves,
+      // Ctrl+D bookmarks...). Swallow the ones the page is allowed to; Ctrl+W/T/N can only be
+      // caught in fullscreen with the keyboard locked (see lockBrowserKeys), and leaving the
+      // page asks first.
+      if ((e.ctrlKey || e.metaKey) && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        e.preventDefault();
+        return;
+      }
       this.onAnyGesture?.();
       if (e.repeat) return;
       if (e.code === 'KeyW' || e.code === 'ArrowUp') {
@@ -210,7 +217,7 @@ export class Input {
     }
     this.moveX = mx;
     this.moveY = my;
-    this.sprint = (this.sprintKey && my > 0.5) || this.padSprint;
+    this.sprint = ((this.sprintKey || this.down.has('sprint')) && len > 0.3) || this.padSprint;
   }
 
   held(b: Btn) {
@@ -228,4 +235,22 @@ export class Input {
     this.mouseDY = 0;
     this.wheel = 0;
   }
+}
+
+/**
+ * In fullscreen, ask the browser to hand us the keys it normally steals (Ctrl+W closes
+ * the tab, Ctrl+T/N open new ones). Chrome and Edge support this; elsewhere it's a no-op.
+ */
+export function lockBrowserKeys() {
+  const kb = (navigator as Navigator & { keyboard?: { lock?: (codes?: string[]) => Promise<void>; unlock?: () => void } }).keyboard;
+  document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement) kb?.lock?.(['KeyW', 'KeyT', 'KeyN', 'KeyQ', 'KeyR', 'KeyS', 'KeyD', 'Tab']).catch(() => {});
+    else kb?.unlock?.();
+  });
+}
+
+/** Toggle real (element) fullscreen, which is what keyboard locking needs. */
+export function toggleFullscreen() {
+  if (document.fullscreenElement) void document.exitFullscreen?.();
+  else void document.documentElement.requestFullscreen?.().catch(() => {});
 }

@@ -722,7 +722,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
 
     // Bag belt: lie flat (crouch) or the check-in agent yanks you off.
     if (inD(d, dbox(BELT.x0, 0.7, BELT.z0, BELT.x1 + 1, 2, BELT.z1 + 1))) {
-      const flat = p.state === 'crouch' || p.state === 'slide' || p.state === 'bellyslide' || job() === 'Baggage Handler';
+      const flat = p.state === 'crouch' || p.state === 'crawl' || job() === 'Baggage Handler';
       beltStandT = flat ? 0 : beltStandT + h;
       if (!flat && d.z < SEC_Z - 0.5 && beltStandT > 0.9) {
         beltStandT = 0;

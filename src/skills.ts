@@ -160,7 +160,7 @@ const BODY_SKILLS: Record<string, Skill> = {
     id: 'adrenaline',
     name: 'Adrenaline',
     icon: '💪',
-    desc: 'Time slows for 4 seconds. Line up that triple jump.',
+    desc: 'Time slows for 4 seconds. Line up that jump.',
     source: 'Body',
     cooldown: 15,
     use(h) {

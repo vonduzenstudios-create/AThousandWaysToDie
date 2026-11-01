@@ -66,19 +66,16 @@ export class UI {
       <table>
         <tr><th></th><th>Keyboard</th><th>Controller</th></tr>
         <tr><td>Move</td><td>WASD</td><td>Left stick</td></tr>
-        <tr><td>Sprint</td><td>Double-tap and hold W</td><td>Click left stick</td></tr>
+        <tr><td>Sprint (speed by fitness)</td><td>Hold Shift (or double-tap W)</td><td>Click left stick</td></tr>
         <tr><td>Orbit camera</td><td>Hold left mouse</td><td>Right stick</td></tr>
         <tr><td>Steer (camera stays behind)</td><td>Hold right mouse</td><td>Right stick</td></tr>
         <tr><td>Walk forward</td><td>Hold both mouse buttons</td><td></td></tr>
         <tr><td>Zoom / first person</td><td>Scroll wheel</td><td></td></tr>
-        <tr><td>Jump (tap on landing to chain)</td><td>Space</td><td>A</td></tr>
-        <tr><td>Crouch, slide, ground pound</td><td>Shift</td><td>B or LT</td></tr>
-        <tr><td>Long jump (Athlete)</td><td>Run + Shift + Space</td><td>Run + B + A</td></tr>
-        <tr><td>Backflip</td><td>Shift + Space standing</td><td>B + A standing</td></tr>
-        <tr><td>Side flip</td><td>Reverse + Space</td><td>Reverse + A</td></tr>
-        <tr><td>Wall kick</td><td>Space on a wall</td><td>A on a wall</td></tr>
+        <tr><td>Jump (height by fitness)</td><td>Space</td><td>A</td></tr>
+        <tr><td>Grab a ledge</td><td>Jump at it, hold toward the wall</td><td>Same</td></tr>
+        <tr><td>Pull up · let go</td><td>Space or W · C or S</td><td>A or up · B or down</td></tr>
+        <tr><td>Crouch / swim down</td><td>C</td><td>B or LT</td></tr>
         <tr><td>Punch</td><td>F</td><td>X</td></tr>
-        <tr><td>Dive</td><td>G</td><td>RT</td></tr>
         <tr><td>Skills</td><td>1 – 5 (or click)</td><td>D-pad up/down pick, right use</td></tr>
         <tr><td>Interact / possess</td><td>E</td><td>Y</td></tr>
         <tr><td>Scream for help</td><td>T</td><td>LB</td></tr>
@@ -86,7 +83,7 @@ export class UI {
         <tr><td>Drive · steer</td><td>W / S · A / D</td><td>Stick or RT / LT · stick</td></tr>
         <tr><td>Handbrake · horn</td><td>Space · T</td><td>A · LB</td></tr>
         <tr><td>Pee</td><td>Q</td><td>RB</td></tr>
-        <tr><td>Ghost rise / sink</td><td>Space / Shift</td><td>A / B</td></tr>
+        <tr><td>Ghost rise / sink</td><td>Space / C</td><td>A / B</td></tr>
         <tr><td>Ledger · music</td><td>Tab · M</td><td>View · D-pad left</td></tr>
         <tr><td>Full map · waypoints</td><td>N (or click the radar)</td><td>Click right stick</td></tr>
       </table>

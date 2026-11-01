@@ -223,7 +223,7 @@ export function setupCity(ctx: MapContext, L: CityLayout): MapRuntime {
     { a: actor({ shirt: 0x3a9a4a, hat: 0xffffff }, V(37, G + 1, 330), -Math.PI / 2), home: V(37, G + 1, 330), down: 0, cd: 0 },
     { a: actor({ shirt: 0xe0b030 }, V(37, G + 1, 362), -Math.PI / 2), home: V(37, G + 1, 362), down: 0, cd: 0 },
   ];
-  const DODGES = ['dive', 'longjump', 'groundpound', 'gpFreeze', 'backflip', 'sideflip', 'slide', 'bellyslide', 'wallkick', 'triple'];
+  const DODGES = ['jump', 'crouch'];
   const onLiveTrack = (p: THREE.Vector3) => Math.abs(p.x - (RAIL.live + 0.5)) < 2.4 && p.z > RAIL.z0 && p.z < RAIL.z1 && p.y < G + 2;
 
   // ================================================================ manhole worker
