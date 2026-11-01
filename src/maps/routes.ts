@@ -28,6 +28,9 @@ export const ROUTES: Route[] = [
   { a: 'city:harbor', b: 'beach:harbor', kind: 'boat', fare: 150, unlockAt: 6000, minutes: 120 },
   { a: 'city:airport', b: 'wilderness:airport', kind: 'plane', fare: 600, unlockAt: 15000, minutes: 300 },
   { a: 'city:train', b: 'wilderness:train', kind: 'train', fare: 120, unlockAt: 9000, minutes: 180 },
+  // The prison and the asylum: visitor shuttles from the city. (Or get arrested / committed for free.)
+  { a: 'city:bus', b: 'prison:visitor', kind: 'bus', fare: 45, unlockAt: 8000, minutes: 60 },
+  { a: 'city:bus', b: 'asylum:gate', kind: 'bus', fare: 45, unlockAt: 7000, minutes: 75 },
 ];
 
 /** Routes leaving a stop, oriented so `to` is the far end. Routes to maps that aren't registered are skipped. */

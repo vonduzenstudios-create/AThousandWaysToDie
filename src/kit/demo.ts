@@ -90,7 +90,7 @@ let meshedMs = 0;
 const controls = new OrbitControls(camera, renderer.domElement);
 const presets: Record<string, [number[], number[]]> = {
   street: [[48, 3.2, 70], [48, 6, 0]],
-  plaza: [[71, 3.2, 37], [52, 3, 54]],
+  plaza: [[71, 3.2, 57], [50, 5, 32]],
   aerial: [[110, 70, 150], [48, 0, 50]],
   houses: [[66, 4, 20], [80, 3, 30]],
   facade: [[48, 6, 14], [48, 7, -10]],

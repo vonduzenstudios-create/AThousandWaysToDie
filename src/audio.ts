@@ -58,10 +58,10 @@ export class Sound {
     this.master.gain.value = 0.6;
     this.master.connect(comp);
     this.sfx = ctx.createGain();
-    this.sfx.gain.value = 0.9;
+    this.sfx.gain.value = 0.9 * (this.sfxVol ?? 1);
     this.sfx.connect(this.master);
     this.music = ctx.createGain();
-    this.music.gain.value = 0.22;
+    this.music.gain.value = 0.22 * (this.musicVol ?? 1);
     this.music.connect(this.master);
     this.noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const d = this.noiseBuf.getChannelData(0);
@@ -245,15 +245,25 @@ export class Sound {
     this.timer = window.setInterval(() => this.schedule(), 25);
   }
 
+  /** Volume settings, 0..1 each. */
+  private musicVol = 1;
+  private sfxVol = 1;
+  setVolumes(music: number, sfx: number) {
+    this.musicVol = music;
+    this.sfxVol = sfx;
+    if (this.sfx) this.sfx.gain.value = 0.9 * sfx;
+    if (this.music) this.music.gain.value = this.musicOn && !this.ducked ? 0.22 * music : 0;
+  }
+
   toggleMusic() {
     this.musicOn = !this.musicOn;
-    if (this.music) this.music.gain.value = this.musicOn && !this.ducked ? 0.22 : 0;
+    if (this.music) this.music.gain.value = this.musicOn && !this.ducked ? 0.22 * this.musicVol : 0;
   }
 
   /** Quiet the game music while a cutscene plays its own. */
   duck(on: boolean) {
     this.ducked = on;
-    if (this.music) this.music.gain.value = this.musicOn && !on ? 0.22 : 0;
+    if (this.music) this.music.gain.value = this.musicOn && !on ? 0.22 * this.musicVol : 0;
   }
   private ducked = false;
 

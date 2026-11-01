@@ -23,8 +23,10 @@ export interface ParkedCar {
 export interface TrafficConfig {
   roads: Road[];
   parked?: ParkedCar[];
-  /** Cars per 100 blocks of lane. Default 2.2. */
+  /** Cars per 100 blocks of lane. Default 0.5. */
   density?: number;
+  /** Most traffic cars at once, however much road there is. Default 30. */
+  maxCars?: number;
   /** Cruise speed in blocks per second. Default 12. */
   speed?: number;
 }
