@@ -39,6 +39,8 @@ export const DEATHS: DeathDef[] = [
   { id: 'beatdown', name: 'Resisting Arrest', category: 'Stupidity', location: 'Smallville Police Station', payout: 2200, blurb: 'Kept walking into the police station. The police had opinions.' },
   { id: 'taser', name: "Don't Tase Me, Bro", category: 'Electricity', location: 'Smallville Police Station', payout: 1600, blurb: 'A cop tested the department taser on himself. Thirty-one times.' },
   { id: 'baled', name: 'Baled', category: 'Machines', location: 'Hoffman Barn', payout: 2000, blurb: 'Climbed into the hay baler. Came out as a neat, tidy cube.' },
+  { id: 'brawl', name: 'Picked the Wrong Fight', category: 'Stupidity', location: 'Anywhere in Smallville', payout: 1300, blurb: 'Punched a stranger. The stranger punched back. A lot.' },
+  { id: 'grandma', name: 'Beaten by a Senior', category: 'Stupidity', location: 'Anywhere in Smallville', payout: 2600, blurb: 'Started a fist fight with someone frail. Lost. Badly.' },
   { id: 'peanut', name: 'Peanut Panic', category: 'Allergies', location: 'Smallville Diner', payout: 1400, blurb: 'Ate a peanut butter cookie in a body with a deadly peanut allergy.' },
 ];
 
@@ -114,6 +116,52 @@ const QUIRKS = [
   'Is 40% Mountain Dew by volume.',
 ];
 
+export interface Wallet {
+  cash: number;
+  /** Junk found alongside the cash, for flavor. */
+  junk: string;
+  bank: string;
+  last4: string;
+  pin: string;
+  /** Checking balance. Negative means overdrawn. */
+  balance: number;
+}
+
+const BANKS = ['First Bank of Smallville', 'Mortalis Credit Union', 'Bank of Mattress', 'Piggly Savings & Loan', 'Cash4Gold Federal'];
+const WALLET_JUNK = [
+  'a Blockbuster card',
+  'a condom from 2009',
+  'six expired coupons for ham',
+  'a photo of someone else\'s kids',
+  'a lottery ticket (loser)',
+  'a punch card one punch from a free sub',
+  'a fortune that says "No."',
+  'a tooth. Not theirs.',
+  'a business card for a psychic',
+  'a folded note that says "you looked"',
+  'a Chuck E. Cheese token',
+  'a receipt for 40 lbs of glitter',
+];
+
+function randomWallet(rng: Rng, job: string, age: number, netWorth: number): Wallet {
+  let cash = Math.floor(Math.pow(rng(), 2.2) * 300);
+  if (job === 'Teen') cash = Math.floor(rng() * 25);
+  if (age >= 66) cash += Math.floor(rng() * 120); // they carry cash. Lots of it.
+  let balance = Math.floor(Math.max(-900, netWorth * (0.01 + rng() * 0.04)));
+  if (job === 'Teen') balance = Math.floor(rng() * 60);
+  if (job === 'Banker') balance = Math.max(balance, 8000);
+  if (rng() < 0.12) balance = -Math.floor(randRange(rng, 20, 600));
+  const pin = rng() < 0.3 ? pick(rng, ['1234', '0000', '6969', '1111', '4321']) : String(Math.floor(rng() * 10000)).padStart(4, '0');
+  return {
+    cash,
+    junk: pick(rng, WALLET_JUNK),
+    bank: pick(rng, BANKS),
+    last4: String(Math.floor(rng() * 10000)).padStart(4, '0'),
+    pin,
+    balance,
+  };
+}
+
 export interface PersonFile {
   name: string;
   age: number;
@@ -127,6 +175,7 @@ export interface PersonFile {
   peanutAllergy: boolean;
   physical: Physical;
   mental: Mental;
+  wallet: Wallet;
 }
 
 const ATHLETIC_JOBS: readonly string[] = ['Cop', 'Construction Worker', 'Farmhand', 'Teen', 'Mail Carrier'];
@@ -146,6 +195,7 @@ export function randomFile(rng: Rng, job?: Job): PersonFile {
   if (chosenJob === 'Teen') age = Math.floor(randRange(rng, 14, 19));
   if (chosenJob === 'Retiree') age = Math.floor(randRange(rng, 66, 95));
   if (chosenJob === 'Cop' || chosenJob === 'Construction Worker') age = Math.floor(randRange(rng, 21, 56));
+  const netWorth = Math.floor(Math.pow(rng(), 3) * 2_000_000) - 20000;
   const roll = rng();
   const daysLeft = roll < 0.45 ? Math.floor(randRange(rng, 0, 30)) : roll < 0.7 ? Math.floor(randRange(rng, 30, 900)) : Math.floor(randRange(rng, 3000, 20000));
   return {
@@ -155,12 +205,13 @@ export function randomFile(rng: Rng, job?: Job): PersonFile {
     daysLeft,
     cause: pick(rng, BORING_CAUSES),
     policy: rng() < 0.18 ? 0 : pick(rng, [0.5, 1, 1, 1.5, 2, 3]),
-    netWorth: Math.floor(Math.pow(rng(), 3) * 2_000_000) - 20000,
+    netWorth,
     afterlife: pick(rng, ['Heaven', 'Hell', 'Undecided (leaning Hell)', 'Undecided (leaning Heaven)'] as const),
     quirk,
     peanutAllergy: quirk.includes('peanut') || rng() < 0.15,
     physical: physicalFor(rng, age, chosenJob),
     mental: pick(rng, ['Depressed', 'Normal', 'Normal', 'Medicated'] as const),
+    wallet: randomWallet(rng, chosenJob, age, netWorth),
   };
 }
 

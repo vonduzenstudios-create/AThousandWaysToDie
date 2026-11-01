@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { RAPIER } from './physics';
 import { Sound } from './audio';
 import { FollowCam } from './camera';
+import { Atms, withdraw } from './economy';
+import { SkillBar, hasPassive, type SkillHost } from './skills';
+import { Combat } from './combat';
 import { Character } from './character';
 import {
   ADJUSTER_NOTES,
@@ -94,6 +97,21 @@ export class Game {
   private crosshair: HTMLElement;
   private hornCooldown = 0;
   private npcRespawnT = 0;
+  private atms!: Atms;
+  private skillBar = new SkillBar();
+  private combat!: Combat;
+  private skillHost!: SkillHost;
+  /** Effect timers (real seconds) from skills. */
+  private slowmoT = 0;
+  private slowmoScale = 1;
+  private hueT = 0;
+  private numbT = 0;
+  private trainHold = 0;
+  private payoutMul = 1;
+  private payoutWhy = '';
+  private withdrawn = 0;
+  private beam: THREE.Mesh | null = null;
+  private beamT = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -146,6 +164,10 @@ export class Game {
     this.town = buildTown();
     this.town.world.build(this.scene, this.physics);
     this.props = new Props(this.scene, this.physics, this.town);
+    this.atms = new Atms(this.scene, this.physics, this.town.world, this.town.areas.downtown, this.props.interactables);
+    this.combat = this.makeCombat();
+    this.skillHost = this.makeSkillHost();
+    this.ui.onSkillClick = (i) => this.useSkill(i);
     this.particles = new Particles(this.scene);
 
     this.input = new Input(canvas);
@@ -301,6 +323,14 @@ export class Game {
     this.props.setBarnOpen(file.job === 'Farmhand');
     this.barnTries = 0;
     this.stationVisits = 0;
+    this.skillBar.setBody(file);
+    this.combat.setBody(file);
+    this.withdrawn = 0;
+    this.payoutMul = 1;
+    this.payoutWhy = '';
+    this.player.boostT = 0;
+    this.player.floatT = 0;
+    this.ui.setSkills(this.skillBar, this.input.padConnected);
     this.ui.setHud(this.ledger, file);
   }
 
@@ -311,6 +341,10 @@ export class Game {
     this.player.setEnabled(false);
     this.body = null;
     this.character = null;
+    this.skillBar.setBody(null);
+    this.combat.setBody(null);
+    this.ui.setSkills(null);
+    this.ui.setHealth(null);
     if (first) this.cam.dist = 8;
     this.cam.autoOrbit = 0;
     this.sound.setStyle('ghost');
@@ -389,6 +423,10 @@ export class Game {
     this.player.setEnabled(false);
     this.pendingDeath = { id, victim, startPos: this.player.position() };
     this.timeScale = 0.35;
+    this.slowmoT = 0;
+    this.hueT = 0;
+    this.combat.releaseAll();
+    this.ui.setHealth(null);
 
     if (style.kind === 'cube') {
       ch.root.scale.set(ch.app.height * 1.1, ch.app.height * 0.45, ch.app.height * 1.1);
@@ -446,8 +484,9 @@ export class Game {
     } else if (!mult) {
       note = pick(this.rng, UNINSURED_LINES);
     } else {
-      total = Math.round((def.payout + bonus) * mult);
+      total = Math.round((def.payout + bonus) * mult * this.payoutMul);
       note = pick(this.rng, ADJUSTER_NOTES);
+      if (this.payoutMul > 1) note += ` (${this.payoutWhy}: paid x${this.payoutMul}.)`;
     }
     const isNew = !already;
     this.ledger.claimNo++;
@@ -510,7 +549,12 @@ export class Game {
       ch.kick(0.15 + heavy * 0.4);
       if (e.drop > 3) this.particles.burst(this.player.feet(), 8, 0xcdbf9a, 3, { life: 0.5, size: 0.2, gravity: 6 });
     }
-    const [breakH, fatalH] = this.player.tier === 'Feeble' ? [3.5, 7] : this.player.tier === 'Athlete' ? [6, 11] : [5, 9];
+    let [breakH, fatalH] = this.player.tier === 'Feeble' ? [3.5, 7] : this.player.tier === 'Athlete' ? [6, 11] : [5, 9];
+    if (this.body && hasPassive(this.body, 'hardhat')) fatalH += 2;
+    if (this.numbT > 0) {
+      breakH += 3;
+      fatalH += 3;
+    }
     if (e.drop >= breakH && e.drop < fatalH && this.mode === 'play' && !this.player.legsBroken && e.landState !== 'groundpound') {
       this.player.breakLegs();
       this.sound.crunch();
@@ -552,6 +596,19 @@ export class Game {
   private interact(id: string) {
     const ch = this.character;
     if (!ch || !this.body) return;
+    if (id.startsWith('atm:')) {
+      const r = withdraw(this.body, this.withdrawn);
+      this.ui.toast(r.title, r.sub, 3200);
+      if (r.ok) {
+        this.withdrawn += r.amount;
+        this.addMoney(r.amount);
+        this.sound.cash();
+        const it = this.props.interactables.find((x) => x.id === id);
+        if (it) this.particles.burst(it.pos.clone().add(new THREE.Vector3(0, 1.2, 0)), 14, 0x55d16a, 3, { life: 0.9, size: 0.16 });
+        if (this.rng() < 0.25) setTimeout(() => this.ui.say('Death', "You know you can't take it with you. Oh wait. You literally can.", 3200), 600);
+      } else this.sound.denied();
+      return;
+    }
     if (id === 'barndoor') {
       if (this.body.job === 'Farmhand') {
         this.ui.toast('Door is open', "You're the farmer. Walk right in.", 1600);
@@ -699,6 +756,176 @@ export class Game {
     ]);
   }
 
+  // ---------------------------------------------------------------- money, skills, fighting
+  private addMoney(n: number) {
+    this.ledger.balance += n;
+    this.ledger.total += n;
+    this.ledger.save();
+    this.ui.setHud(this.ledger, this.body);
+  }
+
+  private useSkill(i: number) {
+    if (this.mode !== 'play' || !this.body || this.player.state === 'locked') return;
+    this.skillBar.selected = i;
+    const r = this.skillBar.use(i, this.skillHost, performance.now());
+    this.ui.pulseSkill(i, r.ok);
+    if (!r.ok && r.reason) {
+      this.ui.toast(this.skillBar.slots[i]?.skill?.name ?? 'Locked', r.reason, 1600);
+      this.sound.denied();
+    }
+  }
+
+  private updateEffects(realDt: number) {
+    if (this.slowmoT > 0) {
+      this.slowmoT -= realDt;
+      if (this.mode === 'play') this.timeScale = this.slowmoT > 0 ? this.slowmoScale : 1;
+    }
+    if (this.hueT > 0) {
+      this.hueT -= realDt;
+      if (this.mode === 'play') this.ui.setHueShift(this.hueT > 0 ? (this.time * 120) % 360 : 0);
+    }
+    this.numbT -= realDt;
+    this.trainHold -= realDt;
+    if (this.beam) {
+      this.beamT -= realDt;
+      const m = this.beam.material as THREE.MeshBasicMaterial;
+      m.opacity = Math.max(0, Math.min(0.45, this.beamT * 0.4)) * (0.8 + Math.sin(this.time * 8) * 0.2);
+      if (this.beamT <= 0) {
+        this.scene.remove(this.beam);
+        this.beam.geometry.dispose();
+        m.dispose();
+        this.beam = null;
+      }
+    }
+  }
+
+  private revealNearestHazard(seconds: number) {
+    const p = this.player.feet();
+    let best: THREE.Vector3 | null = null;
+    let bd = Infinity;
+    const cands = this.props.interactables.filter((it) => it.enabled && !it.id.startsWith('atm')).map((it) => it.pos);
+    const t = this.town;
+    const center = (b: { min: THREE.Vector3; max: THREE.Vector3 }) => b.min.clone().add(b.max).multiplyScalar(0.5);
+    cands.push(center(t.treeZone), center(t.towerZone), new THREE.Vector3(p.x, G, t.trackZ + 0.5));
+    for (const c of cands) {
+      const d = Math.hypot(c.x - p.x, c.z - p.z);
+      if (d > 2.5 && d < bd) {
+        bd = d;
+        best = c;
+      }
+    }
+    if (!best) return false;
+    if (this.beam) this.scene.remove(this.beam);
+    this.beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.9, 0.9, 80, 12, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0x9a7cff, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    this.beam.position.set(best.x, G + 40, best.z);
+    this.scene.add(this.beam);
+    this.beamT = seconds;
+    return true;
+  }
+
+  private makeSkillHost(): SkillHost {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const g = this;
+    return {
+      get body() {
+        return g.body!;
+      },
+      get player() {
+        return g.player;
+      },
+      feet: () => this.player.feet(),
+      toast: (a, b, ms) => this.ui.toast(a, b, ms),
+      say: (who, line, ms) => this.ui.say(who, line, ms),
+      addMoney: (n) => this.addMoney(n),
+      burst: (pos, n, color, speed, opts) => this.particles.burst(pos, n, color, speed, opts),
+      sfx: (name) => {
+        if (name === 'scream') this.sound.scream(1.1);
+        else this.sound[name]();
+      },
+      slowmo: (sec, scale) => {
+        this.slowmoT = sec;
+        this.slowmoScale = scale;
+        this.timeScale = scale;
+      },
+      hueTrip: (sec) => (this.hueT = sec),
+      gather: (n, radius, onArrive) => {
+        const p = this.player.feet();
+        const near = this.npcs
+          .filter((x) => !x.helping && !x.controlled && x.pos.distanceTo(p) < radius)
+          .sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p))
+          .slice(0, n);
+        let first = true;
+        for (const x of near)
+          x.summon(this.player.feet(), () => {
+            if (first && this.mode === 'play') onArrive(x.file.name);
+            first = false;
+          });
+        return near.length;
+      },
+      nearbyCount: (r) => this.npcs.filter((x) => x.pos.distanceTo(this.player.feet()) < r).length,
+      pauseTrain: (sec) => {
+        if (!this.props.train.moving) return false;
+        this.trainHold = sec;
+        this.sound.horn();
+        return true;
+      },
+      revealNearestHazard: (sec) => this.revealNearestHazard(sec),
+      numb: (sec) => (this.numbT = sec),
+      payoutBonus: (mult, why) => {
+        this.payoutMul = Math.max(this.payoutMul, mult);
+        this.payoutWhy = why;
+      },
+      heal: (hp) => this.combat.heal(hp),
+      godAnger: (d) => {
+        this.ledger.godAnger = Math.max(0, this.ledger.godAnger + d);
+        this.ledger.save();
+        this.ui.setHud(this.ledger, this.body);
+      },
+      godAngerLevel: () => this.ledger.godAnger,
+      trigger: (id) => this.interact(id),
+    };
+  }
+
+  private makeCombat() {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const g = this;
+    return new Combat({
+      npcs: () => this.npcs,
+      get player() {
+        return g.player;
+      },
+      character: () => this.character,
+      body: () => this.body,
+      playing: () => this.mode === 'play' && !!this.body,
+      hit: (kind) => {
+        if (kind === 'whiff') this.sound.whoosh();
+        else if (kind === 'punch') {
+          this.sound.noise({ dur: 0.09, vol: 0.7, freq: 500, type: 'lowpass', q: 1 });
+          this.sound.tone({ f: 140, f2: 60, dur: 0.1, type: 'square', vol: 0.25 });
+        } else if (kind === 'hurt') {
+          this.sound.noise({ dur: 0.12, vol: 0.8, freq: 350, type: 'lowpass', q: 1 });
+          this.sound.tone({ f: 220, f2: 90, dur: 0.15, type: 'sawtooth', vol: 0.2 });
+        } else {
+          this.sound.tone({ f: 900, f2: 300, dur: 0.5, type: 'triangle', vol: 0.3 });
+          this.sound.crunch();
+        }
+      },
+      shake: (a) => this.cam.shake(a),
+      burst: (pos, n, color, speed, opts) => this.particles.burst(pos, n, color, speed, opts),
+      say: (who, line, ms) => this.ui.say(who, line, ms),
+      hurtFlash: () => this.ui.flash('#ff2020', 260),
+      died: (by) => {
+        const frail = by.file.physical === 'Feeble' || by.file.job === 'Retiree';
+        const away = this.player.feet().sub(by.pos).setY(0).normalize();
+        this.kill(frail ? 'grandma' : 'brawl', { kind: 'ragdoll', vel: new THREE.Vector3(away.x * 10, 9, away.z * 10), spin: 12, bounce: 0.5 });
+        if (frail) setTimeout(() => this.ui.say('Death', `Beaten to death by ${by.file.name}, age ${by.file.age}. I'm putting this one on the fridge.`, 4000), 1500);
+      },
+    });
+  }
+
   private scream() {
     if (!this.character || performance.now() < this.screamCooldown) return;
     this.screamCooldown = performance.now() + 1500;
@@ -706,7 +933,7 @@ export class Game {
     this.character.kick(-0.3);
     const p = this.player.feet();
     const near = this.npcs
-      .filter((n) => !n.helping && n.pos.distanceTo(p) < 28)
+      .filter((n) => !n.helping && !n.controlled && n.pos.distanceTo(p) < 28)
       .sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p))
       .slice(0, 2);
     if (!near.length) {
@@ -887,7 +1114,7 @@ export class Game {
           });
         }
       }
-      this.props.train.update(h);
+      if (this.trainHold <= 0) this.props.train.update(h);
       this.props.bale.update(h);
       this.physics.step();
       if (this.mode === 'play') this.checkHazards(h);
@@ -900,6 +1127,8 @@ export class Game {
 
     for (const r of this.ragdolls) r.update();
     for (const n of this.npcs) n.update(dt);
+    this.combat.update(dt);
+    this.updateEffects(realDt);
     this.props.update(dt, this.time);
     this.particles.update(dt);
 
@@ -935,6 +1164,16 @@ export class Game {
       this.ui.prompt(it ? `<span class="key">E</span>${it.prompt}` : null);
       if (it && inp.pressed('interact')) this.interact(it.id);
       if (inp.pressed('scream') && this.player.state !== 'locked') this.scream();
+      if (inp.pressed('punch') && !this.ui.ledgerOpen) this.combat.punch();
+      (['skill1', 'skill2', 'skill3', 'skill4', 'skill5'] as const).forEach((b, i) => {
+        if (inp.pressed(b)) this.useSkill(i);
+      });
+      if (inp.pressed('up')) this.skillBar.selected = (this.skillBar.selected + 4) % 5;
+      if (inp.pressed('down')) this.skillBar.selected = (this.skillBar.selected + 1) % 5;
+      if (inp.pressed('skillUse')) this.useSkill(this.skillBar.selected);
+      this.ui.setSkills(this.skillBar, inp.padConnected);
+      this.ui.updateSkills(this.skillBar, performance.now(), inp.padConnected);
+      this.ui.setHealth(this.combat.hp, this.combat.maxHp);
       const eyeH = this.player.state === 'crawl' ? 0.6 : this.player.state === 'crouch' ? 1.1 : 1.65;
       this.cam.update(realDt, feet.clone().add(new THREE.Vector3(0, 1.6, 0)), lookDX, lookDY, feet.clone().add(new THREE.Vector3(0, eyeH, 0)));
       ch.root.visible = !this.cam.firstPerson;
