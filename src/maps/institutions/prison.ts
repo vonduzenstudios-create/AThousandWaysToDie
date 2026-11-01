@@ -108,8 +108,8 @@ function buildPrison(w: VoxelWorld, rng: Rng) {
 
   // ---- Admin building: lobby, visiting room, intake, Warden's office upstairs.
   walls(w, 80, 140, 112, 163, G, 12, B.PrisonGrey);
-  slab(w, 81, 141, 111, 161, 3, B.Linoleum);
-  slab(w, 81, 141, 111, 161, G + 6, B.Carpet); // office floor (stand at G+7)
+  slab(w, 81, 141, 111, 161, 3, B.AsylumLino);
+  slab(w, 81, 141, 111, 161, G + 6, B.OfficeCarpet); // office floor (stand at G+7)
   slab(w, 80, 140, 112, 163, G + 12, B.Dark); // roof
   cut(w, 94, G, 162, 97, G + 3, 163); // front door through the outer wall
   w.fill(81, G, 152, 111, G + 5, 152, B.PrisonGrey); // lobby | visiting + intake
@@ -167,7 +167,7 @@ function buildPrison(w: VoxelWorld, rng: Rng) {
 
   // ---- Cafeteria.
   walls(w, 96, 72, 140, 96, G, 6, B.PrisonGrey);
-  slab(w, 97, 73, 139, 95, 3, B.Linoleum);
+  slab(w, 97, 73, 139, 95, 3, B.AsylumLino);
   slab(w, 96, 72, 140, 96, G + 6, B.Dark);
   cut(w, 134, G, 72, 137, G + 3, 72);
   cut(w, 96, G, 82, 96, G + 3, 85);
@@ -186,8 +186,8 @@ function buildPrison(w: VoxelWorld, rng: Rng) {
   for (let z = 102; z <= 115; z += 3) w.fill(113, G, z, 115, G + 1, z + 1, B.White); // washers
 
   // ---- Showers.
-  walls(w, 120, 100, 140, 118, G, 6, B.Tile);
-  slab(w, 121, 101, 139, 117, 3, B.Tile);
+  walls(w, 120, 100, 140, 118, G, 6, B.ShowerTile);
+  slab(w, 121, 101, 139, 117, 3, B.ShowerTile);
   slab(w, 120, 100, 140, 118, G + 6, B.Dark);
   cut(w, 128, G, 118, 130, G + 3, 118);
   cut(w, 120, G, 108, 120, G + 3, 110);

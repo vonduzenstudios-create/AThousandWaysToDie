@@ -29,6 +29,11 @@ function textSign(lines: string[], w: number, h: number, bg: string, fg: string,
       lines.forEach((line, i) => {
         const fs = i === 0 ? font : font.replace(/\d+px/, `${Math.round(parseInt(font.match(/(\d+)px/)?.[1] ?? '40') * 0.55)}px`);
         c.font = fs;
+        const tw = c.measureText(line).width;
+        if (tw > w * 0.9) {
+          const px = parseInt(fs.match(/(\d+)px/)?.[1] ?? '40');
+          c.font = fs.replace(/\d+px/, `${Math.floor((px * w * 0.9) / tw)}px`);
+        }
         c.fillText(line, w / 2, (h / (lines.length + 1)) * (i + 1));
       });
     },
@@ -256,7 +261,7 @@ export class Props {
       b.rotation.z = r;
       xing.add(b);
     }
-    xing.position.set(86.5, G, info.trackZ - 3.5);
+    xing.position.copy(info.crossing);
     scene.add(xing);
 
     // Electric fence wires (visual) plus invisible blocking walls.
@@ -349,9 +354,16 @@ export class Props {
       m.rotation.y = rotY;
       scene.add(m);
     };
-    sign(["DUKE'S GARAGE"], new THREE.Vector3(67.1, G + 5, 98), Math.PI / 2, '#20304a', '#ffcc33');
-    sign(['DINER', 'EAT HERE. MAYBE.'], new THREE.Vector3(87.9, G + 4, 96), -Math.PI / 2, '#d8302a', '#ffffff');
-    sign(['HOFFMAN FARM'], new THREE.Vector3(137.5, G + 9.5, 108.6), 0, '#6b3a1e', '#f5e6c8');
+    // Every shop, landmark and road sign in town comes from the town layout.
+    for (const s of info.signs) {
+      const w = s.w ?? 6, h = s.h ?? 1.5;
+      const px = 128;
+      const tex = textSign(s.lines, Math.round(w * px), Math.round(h * px), s.bg, s.fg, `bold ${Math.round(h * px * (s.lines.length > 1 ? 0.36 : 0.5))}px Arial Black, Impact, sans-serif`);
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide }));
+      m.position.copy(s.pos);
+      m.rotation.y = s.rotY;
+      scene.add(m);
+    }
 
     // Antifreeze jug.
     const jug = new THREE.Group();
@@ -463,7 +475,7 @@ export class Props {
     // Clouds.
     this.clouds = new THREE.Group();
     const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x666666 });
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 60; i++) {
       const c = new THREE.Group();
       const n = 3 + Math.floor(Math.random() * 4);
       for (let j = 0; j < n; j++) {
@@ -471,7 +483,7 @@ export class Props {
         b.position.set(j * 3 - n * 1.5, Math.random(), (Math.random() - 0.5) * 3);
         c.add(b);
       }
-      c.position.set(Math.random() * 300 - 70, 55 + Math.random() * 15, Math.random() * 300 - 70);
+      c.position.set(Math.random() * (SIZE + 200) - 100, G + 55 + Math.random() * 15, Math.random() * (SIZE + 200) - 100);
       this.clouds.add(c);
     }
     scene.add(this.clouds);
@@ -486,7 +498,7 @@ export class Props {
     this.mushroom.rotation.y = Math.sin(t * 1.5) * 0.2;
     for (const c of this.clouds.children) {
       c.position.x += dt * 1.5;
-      if (c.position.x > 240) c.position.x = -80;
+      if (c.position.x > SIZE + 100) c.position.x = -100;
     }
     const pivot = this.lever.getObjectByName('pivot');
     if (pivot) pivot.rotation.x += ((this.leverPulled > 0 ? 0.9 : -0.6) - pivot.rotation.x) * Math.min(1, dt * 10);

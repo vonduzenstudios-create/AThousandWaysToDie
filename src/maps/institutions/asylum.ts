@@ -109,8 +109,8 @@ function buildAsylum(w: VoxelWorld, rng: Rng) {
 
   // ---- Main building shell.
   walls(w, 50, 70, 142, 150, G, 14, B.AsylumWall);
-  slab(w, 51, 71, 141, 149, 3, B.Linoleum);
-  slab(w, 51, 71, 141, 149, G + 6, B.Linoleum); // upstairs floor
+  slab(w, 51, 71, 141, 149, 3, B.AsylumLino);
+  slab(w, 51, 71, 141, 149, G + 6, B.AsylumLino); // upstairs floor
   slab(w, 50, 70, 142, 150, G + 13, B.RoofGreen); // roof
   walls(w, 50, 70, 142, 150, G + 14, 1, B.AsylumWall); // parapet
   // Courtyard: open to the sky through both floors, grass, a tree and benches.
@@ -161,11 +161,11 @@ function buildAsylum(w: VoxelWorld, rng: Rng) {
   w.fill(79, G, 129, 79, G + 5, 149, B.AsylumWall);
   w.fill(113, G, 129, 113, G + 5, 149, B.AsylumWall);
   cut(w, 95, G, 129, 96, G + 2, 129);
-  slab(w, 80, 130, 112, 149, 3, B.Carpet);
+  slab(w, 80, 130, 112, 149, 3, B.OfficeCarpet);
   w.fill(86, G, 137, 92, G, 138, B.Wood); // reception desk
   for (const x of [100, 104, 108]) w.fill(x, G, 145, x + 2, G, 145, B.WallBlue); // waiting chairs
   // Stairs up from the north hall.
-  stairs(w, 82, 90, 0, -1, G, 7, 3, B.Linoleum);
+  stairs(w, 82, 90, 0, -1, G, 7, 3, B.AsylumLino);
   cut(w, 82, G + 6, 85, 84, G + 6, 90);
 
   // Group therapy: a circle of chairs and a tall bookshelf you can climb by the stacked chairs.
@@ -181,14 +181,14 @@ function buildAsylum(w: VoxelWorld, rng: Rng) {
   // Rec room: chess table, TV, couch.
   w.fill(60, G, 136, 61, G, 137, B.Wood);
   w.fill(52, G, 128, 52, G + 2, 132, B.Dark);
-  w.fill(57, G, 128, 58, G, 133, B.Carpet);
+  w.fill(57, G, 128, 58, G, 133, B.OfficeCarpet);
   // Pool: a basin with steps in the corner.
   cut(w, POOL.min.x, 1, POOL.min.z, POOL.max.x, 3, POOL.max.z);
   slab(w, POOL.min.x, POOL.min.z, POOL.max.x, POOL.max.z, 0, B.PoolTile);
-  slab(w, 118, 71, 141, 74, 3, B.Tile);
-  slab(w, 118, 94, 141, 96, 3, B.Tile);
-  slab(w, 118, 75, 121, 93, 3, B.Tile);
-  slab(w, 139, 75, 141, 93, 3, B.Tile);
+  slab(w, 118, 71, 141, 74, 3, B.ShowerTile);
+  slab(w, 118, 94, 141, 96, 3, B.ShowerTile);
+  slab(w, 118, 75, 121, 93, 3, B.ShowerTile);
+  slab(w, 139, 75, 141, 93, 3, B.ShowerTile);
   stairs(w, 122, 92, 0, -1, 1, 3, 2, B.PoolTile);
   // Art therapy table, nurses' counter.
   w.fill(125, G, 108, 134, G, 110, B.Wood);

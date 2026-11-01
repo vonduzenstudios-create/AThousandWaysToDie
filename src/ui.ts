@@ -35,7 +35,6 @@ export class UI {
   private banner: HTMLElement;
   private dialog: HTMLElement;
   private flashEl: HTMLElement;
-  private titleEl: HTMLElement;
   private skillEl: HTMLElement;
   private tipEl: HTMLElement;
   private healthEl: HTMLElement;
@@ -89,18 +88,7 @@ export class UI {
         <tr><td>Ledger · music</td><td>Tab · M</td><td>View · D-pad left</td></tr>
       </table>
     </div>`);
-    this.titleEl = this.add(`<div class="title">
-      <div class="logo">C'est La Vie</div>
-      <div class="tag">a comedy about dying, a lot</div>
-      <div class="story">
-        <p>Gary Pruitt died cleaning his gutters. It was so dumb that Mortalis Mutual, the last life insurance company on Earth, voided his policy. His family got nothing.</p>
-        <p>When Death came to collect him, Gary lost it. He screamed at Death for killing him <i>that</i> way. Death, overworked and fed up, snapped back:</p>
-        <p class="quote">"Fine. You do it then."</p>
-        <p>Now Gary has the scythe, the power to jump into anyone's body, and a ledger with 1,000 empty lines.</p>
-      </div>
-      <div class="start">Click or press A to begin</div>
-      <div class="small">Keyboard + mouse or gamepad. Best with headphones.</div>
-    </div>`);
+
   }
 
   private add(html: string) {
@@ -109,19 +97,6 @@ export class UI {
     return e;
   }
 
-  showTitle(onStart: () => void) {
-    const go = () => {
-      if (this.titleGo === null) return;
-      this.titleGo = null;
-      this.titleEl.classList.add('hidden');
-      window.removeEventListener('keydown', go);
-      this.titleEl.removeEventListener('click', go);
-      onStart();
-    };
-    this.titleGo = go;
-    this.titleEl.addEventListener('click', go);
-    window.addEventListener('keydown', go);
-  }
 
   setHud(ledger: Ledger, body: PersonFile | null) {
     const god = ledger.godAnger;
@@ -259,7 +234,6 @@ export class UI {
   }
 
   pendingClaim: (() => void) | null = null;
-  titleGo: (() => void) | null = null;
   private padMode = false;
 
   setPadMode(on: boolean) {

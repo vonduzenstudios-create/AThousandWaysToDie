@@ -69,8 +69,6 @@ async function boot() {
   world.build(scene, physics);
 
   const ui = new UI();
-  ui.showTitle(() => {});
-  ui.titleGo?.();
   const sound = new Sound();
   const ledger = new Ledger();
   const particles = new Particles(scene);
