@@ -800,7 +800,9 @@ export class Game {
       ch.kick(0.15 + heavy * 0.4);
       if (e.drop > 3) this.particles.burst(this.player.feet(), 8, 0xcdbf9a, 3, { life: 0.5, size: 0.2, gravity: 6 });
     }
-    let [breakH, fatalH] = this.player.tier === 'Feeble' ? [3.5, 7] : this.player.tier === 'Athlete' ? [6, 11] : [5, 9];
+    // Heights are measured from the top of the arc. A triple jump or backflip peaks at about 5.3,
+    // so ordinary platforming (even off a small ledge) never breaks legs; only real drops do.
+    let [breakH, fatalH] = this.player.tier === 'Feeble' ? [6, 9] : this.player.tier === 'Athlete' ? [9, 13] : [7.5, 11];
     if (this.body && hasPassive(this.body, 'hardhat')) fatalH += 2;
     if (this.numbT > 0) {
       breakH += 3;

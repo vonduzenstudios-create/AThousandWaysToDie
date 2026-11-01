@@ -56,7 +56,7 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 - Skateboards and bicycles lie around town (outside the diner, Duke's Garage, the park, the police station, the farm road and the rail line). Ride them for speed with momentum steering. Hit the Dare Ramp in the open field by the rail line flat out, kickflip off the park kicker, grind the rails, try not to wheelie too long, and watch out for traffic. Feeble bodies should not skateboard.
 - Physical health (Feeble, Normal, Athlete) decides run speed and which moves a body can do; mental health is shown on the file.
 - The barn is locked unless you're a Farmhand. Non-cops get thrown out of the police station, and keep coming back at your peril.
-- Medium falls break your legs: crawl, or scream for help (T / LB) and a passerby calls 911.
+- Genuinely high falls break your legs (ordinary jumps, triple jumps and backflips never do): crawl, or scream for help (T / LB) and a passerby calls 911.
 - Everyone carries a wallet (cash plus a bank card with a PIN and balance). Rifle your own wallet with skill 1, or withdraw from the card at the downtown ATMs.
 - A 1–5 skill bar: slot 1 is the wallet, and slots 2–5 unlock from the body's job, physical health, mental health and afterlife (Tase Self, Laughing Gas, Adrenaline, Morbid Curiosity, Pray, Hellfire Fart and more).
 - Living townsfolk: everyone has a home, a job and a daily routine on an in-game clock. They walk to work, order at the diner, sleep at night, chat and gossip about deaths, gawk at accidents, and you can talk to them (E). Family and friends recognize the body you are wearing.
