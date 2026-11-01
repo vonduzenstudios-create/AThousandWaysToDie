@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Character, randomAppearance, type Appearance } from './character';
+import { Character, type Appearance } from './character';
 import { randomFile, type Job, type PersonFile } from './deaths';
 import { G, type Box } from './town';
 import type { VoxelWorld } from './voxel';
@@ -35,9 +35,9 @@ export class Npc {
   }
 
   constructor(scene: THREE.Scene, private world: VoxelWorld, private area: Box, private rng: Rng, job?: Job) {
-    this.app = randomAppearance(rng);
     this.file = randomFile(rng, job);
-    this.character = new Character(this.app);
+    this.character = Character.fromFile(this.file, Math.floor(rng() * 1e9));
+    this.app = this.character.app;
     this.speed = 1.6 + rng() * 1.4;
     this.pos.copy(this.randomPoint());
     this.target.copy(this.pos);
