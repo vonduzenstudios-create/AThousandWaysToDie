@@ -29,7 +29,7 @@ export const WILD_DEATHS: DeathDef[] = [
   { id: 'nuke', name: 'Not Rated for This', category: 'Fire & Explosions', location: 'Doom Town Test Site', payout: 8000, blurb: 'Hid in a fridge during a nuclear test. It did not work. Nice shadow though.' },
   { id: 'groundzero', name: 'Ground Zero', category: 'Fire & Explosions', location: 'Doom Town Test Site', payout: 3000, blurb: 'Stood around at a nuclear test. Did not even bring a fridge.' },
   { id: 'mirage', name: 'Mirage', category: 'Stupidity', location: 'The Dune Sea', payout: 900, blurb: 'Crawled for miles toward an oasis that was never there.' },
-  { id: 'beaver', name: 'Beaver Revenge', category: 'Creatures', location: 'Whisper Creek Dam', payout: 1600, blurb: 'Ground-pounded a beaver dam. The flood was bad. The beavers were worse.' },
+  { id: 'beaver', name: 'Beaver Revenge', category: 'Creatures', location: 'Whisper Creek Dam', payout: 1600, blurb: 'Jumped onto a beaver dam from way too high. The flood was bad. The beavers were worse.' },
   { id: 'logroll', name: 'Logrolling Champ', category: 'Sports', location: 'Whisper Creek Lumber', payout: 1000, blurb: 'Challenged Big Jim to log rolling. Big Jim is still undefeated.' },
 ];
 

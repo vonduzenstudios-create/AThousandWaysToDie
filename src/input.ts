@@ -1,13 +1,13 @@
 export type Btn =
-  | 'jump' | 'crouch' | 'dive' | 'punch' | 'interact' | 'pee' | 'scream' | 'ledger' | 'music' | 'help' | 'confirm' | 'up' | 'down'
+  | 'jump' | 'crouch' | 'sprint' | 'dive' | 'punch' | 'interact' | 'pee' | 'scream' | 'ledger' | 'music' | 'help' | 'confirm' | 'up' | 'down'
   | 'skill1' | 'skill2' | 'skill3' | 'skill4' | 'skill5' | 'skillUse'
   | 'menuUp' | 'menuDown' | 'menuLeft' | 'menuRight' | 'back'
   | 'map' | 'zoomIn' | 'zoomOut' | 'prevPoi' | 'nextPoi';
 
 const KEYMAP: Record<string, Btn[]> = {
   Space: ['jump', 'confirm'],
-  ShiftLeft: ['crouch'],
-  ShiftRight: ['crouch'],
+  ShiftLeft: ['sprint'],
+  ShiftRight: ['sprint'],
   KeyC: ['crouch'],
   ControlLeft: ['crouch'],
   KeyF: ['punch'],
@@ -82,7 +82,7 @@ export class Input {
   moveY = 0;
   lookX = 0;
   lookY = 0;
-  /** Double-tap-and-hold W (or click the left stick) to sprint. */
+  /** Hold Shift, double-tap-and-hold W, or click the left stick to sprint. */
   sprint = false;
   locked = false;
   padConnected = false;
@@ -210,7 +210,7 @@ export class Input {
     }
     this.moveX = mx;
     this.moveY = my;
-    this.sprint = (this.sprintKey && my > 0.5) || this.padSprint;
+    this.sprint = ((this.sprintKey || this.down.has('sprint')) && len > 0.3) || this.padSprint;
   }
 
   held(b: Btn) {

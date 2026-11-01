@@ -418,7 +418,7 @@ export class Game {
     if (due) due.file.daysLeft = 2; // always at least one fair mark nearby
     const worker = byJob('Construction Worker')[0];
     if (worker) {
-      worker.file.physical = 'Athlete'; // someone who can do the water tower long jump
+      worker.file.physical = 'Athlete'; // fast enough for the water tower running leap
       worker.file.age = 27;
       worker.file.daysLeft = 12;
     }
@@ -428,24 +428,22 @@ export class Game {
 
   private wirePlayerHooks() {
     this.player.hooks = {
-      onJump: (kind, chain) => {
-        if (kind === 'backflip' || kind === 'sideflip' || kind === 'triple') this.sound.flip();
-        if (kind === 'longjump') this.sound.longJump();
-        this.sound.jump(kind === 'triple' ? 3 : chain);
+      onJump: (_kind, chain) => {
+        this.sound.jump(chain);
         this.character?.kick(-0.25);
       },
       onLand: (e) => this.onLand(e),
-      onWallKick: () => {
-        this.sound.wallKick();
-        this.particles.burst(this.player.position(), 8, 0xdddddd, 3, { life: 0.4, size: 0.2, gravity: 4 });
+      onLedge: (kind) => {
+        if (kind === 'grab') {
+          this.sound.land(0.15);
+          this.character?.kick(0.2);
+        } else this.sound.whoosh();
       },
       onDenied: (move) => {
         if (performance.now() < this.deniedToastT) return;
         this.deniedToastT = performance.now() + 4000;
         this.ui.toast('TOO WEAK', `This body can't do a ${move}. Physical health: ${this.player.tier}.`, 2400);
       },
-      onGroundPound: () => this.sound.whoosh(),
-      onDive: () => this.sound.whoosh(),
       onRideCrash: (impact, normal) => this.rides.onCrash(impact, normal),
       onRideTrick: () => this.rides.onTrick(),
     };
@@ -807,17 +805,10 @@ export class Game {
     if (this.rides.isRiding && this.rides.onLand(e)) return;
     if (this.mode === 'play' && this.runtime?.onLand?.(e)) return;
     const heavy = Math.min(e.drop / 12, 1);
-    if (e.landState === 'groundpound') {
-      this.sound.slam();
-      this.cam.shake(0.6);
-      ch.kick(0.6);
-      this.particles.burst(this.player.feet(), 20, 0xbfae8a, 7, { life: 0.6, size: 0.25 });
-    } else {
-      this.sound.land(heavy);
-      ch.kick(0.15 + heavy * 0.4);
-      if (e.drop > 3) this.particles.burst(this.player.feet(), 8, 0xcdbf9a, 3, { life: 0.5, size: 0.2, gravity: 6 });
-    }
-    // Heights are measured from the top of the arc. A triple jump or backflip peaks at about 5.3,
+    this.sound.land(heavy);
+    ch.kick(0.15 + heavy * 0.4);
+    if (e.drop > 3) this.particles.burst(this.player.feet(), 8, 0xcdbf9a, 3, { life: 0.5, size: 0.2, gravity: 6 });
+    // Heights are measured from the top of the arc. An athlete's jump peaks at about 3.4,
     // so ordinary platforming (even off a small ledge) never breaks legs; only real drops do.
     let [breakH, fatalH] = this.player.tier === 'Feeble' ? [6, 9] : this.player.tier === 'Athlete' ? [9, 13] : [7.5, 11];
     if (this.body && hasPassive(this.body, 'hardhat')) fatalH += 2;
@@ -825,7 +816,7 @@ export class Game {
       breakH += 3;
       fatalH += 3;
     }
-    if (e.drop >= breakH && e.drop < fatalH && this.mode === 'play' && !this.player.legsBroken && e.landState !== 'groundpound') {
+    if (e.drop >= breakH && e.drop < fatalH && this.mode === 'play' && !this.player.legsBroken) {
       this.player.breakLegs();
       this.sound.crunch();
       this.sound.scream(1.2);
@@ -841,13 +832,13 @@ export class Game {
       const town = this.town;
       if (this.pendingFall) id = this.pendingFall;
       else if (town && inBox(e.launchPos, town.treeZone)) id = 'treehouse';
-      else if (town && inBox(e.launchPos, town.towerZone) && e.launchState === 'longjump') id = 'watertower';
+      else if (town && inBox(e.launchPos, town.towerZone) && e.launchState === 'jump' && e.launchSpeed > 11) id = 'watertower';
       id = this.hometown?.fallDeathId(e, this.player.feet()) ?? id;
       this.sound.splat();
       this.cam.shake(0.8);
       this.kill(id, { kind: 'ragdoll', vel: v, spin: 12, bounce: 0.6 });
       if (id === 'faceplant' && town && inBox(e.launchPos, town.towerZone))
-        setTimeout(() => this.ui.say('Death', 'From the water tower and THAT is what you went with? Try a long jump next time.', 4000), 1800);
+        setTimeout(() => this.ui.say('Death', 'From the water tower and THAT is what you went with? Take a running leap next time.', 4000), 1800);
     }
   }
 
@@ -1669,7 +1660,7 @@ export class Game {
     if (inp.pressed('down')) this.tickets.move(1);
     if (inp.pressed('interact') || inp.pressed('confirm')) {
       if (!this.tickets.confirm()) this.sound.denied();
-    } else if (inp.pressed('crouch')) this.tickets.close();
+    } else if (inp.pressed('crouch') || inp.pressed('sprint')) this.tickets.close();
   }
 
   private buyTicket(stop: TravelStop, o: TicketOption) {
@@ -1947,7 +1938,7 @@ export class Game {
     const busy = this.ui.ledgerOpen || this.player.state === 'locked';
     let thr = inp.moveY;
     if (inp.held('dive')) thr += 1; // RT
-    if (inp.held('crouch')) thr -= 1; // LT / Shift
+    if (inp.held('crouch') || inp.held('sprint')) thr -= 1; // LT / Shift
     this.carIn.throttle = busy ? 0 : Math.max(-1, Math.min(1, thr));
     this.carIn.steer = busy ? 0 : inp.moveX;
     this.carIn.handbrake = !busy && inp.held('jump');
@@ -2531,7 +2522,7 @@ export class Game {
     this.life.update(dt, {
       camera: this.camera,
       player: this.mode === 'play' && this.body ? { pos: this.player.feet(), file: this.body } : null,
-      menu: { up: inp.pressed('up'), down: inp.pressed('down'), confirm: inp.pressed('confirm'), back: inp.pressed('crouch') },
+      menu: { up: inp.pressed('up'), down: inp.pressed('down'), confirm: inp.pressed('confirm'), back: inp.pressed('crouch') || inp.pressed('sprint') },
     });
     this.combat.update(dt);
     this.updateEffects(realDt);
