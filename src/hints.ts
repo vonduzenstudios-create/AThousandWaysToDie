@@ -158,6 +158,14 @@ export const DEATH_HINTS: Record<string, DeathHint> = {
   'air-terrain': { act: 'fly a whole airliner into the mountain at the end of the runway', needs: { jobs: ['Pilot'] } },
   'air-runway0': { act: 'clear a plane to land on runway zero and then go stand on runway zero', needs: { jobs: ['Air Traffic Controller'] } },
   'air-teddychute': { act: 'skydive with a backpack from the lost and found' },
+  'air-sky-nopull': { act: "jump out of Frank's plane and just enjoy the view all the way down" },
+  'air-sky-lowpull': { act: 'wait to pull my parachute until the ground looks really big' },
+  'air-sky-bargain': { act: "skydive with Frank's twenty-dollar pre-loved rig" },
+  'air-sky-linetwist': { act: 'ride a twisted parachute all the way down instead of cutting it away' },
+  'air-sky-tailstrike': { act: "pull my ripcord while I'm still inside the jump plane" },
+  'air-sky-splashdown': { act: 'skydive into the bay and skip the parachute' },
+  'air-sky-wetblanket': { act: 'land a parachute in the bay and stay under it' },
+  'air-sky-radar': { act: 'land a parachute on the control tower roof, right on the radar' },
   'air-tug': { act: 'play chicken with a baggage tug on the ramp', needs: { jobs: RAMP } },
 
   // ---- The city.

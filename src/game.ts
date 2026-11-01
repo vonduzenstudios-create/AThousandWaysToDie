@@ -173,6 +173,9 @@ export class Game {
   private timeScale = 1;
   private seq: Step[] = [];
   private seqT = 0;
+  /** The death -> claim steps run on their own track, so a map's runSeq after a kill can't cancel the claim. */
+  private deathSeq: Step[] = [];
+  private deathSeqT = 0;
   private rng: Rng = mulberry32(Date.now() & 0xffff);
   /** Places stamped into the map (the hospital annex for now): their runtime hooks. */
   private start0 = new THREE.Vector3();
@@ -719,10 +722,11 @@ export class Game {
     this.life.closeTalk();
     this.life.event({ kind: 'death', at: this.player.position(), victim, what: deathGossip(id, def.name), where: def.location });
     this.ui.toast(def.name.toUpperCase(), def.category, 2600);
-    this.runSeq([
+    this.deathSeqT = 0;
+    this.deathSeq = [
       { at: 1.4, fn: () => (this.timeScale = 1) },
       { at: 3.4, fn: () => this.fileClaim() },
-    ]);
+    ];
   }
 
   private fileClaim() {
@@ -2434,6 +2438,10 @@ export class Game {
   }
 
   private updateSeq(dt: number) {
+    if (this.deathSeq.length) {
+      this.deathSeqT += dt;
+      while (this.deathSeq.length && this.deathSeq[0].at <= this.deathSeqT) this.deathSeq.shift()!.fn();
+    }
     if (!this.seq.length) return;
     this.seqT += dt;
     while (this.seq.length && this.seq[0].at <= this.seqT) this.seq.shift()!.fn();
@@ -2598,6 +2606,7 @@ export class Game {
         state: this.player.state,
         stateTime: this.player.stateTime,
         airTime: this.player.airTime,
+        pose: this.player.pose,
       });
       this.rides.update(realDt);
       const riding = this.rides.isRiding;

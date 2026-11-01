@@ -298,7 +298,7 @@ async function boot() {
       const feet = player.feet();
       character.root.position.copy(feet);
       character.root.rotation.y = player.facing;
-      character.animate(realDt, { speed: player.horizSpeed(), grounded: player.grounded, state: player.state, stateTime: player.stateTime, airTime: player.airTime });
+      character.animate(realDt, { speed: player.horizSpeed(), grounded: player.grounded, state: player.state, stateTime: player.stateTime, airTime: player.airTime, pose: player.pose });
       // Interactables (closest in range).
       let best: { id: string; prompt: string } | null = null;
       let bd = Infinity;

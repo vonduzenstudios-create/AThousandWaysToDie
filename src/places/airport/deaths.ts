@@ -20,5 +20,14 @@ export const AIRPORT_DEATHS: DeathDef[] = [
   { id: 'air-terrain', name: 'Terrain, Pull Up', category: 'Vehicles', location: `${L}: Mount Mortalis`, payout: 6000, blurb: 'Flew a full airliner into the mountain at the end of the runway. Passengers parachuted out fine.' },
   { id: 'air-runway0', name: 'Cleared to Land', category: 'Vehicles', location: `${L}: Runway 0`, payout: 4500, blurb: 'Told Flight 22 to land on runway zero, then went and stood on runway zero.' },
   { id: 'air-teddychute', name: 'Teddy Bear Chute', category: 'Gravity', location: `${L}: Hangar`, payout: 2400, blurb: 'Skydived with a backpack from lost and found. It had a teddy bear in it.' },
+  // Freefall Frank's skydive (src/places/airport/skydive.ts).
+  { id: 'air-sky-nopull', name: 'Forgot Something?', category: 'Gravity', location: `${L}: Hangar`, payout: 3000, blurb: 'Jumped from 12,500 feet with a perfectly good parachute and never pulled it.' },
+  { id: 'air-sky-lowpull', name: 'Pulled Too Low', category: 'Gravity', location: `${L}: Hangar`, payout: 3400, blurb: 'Waited for the ground to get really big before pulling. The canopy was still unpacking.' },
+  { id: 'air-sky-bargain', name: 'Packed It Myself', category: 'Gravity', location: `${L}: Hangar`, payout: 2800, blurb: "Bought Frank's $20 pre-loved rig. It was Frank's laundry." },
+  { id: 'air-sky-linetwist', name: 'Line Twist', category: 'Gravity', location: `${L}: Hangar`, payout: 3600, blurb: 'The main spun up into a line twist. Rode it all the way down instead of cutting away.' },
+  { id: 'air-sky-tailstrike', name: 'Tail Strike', category: 'Vehicles', location: `${L}: Hangar`, payout: 4200, blurb: 'Pulled the ripcord inside the jump plane. Left through the door and met the tail.' },
+  { id: 'air-sky-splashdown', name: 'Water Is Concrete', category: 'Water', location: `${L}: Hangar`, payout: 3000, blurb: 'Skipped the parachute and aimed for the bay. Water is soft. Water is not soft.' },
+  { id: 'air-sky-wetblanket', name: 'Wet Blanket', category: 'Water', location: `${L}: Hangar`, payout: 2600, blurb: 'A perfect canopy landing in the bay, then forty square metres of wet nylon on top.' },
+  { id: 'air-sky-radar', name: 'Radar Blip', category: 'Machines', location: `${L}: Hangar`, payout: 3800, blurb: 'Flew a parachute onto the control tower roof and got swept off by the radar.' },
   { id: 'air-tug', name: 'Ramp Rash', category: 'Vehicles', location: `${L}: Apron`, payout: 1000, blurb: 'Played chicken with a baggage tug. The tug does not brake.' },
 ];
