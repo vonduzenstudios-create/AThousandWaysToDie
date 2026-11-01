@@ -8,6 +8,7 @@ import type { Ground } from './animals';
 import { WildRuntime, type WildLayout } from './runtime';
 import { grassCover } from './scenery';
 import { buildStructures, type Spots } from './structures';
+import { blockFootprints } from './kitbuild';
 import { PADS, ROADS, SX, SY, SZ, Terrain, defineWildBlocks } from './terrain';
 
 export const WILD_DEATHS: DeathDef[] = [
@@ -59,24 +60,24 @@ function lifeMap(t: Terrain, s: Spots, floor: Int16Array): LifeMap {
   const at = (x: number, z: number): V3 => ({ x, y: floor[Math.floor(z) * SX + Math.floor(x)], z });
   const padBox = (k: keyof typeof PADS) => ({ min: { x: PADS[k].x0 + 1, z: PADS[k].z0 + 1 }, max: { x: PADS[k].x1 - 1, z: PADS[k].z1 - 1 } });
   const places: LifePlace[] = [
-    { id: 'depot', name: 'Lost Pines Depot', kind: 'transit', door: v3(s.trainStop), inside: { min: { x: 60, z: 602 }, max: { x: 110, z: 607 } } },
+    { id: 'depot', name: 'Lost Pines Depot', kind: 'transit', door: v3(s.trainStop), spots: [at(66, 603.5), at(90, 603.5), at(102, 603.5), at(80, 605)] },
     { id: 'busstop', name: 'Lost Pines Bus Stop', kind: 'transit', door: v3(s.busStop), spots: [at(152, 576), at(155, 576)] },
     { id: 'airstrip', name: 'Mbali Airstrip', kind: 'transit', door: v3(s.airport) },
-    { id: 'ranger', name: 'Ranger Station', kind: 'civic', door: v3(s.rangerDoor), inside: { min: { x: 123, z: 552 }, max: { x: 139, z: 564 } }, staffSpots: [at(127, 556)], jobs: ['Park Ranger'], lines: ['Stay on the trails.', 'Do not feed the bears. Or wear honey.'] },
+    { id: 'ranger', name: 'Ranger Station', kind: 'civic', door: v3(s.rangerDoor), staffSpots: [v3(s.ranger)], spots: [at(125, 568)], jobs: ['Park Ranger'], lines: ['Stay on the trails.', 'Do not feed the bears. Or wear honey.'] },
     { id: 'campground', name: 'Lost Pines Campground', kind: 'park', door: at(196, 452), inside: padBox('campground'), spots: [at(188, 429), at(206, 427), at(192, 434), at(197, 434)] },
     { id: 'tents', name: 'the campground tents', kind: 'home', door: at(195, 425), inside: padBox('campground'), residents: 6 },
     { id: 'lumber', name: 'Whisper Creek Lumber', kind: 'work', door: at(126, 466), inside: padBox('lumber'), jobs: ['Lumberjack'], lines: ['TIMBER!', 'Big Jim has never lost a log roll.'] },
     { id: 'raft', name: 'Whitewater Rafting', kind: 'work', door: v3(s.raftHut), inside: padBox('raftdock'), jobs: ['Rafting Guide'], lines: ['Paddle left! Your other left!'] },
     { id: 'bungee', name: 'Thunder Gorge Bungee', kind: 'attraction', door: v3(s.bungeeShack), inside: padBox('bungee'), jobs: ['Bungee Operator'] },
     { id: 'gatorshow', name: "Cap'n Chomp's Gator Show", kind: 'attraction', door: at(82, 498), spots: [at(78, 490), at(84, 490), at(80, 492), at(86, 492), at(82, 494)], jobs: ['Gator Wrangler'], hours: [9, 20] },
-    { id: 'lodge', name: 'Mbali Safari Lodge', kind: 'food', door: v3(s.lodgeDoor), inside: { min: { x: 441, z: 543 }, max: { x: 451, z: 555 } }, staffSpots: [at(445, 546)], spots: [at(443, 552), at(447, 552), at(449, 553)], counter: at(445, 547), jobs: ['Line Cook'], sells: [{ item: 'iced tea', price: 3 }, { item: 'raw steak', price: 15 }, { item: 'biltong', price: 6 }], hours: [6, 23] },
-    { id: 'giftshop', name: 'Lodge Gift Shop', kind: 'shop', door: at(432, 558), inside: { min: { x: 425, z: 543 }, max: { x: 439, z: 555 } }, staffSpots: [at(430, 547)], sells: [{ item: 'safari hat', price: 20 }, { item: 'meat suit costume', price: 30 }, { item: 'postcard', price: 2 }], jobs: ['Gift Shop Clerk'] },
+    { id: 'lodge', name: 'Mbali Safari Lodge', kind: 'food', door: v3(s.lodgeDoor), staffSpots: [at(446, 558)], spots: [at(441, 560), at(446, 560.5), at(451, 560)], counter: v3(s.kitchen), jobs: ['Line Cook'], sells: [{ item: 'iced tea', price: 3 }, { item: 'raw steak', price: 15 }, { item: 'biltong', price: 6 }], hours: [6, 23] },
+    { id: 'giftshop', name: 'Lodge Gift Shop', kind: 'shop', door: v3(s.giftShop), staffSpots: [at(428, 558)], spots: [at(426, 559.5), at(431, 560)], sells: [{ item: 'safari hat', price: 20 }, { item: 'meat suit costume', price: 30 }, { item: 'postcard', price: 2 }], jobs: ['Gift Shop Clerk'] },
     { id: 'rondavels', name: 'the lodge huts', kind: 'home', door: at(462, 554), residents: 6 },
     { id: 'safari', name: 'Mbali Game Drive', kind: 'work', door: v3(s.garage), jobs: ['Safari Guide', 'Zookeeper'], patrol: [at(470, 520), at(500, 440), at(505, 362), at(420, 352), at(380, 420), at(345, 488)] },
     { id: 'lookout', name: 'Pride Rock Lookout', kind: 'attraction', door: v3(s.lionLookout) },
     { id: 'wateringhole', name: 'the Watering Hole', kind: 'attraction', door: v3(s.waterBank) },
     { id: 'hippobank', name: 'Hippo Crossing', kind: 'attraction', door: v3(s.hippoBank) },
-    { id: 'gas', name: 'Dry Gulch Gas & Grub', kind: 'food', door: v3(s.gasDoor), inside: { min: { x: 287, z: 135 }, max: { x: 305, z: 145 } }, staffSpots: [at(292, 138)], counter: at(292, 138.5), spots: [at(298, 141), at(302, 141), at(300, 143)], jobs: ['Diner Cook', 'Gas Attendant'], sells: [{ item: 'coffee', price: 2 }, { item: 'chili dog', price: 4 }, { item: 'jerky', price: 5 }] },
+    { id: 'gas', name: 'Dry Gulch Gas & Grub', kind: 'food', door: v3(s.gasDoor), staffSpots: [at(318, 147)], counter: v3(s.gasDoor), spots: [at(291, 149), at(300, 149.5), at(304, 150)], jobs: ['Diner Cook', 'Gas Attendant'], sells: [{ item: 'coffee', price: 2 }, { item: 'chili dog', price: 4 }, { item: 'jerky', price: 5 }] },
     { id: 'trailer', name: "Dale's trailer", kind: 'home', door: v3(s.trailerDoor), residents: 1 },
     { id: 'cropcircle', name: 'the crop circle', kind: 'attraction', door: v3(s.camera) },
     { id: 'bunker', name: 'Test Site Control Bunker', kind: 'work', door: v3(s.bunkerDoor), inside: { min: { x: 515, z: 97 }, max: { x: 529, z: 107 } }, jobs: ['Scientist'], allowedJobs: ['Scientist'], lines: ['Next test is on schedule. Probably.'] },
@@ -156,6 +157,7 @@ export const WILDERNESS: MapDef = {
     t.fill(world);
     const spots = buildStructures(world, t);
     const floor = floorMap(t, world);
+    blockFootprints(floor, t);
     const ground: Ground = {
       floor: (x, z) => {
         const xi = Math.floor(x), zi = Math.floor(z);

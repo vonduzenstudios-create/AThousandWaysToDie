@@ -6,6 +6,8 @@ import * as M from './models';
 import { buildClouds, buildFoliage, buildWater } from './scenery';
 import { RIVER_A, SX, SZ, type Terrain } from './terrain';
 import type { Spots } from './structures';
+import { buildKit, disposeKit } from './kitbuild';
+import type { StreetKit } from '../../kit';
 
 export interface WildLayout {
   t: Terrain;
@@ -141,6 +143,7 @@ export class WildRuntime implements MapRuntime {
   private lumberjack!: Actor;
   private logGame: { t: number; want: number; next: number; balance: number; log: THREE.Mesh } | null = null;
   private skeletons: { a: Actor; t: number; dir: THREE.Vector3 }[] = [];
+  private kit: StreetKit;
 
   constructor(private ctx: MapContext, L: WildLayout) {
     this.game = ctx.game;
@@ -150,6 +153,7 @@ export class WildRuntime implements MapRuntime {
     this.ground = L.ground;
     this.cover = L.cover;
     this.scene.add(this.root);
+    this.kit = buildKit(this.root, ctx.physics);
 
     const water = buildWater(this.t);
     this.waterMat = water.mat;
@@ -271,18 +275,18 @@ export class WildRuntime implements MapRuntime {
   private buildSigns() {
     const s = this.s;
     const sign = (lines: string[], at: THREE.Vector3, rot: number, bg?: string, fg?: string, w?: number, h?: number, post = true) => this.place(M.signBoard(lines, bg, fg, w, h, post), at, rot);
-    sign(['LOST PINES', 'Wilderness Depot · Trains to the City'], s.depotSign, 0, '#2a4a2a', '#f5e6c8', 8, 1.8, false);
-    sign(['RANGER STATION', 'Lost Pines National Forest'], s.rangerSign, 0, '#4a3a20', '#f5e6c8', 6, 1.6, false);
+    sign(['LOST PINES', 'Wilderness Depot · Trains to the City'], s.depotSign, 0, '#2a4a2a', '#f5e6c8', 5, 1.6);
+    sign(['RANGER STATION', 'Lost Pines National Forest'], s.rangerSign, 0, '#4a3a20', '#f5e6c8', 5, 1.6);
     sign(['BUS', 'Lost Pines ⇄ Smallville'], s.busSign, -Math.PI / 2, '#1a3a7a', '#ffffff', 2.2, 1.2);
     sign(['CAMPGROUND', 'Bears are NOT friends'], s.campSign, Math.PI, '#4a3a20', '#f5e6c8', 5, 1.6);
     sign(['WHISPER CREEK LUMBER', 'Log rolling champion: BIG JIM (undefeated)'], s.lumberSign, Math.PI, '#5a3a20', '#f5e6c8', 7, 1.6, false);
     sign(["CAP'N CHOMP'S GATOR SHOW", 'Volunteers wanted!'], s.gatorSign, 0, '#2a5a2a', '#ffe060', 8, 2, false);
     sign(['WHITEWATER RAFTING', 'Falls ahead. Do NOT go over the falls.'], s.raftSign, -Math.PI / 2, '#7a2a2a', '#ffffff', 5, 1.6);
     sign(['THUNDER GORGE BUNGEE', '$50 · Cords measured by hand!'], s.bungeeSign, Math.PI, '#e8b820', '#111111', 6, 1.8);
-    sign(['MBALI SAFARI LODGE', 'Gift Shop · Kitchen · Balloon Tours'], s.lodgeSign, 0, '#6a3a1a', '#f5e6c8', 9, 2, false);
-    sign(['MBALI AIRSTRIP', 'Flights to the City'], s.airSign, 0, '#ffffff', '#1a3a7a', 6, 1.4, false);
+    sign(['MBALI SAFARI LODGE', 'Gift Shop · Kitchen · Balloon Tours'], s.lodgeSign, 0, '#6a3a1a', '#f5e6c8', 6, 1.8);
+    sign(['MBALI AIRSTRIP', 'Flights to the City'], s.airSign, 0, '#ffffff', '#1a3a7a', 4.5, 1.4);
     sign(['HOT AIR BALLOON TOURS', '$200 · Sandwich included'], s.balloonBooth.clone().add(V(0, 0, 2)), 0, '#d83a2a', '#ffffff', 5, 1.6);
-    sign(['DRY GULCH GAS & GRUB', 'Last gas for 300 miles'], s.dinerSign, 0, '#d83a2a', '#ffffff', 9, 1.8, false);
+    sign(['DRY GULCH GAS & GRUB', 'Last gas for 300 miles'], s.dinerSign, 0, '#d83a2a', '#ffffff', 5.5, 1.8);
     sign(['THEY ARE WATCHING', 'Free hats. Ask inside.'], s.trailerSign, 0, '#111111', '#40ff60', 5, 1.6);
     sign(['CROP CIRCLE', 'Not a hoax. Probably.'], s.cropSign, -Math.PI / 2, '#3a2a1a', '#f5e6c8', 5, 1.6);
     sign(['DANGER: NUCLEAR TEST SITE', 'Tests at random. Do not hide in appliances.'], s.testSign, 0, '#e8b820', '#111111', 8, 2);
@@ -416,12 +420,12 @@ export class WildRuntime implements MapRuntime {
     this.add('steakpants', this.s.piranhaBank, 'Stuff the raw steak in your swimsuit', 3);
     // Lodge kitchen and gift shop.
     const steak = M.item('steak');
-    this.place(steak, s.kitchen.clone().add(V(0, 1.05, -1)));
+    this.place(steak, s.kitchen.clone().add(V(0, 1.05, -2)));
     this.add('steak', s.kitchen, 'Buy a raw steak ($15)', 2.6);
     const suit = new THREE.Group();
     M.bx(suit, 0.8, 1.6, 0.4, M.mat(0xc83a3a), 0, 0.8, 0);
     M.bx(suit, 0.3, 0.3, 0.42, M.mat(0xf2e8d8, null), 0.15, 1.1, 0);
-    this.place(suit, s.giftShop.clone().add(V(-2, 0, -2)));
+    this.place(suit, s.giftShop.clone().add(V(-3, 0, -1)));
     this.add('meatsuit', s.giftShop, 'Buy the "Meat Suit" joke costume ($30)', 2.6);
     this.place(M.item('paint'), s.paintCan);
     this.add('paint', V(s.paintCan.x, s.paintCan.y - 1, s.paintCan.z), 'Take the can of red paint', 2.4);
@@ -818,6 +822,7 @@ export class WildRuntime implements MapRuntime {
   }
 
   dispose() {
+    disposeKit(this.kit, this.ctx.physics);
     this.scene.remove(this.root);
     for (const a of this.animals) a.dispose(this.scene);
     for (const a of this.actors) a.dispose(this.scene);
@@ -1994,7 +1999,7 @@ export class WildRuntime implements MapRuntime {
     if (this.inFridge) return;
     this.inFridge = true;
     this.busy = true;
-    this.ride = { kind: 'fixed', at: this.s.fridge.clone().add(V(-0.5, 0, -2.5)), facing: 0 };
+    this.ride = { kind: 'fixed', at: this.s.fridge.clone().add(V(0, 0, -1)), facing: 0 };
     g.sound.creak();
     const left = Math.max(0, this.nukeAt - this.clock);
     g.toast('YOU ARE IN A FRIDGE', left < 60 ? `It's cozy. Test in ${Math.ceil(left)} s.` : `Cozy. The next test is in ${Math.ceil(left)} s. Press E to get out.`, 3000);
@@ -2054,7 +2059,7 @@ export class WildRuntime implements MapRuntime {
       const fridge = new THREE.Group();
       M.bx(fridge, 1.6, 2.8, 1.6, M.mat(0xf2f2ee, null), 0, 1.4, 0);
       M.bx(fridge, 0.1, 0.8, 0.1, M.mat(0x888888, null), 0.6, 1.8, 0.85);
-      this.place(fridge, this.s.fridge.clone().add(V(-0.5, 0, -2.5)));
+      this.place(fridge, this.s.fridge.clone().add(V(0, 0, -1)));
       for (let i = 0; i < 60; i++)
         this.after(i * 0.05, () => {
           fridge.position.x -= 1.2;
