@@ -38,7 +38,7 @@ const GradeShader = {
   name: 'KitGrade',
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    saturation: { value: 1.18 },
+    saturation: { value: 1.1 },
     contrast: { value: 1.06 },
     warmth: { value: 0.05 },
     vignette: { value: 0.32 },
@@ -82,8 +82,8 @@ export class PostFX {
     public camera: THREE.Camera,
     quality: Quality = pickQuality(),
   ) {
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMappingExposure = 1.0;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.quality = quality;
     this.setQuality(quality);
