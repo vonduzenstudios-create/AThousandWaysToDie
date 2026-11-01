@@ -44,7 +44,7 @@ import { HOMETOWN_DEATHS, Hometown } from './hometown';
 import { GROCERY } from './places/grocery';
 import type { PlaceRuntime } from './places/types';
 import { PostFX, warmLighting } from './render/post';
-import { StreetKit } from './kit';
+import { StreetKit, type PropKind } from './kit';
 import { UI } from './ui';
 import { mulberry32, pick, turnToward, type Rng } from './util';
 import { Minimap, type Blip } from './minimap';
@@ -1522,6 +1522,7 @@ export class Game {
     const t0 = performance.now();
     this.mapBuild = def.build(this.world, rng);
     const b = this.mapBuild;
+    this.placeWorldProps();
     const at = focus ?? b.spawn;
     this.mapGround = b.groundAt ? b.groundAt(b.spawn.x, b.spawn.z) : this.world.topY(b.spawn.x, b.spawn.z);
     if (!Number.isFinite(this.mapGround)) this.mapGround = G;
@@ -1653,6 +1654,20 @@ export class Game {
       if (inside || Math.hypot(s.pos.x - p.x, s.pos.z - p.z) < 3.2) if (Math.abs(s.pos.y - p.y) < 3) return s;
     }
     return null;
+  }
+
+  /**
+   * Detailed kit props (trees, tents, fences, street clutter) that the map build queued with
+   * VoxelWorld.prop(). Their collision is the invisible Ghost* blocks under them, so this is
+   * visual only. One instanced mesh per kind per 64-block square, with a far LOD.
+   */
+  private placeWorldProps() {
+    const props = this.world.props;
+    if (!props.length) return;
+    const kit = new StreetKit({ parent: this.scene, physics: null, propChunk: 64 });
+    for (const p of props) kit.prop(p.kind as PropKind, p.x, p.y, p.z, p.rotY, { collide: false, scale: p.scale });
+    kit.finish();
+    kit.group.name = 'world-props';
   }
 
   /** Ticket prompts at stops, plus the plane's wheel well while it's parked. */

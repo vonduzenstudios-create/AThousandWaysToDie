@@ -1,4 +1,4 @@
-import { defineBlock } from '../../voxel';
+import { blockDetail, defineBlock, Detail } from '../../voxel';
 
 /** Beach block ids (the beach owns 100-139). */
 export const BB = {
@@ -89,4 +89,8 @@ export function defineBeachBlocks() {
   defineBlock(BB.Lamp, 0xfff2a0, 0.02);
   defineBlock(BB.Stucco, 0xf3e3c3, 0.06);
   defineBlock(BB.Thatch, 0xc9a35a, 0.2);
+  blockDetail(Detail.Foliage, BB.Kelp, BB.Seaweed, BB.Thatch, BB.Moss, BB.Cypress);
+  blockDetail(Detail.Stone, BB.Rock, BB.Cliff);
+  blockDetail(Detail.Soil, BB.Mud);
+  blockDetail(Detail.Plank, BB.Boardwalk, BB.Deck, BB.Piling);
 }

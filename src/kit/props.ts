@@ -1,12 +1,18 @@
 import { hash3 } from '../util';
-import { DetailGrid, vox, tint, speck, type DPaint } from './grid';
+import { vox, tint, speck } from './grid';
 import { AWNINGS, FLOWERS, PAL, V } from './palette';
+import { blob, cyl, make, type PropModel } from './shapes';
+import { NATURE_BUILDERS, type NatureKind } from './nature';
+import { CAMP_BUILDERS, type CampKind } from './camp';
+import { FENCE_BUILDERS, type FenceKind } from './fences';
+
+export type { PropModel } from './shapes';
 
 /**
  * Small street props, each built once as a voxel model and then instanced. Every prop's grid
  * origin is its footprint center at ground level; `half` is a collider half-size in world units.
  */
-export type PropKind =
+export type StreetPropKind =
   | 'lamp'
   | 'bench'
   | 'planter'
@@ -25,47 +31,16 @@ export type PropKind =
   | 'flag'
   | 'rope';
 
-export interface PropModel {
-  grid: DetailGrid;
-  origin: [number, number, number];
-  /** Collider half extents in world units (null = walk-through). */
-  half: [number, number, number] | null;
-}
+/**
+ * Every prop the kit can instance. Street props are fixed models; nature, camp and fence kinds
+ * may carry parameters after a colon (e.g. 'oak:5:3', 'tentA:d9c8a0', 'fence:picket:1'), each
+ * distinct string is its own cached model. See docs/prop-kit.md.
+ */
+export type PropKind = StreetPropKind | NatureKind | CampKind | FenceKind;
 
 const leafPaint = (seed: number) => speck(seed, [vox(PAL.leaf, { jitter: 0.15 }), vox(PAL.leafDark, { jitter: 0.15 }), vox(PAL.leafLight, { jitter: 0.15 })]);
 
-function cyl(g: DetailGrid, cx: number, cz: number, r: number, y0: number, y1: number, p: DPaint) {
-  for (let y = y0; y <= y1; y++)
-    for (let z = Math.floor(cz - r); z <= Math.ceil(cz + r); z++)
-      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
-        const dx = x + 0.5 - cx, dz = z + 0.5 - cz;
-        if (dx * dx + dz * dz > r * r) continue;
-        const v = typeof p === 'number' ? p : p(x, y, z);
-        if (v) g.set(x, y, z, v);
-      }
-}
-
-function blob(g: DetailGrid, cx: number, cy: number, cz: number, r: number, p: DPaint, keep = 0.85, seed = 0) {
-  for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++)
-    for (let z = Math.floor(cz - r); z <= Math.ceil(cz + r); z++)
-      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
-        const dx = x + 0.5 - cx, dy = y + 0.5 - cy, dz = z + 0.5 - cz;
-        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (d > r) continue;
-        if (d > r - 1.5 && hash3(x + seed, y, z) > keep) continue;
-        const v = typeof p === 'number' ? p : p(x, y, z);
-        if (v) g.set(x, y, z, v);
-      }
-}
-
-function make(sx: number, sy: number, sz: number, half: PropModel['half'], draw: (g: DetailGrid, cx: number, cz: number) => void): PropModel {
-  const g = new DetailGrid(sx, sy, sz);
-  const cx = Math.floor(sx / 2), cz = Math.floor(sz / 2);
-  draw(g, cx, cz);
-  return { grid: g, origin: [sx / 2, 0, sz / 2], half };
-}
-
-const BUILDERS: Record<PropKind, () => PropModel> = {
+const BUILDERS: Record<StreetPropKind, () => PropModel> = {
   lamp: () =>
     make(9, 36, 9, [0.15, 2.2, 0.15], (g, c) => {
       const iron = V.iron;
@@ -214,14 +189,23 @@ const BUILDERS: Record<PropKind, () => PropModel> = {
   rope: () => make(1, 1, 1, null, (g) => g.set(0, 0, 0, vox(0x2a2a2a, { jitter: 0 }))),
 };
 
-const models = new Map<PropKind, PropModel>();
+/** Parameterized families: the part before the first colon picks the builder. */
+const FAMILIES: Record<string, (args: string[]) => PropModel> = { ...NATURE_BUILDERS, ...CAMP_BUILDERS, ...FENCE_BUILDERS };
+
+const models = new Map<string, PropModel>();
 export function propModel(kind: PropKind): PropModel {
   let m = models.get(kind);
   if (!m) {
-    m = BUILDERS[kind]();
+    const [head, ...args] = kind.split(':');
+    const street = (BUILDERS as Record<string, () => PropModel>)[head];
+    const fam = FAMILIES[head];
+    if (street) m = street();
+    else if (fam) m = fam(args);
+    else throw new Error(`unknown prop kind ${kind}`);
     models.set(kind, m);
   }
   return m;
 }
 
-export const PROP_KINDS = Object.keys(BUILDERS) as PropKind[];
+/** The fixed street props plus one example of each family (for showcases). */
+export const PROP_KINDS = Object.keys(BUILDERS) as StreetPropKind[];
