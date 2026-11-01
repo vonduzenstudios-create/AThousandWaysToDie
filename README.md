@@ -51,6 +51,7 @@ Then open the URL Vite prints. `npm run build` makes a static build in `dist/`.
 - A 1–5 skill bar: slot 1 is the wallet, and slots 2–5 unlock from the body's job, physical health, mental health and afterlife (Tase Self, Laughing Gas, Adrenaline, Morbid Curiosity, Pray, Hellfire Fart and more).
 - Living townsfolk: everyone has a home, a job and a daily routine on an in-game clock. They walk to work, order at the diner, sleep at night, chat and gossip about deaths, gawk at accidents, and you can talk to them (E). Family and friends recognize the body you are wearing.
 - Fist fights: F punches, punched people fight back (cops nearby join in), and the HUD health bar decides how long you last.
+- Anime-style story cutscenes drawn in code: the opening (Gary's turkey-fryer death, the DENIED stamp, and Death's "Fine. You do it then!"), plus a scene from Death on his day off each time 25 deaths in an area opens the next route (bus to downtown, the harbor boats, the airport). Click, Space, E or A advances; Esc or Start twice skips. Add `?cutscene=opening` (or `smallville:25`, `city:25`, `city:50`) to the URL to replay one.
 - Ragdoll physics, insurance claim cards with payouts, a 1,000-slot death ledger saved in the browser.
 
 ## Tech
@@ -71,4 +72,5 @@ Three.js for rendering, Rapier (WASM) for physics and ragdolls, Web Audio API fo
 - `src/economy.ts`: ATMs and card withdrawals
 - `src/combat.ts`: punching, angry NPCs, player health
 - `src/audio.ts`: synthesized sound effects and the chiptune sequencer
+- `src/story/`: cutscene player (`cutscene.ts`), canvas anime art (`art.ts`), synth stings and voices (`sfx.ts`), scripts (`scenes.ts`) and the director that picks and saves scenes (`director.ts`)
 - `src/ui.ts`: HUD, scythe vision panel, claim card, ledger
