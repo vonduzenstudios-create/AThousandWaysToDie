@@ -1550,7 +1550,7 @@ export class Game {
       blip: () => this.sound.blip(0.6),
       maxPopulation: this.town ? undefined : 120,
     });
-    this.traffic = new Traffic(this.scene, this.physics, this.town ? smallvilleTraffic(this.town) : { roads: b.roads ?? [], parked: [] });
+    this.traffic = new Traffic(this.scene, this.physics, this.town ? smallvilleTraffic(this.town) : { roads: b.roads ?? [], parked: [], ...b.traffic });
     this.traffic.onHonk = (car, tag) => this.onHonk(car, tag);
     this.traffic.onShoo = (car, tag) => {
       // The honked-at townsperson hops out of the lane.
