@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DetailGrid, DV, DPB, PAL, V, kitMaterial, mix, rasterText, speck, textWidth, tint, toGeometry, vox, type DPaint } from '../../kit';
+import { DetailGrid, DV, DPB, PAL, V, kitMaterial, meshArrays, mix, rasterText, speck, textWidth, tint, toGeometry, vox, type DPaint } from '../../kit';
 import { MeshPool } from '../../kit/pool';
 import type { MeshArrays } from '../../kit';
 import { hash3, mulberry32, pick } from '../../util';
@@ -19,6 +19,8 @@ interface Piece {
   grid: DetailGrid;
   at: [number, number, number];
   lod?: boolean;
+  /** Keep downward faces (the pool's mesher drops them). Meshed on the main thread, no LOD. */
+  bottom?: boolean;
 }
 
 const O = DV; // one-cell outset
@@ -244,13 +246,15 @@ function ceiling(): Piece {
   g.box(0, 0, 0, sx - 1, 0, sz - 1, (x, _y, z) => {
     const bx = x0 + x / DPB, bz = z0 + z / DPB;
     // Light panels (the same spots as the point lights' grid).
-    for (let lx = 10; lx <= 70; lx += 12)
-      for (let lz = 52; lz <= 86; lz += 8) if (Math.abs(bx - lx) < 2 && Math.abs(bz - lz) < 0.4) return lit;
+    for (let lx = 6; lx <= 74; lx += 8)
+      for (let lz = 50; lz <= 88; lz += 6) if (Math.abs(bx - lx) < 1.5 && Math.abs(bz - lz) < 0.4) return lit;
     if (bz > BACK_WALL_Z && Math.abs(bz - 96) < 0.3 && (bx - 6) % 12 < 3) return lit;
-    if (x % 16 === 0 || z % 16 === 0) return vox(0xbab6aa, { jitter: 0.02 });
-    return vox(0xe8e4d8, { jitter: 0.05 });
+    // Faintly self-lit: the underside only gets the hemisphere's ground color otherwise, which
+    // reads as brown. A dim base color keeps the glow well under the bloom threshold.
+    if (x % 16 === 0 || z % 16 === 0) return vox(0x6c6a64, { jitter: 0.02, emissive: true });
+    return vox(0x8e8c86, { jitter: 0.04, emissive: true });
   });
-  return { grid: g, at: [x0, CEIL - DV, z0] };
+  return { grid: g, at: [x0, CEIL - DV, z0], bottom: true };
 }
 
 /** Floor overlay: vinyl tiles on the sales floor, sealed concrete in the back. */
@@ -481,7 +485,7 @@ export async function addGroceryDetail(parent: THREE.Object3D, opts: { shadows?:
   parent.add(root);
   await Promise.all(
     pieces.map(async (p) => {
-      const levels = await pool!.mesh(p.grid, [0, 0, 0], !!p.lod, opts.sync);
+      const levels = p.bottom ? [meshArrays(p.grid)] : await pool!.mesh(p.grid, [0, 0, 0], !!p.lod, opts.sync);
       root.add(toObject(levels, p, shadows));
     }),
   );

@@ -235,6 +235,8 @@ async function boot() {
     },
     found,
     camera: cam,
+    scene,
+    THREE,
   };
   (window as unknown as { dev: typeof dev }).dev = dev;
 
