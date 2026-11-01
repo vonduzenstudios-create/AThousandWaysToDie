@@ -89,6 +89,11 @@ export class PostFX {
     this.setQuality(quality);
   }
 
+  /** False on low quality, where there is no grade pass (use a CSS filter instead). */
+  get graded() {
+    return this.composer !== null;
+  }
+
   setQuality(q: Quality) {
     this.quality = q;
     this.composer?.dispose();

@@ -30,6 +30,7 @@ export class UI {
   private toastEl: HTMLElement;
   private card: HTMLElement;
   private fileEl: HTMLElement;
+  private scytheEl: HTMLElement;
   private ledgerEl: HTMLElement;
   private helpEl: HTMLElement;
   private banner: HTMLElement;
@@ -56,6 +57,7 @@ export class UI {
     this.toastEl = this.add('<div class="toast hidden"></div>');
     this.banner = this.add('<div class="banner hidden"></div>');
     this.fileEl = this.add('<div class="file hidden"></div>');
+    this.scytheEl = this.add('<div class="scythe hidden"></div>');
     this.dialog = this.add('<div class="dialog hidden"><div class="who"></div><div class="line"></div></div>');
     this.card = this.add('<div class="card hidden"></div>');
     this.ledgerEl = this.add('<div class="ledger hidden"></div>');
@@ -187,6 +189,44 @@ export class UI {
       <div class="verdict ${fair ? 'ok' : 'bad'}">${fair ? 'FAIR GAME' : 'NOT THEIR TIME. God will notice.'}</div>
       <div class="hint">E / Y to possess</div>`;
     this.fileEl.classList.remove('hidden');
+  }
+
+  /**
+   * The scythe vision menu (left side) shown after zooming in on someone as Death.
+   * `sel` is 0 for Possess, 1 for Pass. Pass `null` to hide it.
+   */
+  showScythe(f: PersonFile | null, sel = 0, on?: { possess: () => void; pass: () => void; hover: (i: number) => void }, pad = false) {
+    if (!f) {
+      this.scytheEl.classList.add('hidden');
+      return;
+    }
+    const fair = isDeserving(f);
+    this.scytheEl.innerHTML = `
+      <div class="sh">SCYTHE VISION</div>
+      <div class="sname">${f.name}</div>
+      <div class="srows">
+        <div class="sr"><span>Age</span><b>${f.age}</b></div>
+        <div class="sr"><span>Job</span><b>${f.job}</b></div>
+        <div class="sr"><span>Physical health</span><b>${f.physical}</b></div>
+        <div class="sr"><span>Mental health</span><b>${f.mental}</b></div>
+        <div class="sr"><span>Afterlife</span><b>${f.afterlife}</b></div>
+        <div class="sr note"><span>Note</span><b>${f.quirk}</b></div>
+      </div>
+      <div class="sbtns">
+        <div class="sb${sel === 0 ? ' sel' : ''}" data-i="0">Possess${fair ? '' : '<div class="swarn">Not their time. God will notice.</div>'}</div>
+        <div class="sb${sel === 1 ? ' sel' : ''}" data-i="1">Pass</div>
+      </div>
+      <div class="shint">${pad ? 'D-pad to choose · <b>A</b> select · <b>B</b> pass' : '<b>W/S</b> to choose · <b>E</b> / <b>Enter</b> select · <b>Esc</b> / <b>Q</b> pass'}</div>`;
+    this.scytheEl.querySelectorAll<HTMLElement>('.sb').forEach((b) => {
+      const i = Number(b.dataset.i);
+      b.addEventListener('mouseenter', () => on?.hover(i));
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (i === 0) on?.possess();
+        else on?.pass();
+      });
+    });
+    this.scytheEl.classList.remove('hidden');
   }
 
   showClaim(d: ClaimData, onDone: () => void) {

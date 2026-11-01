@@ -222,3 +222,20 @@ body:not(.pad) .help td:nth-child(3), body:not(.pad) .help th:nth-child(3) { opa
 .title .mi .mv { color: #ffd84a; font-size: 18px; }
 .title .mi .mh { flex-basis: 100%; font-size: 13px; font-weight: normal; color: #ccc; text-align: left; }
 .title { z-index: 900; }
+/* Scythe vision menu (Death zooms in on someone). */
+.scythe { position: absolute; left: 36px; top: 50%; transform: translateY(-50%); width: 400px; max-width: calc(100vw - 32px); box-sizing: border-box; background: rgba(10,8,22,0.9); border: 2px solid #b9a6ff; border-radius: 14px; padding: 20px 24px; box-shadow: 0 0 40px rgba(150,120,255,0.45); pointer-events: auto; animation: scytheIn 0.35s ease-out; z-index: 50; }
+@keyframes scytheIn { from { opacity: 0; transform: translate(-30px, -50%); } to { opacity: 1; transform: translate(0, -50%); } }
+.scythe .sh { font-size: 12px; letter-spacing: 4px; color: #b9a6ff; }
+.scythe .sname { font-family: Impact, 'Arial Black', sans-serif; font-size: 36px; line-height: 1.1; margin: 4px 0 14px; }
+.scythe .sr { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid rgba(185,166,255,0.18); font-size: 18px; }
+.scythe .sr span { color: #b3abcc; white-space: nowrap; }
+.scythe .sr b { text-align: right; }
+.scythe .sr.note { flex-direction: column; gap: 4px; border-bottom: 0; }
+.scythe .sr.note b { text-align: left; font-weight: normal; font-style: italic; color: #f1ecff; }
+.scythe .sbtns { display: flex; gap: 12px; margin-top: 16px; }
+.scythe .sb { flex: 1; text-align: center; padding: 12px 8px; border-radius: 10px; border: 2px solid #4a3f78; background: rgba(40,30,80,0.6); font-family: Impact, 'Arial Black', sans-serif; font-size: 24px; letter-spacing: 1px; cursor: pointer; }
+.scythe .sb.sel { border-color: #ffd84a; background: rgba(90,70,160,0.85); color: #ffd84a; box-shadow: 0 0 16px rgba(255,216,74,0.35); }
+.scythe .swarn { font-family: sans-serif; font-size: 11px; letter-spacing: 0; color: #ff8a7a; margin-top: 4px; }
+.scythe .shint { margin-top: 12px; text-align: center; font-size: 13px; color: #b3abcc; }
+.scythe .shint b { color: #ffd84a; }
+#ui.inspecting .hud, #ui.inspecting .dialog, #ui.inspecting .banner, #ui.inspecting .skills, #ui.inspecting .toast { display: none; }

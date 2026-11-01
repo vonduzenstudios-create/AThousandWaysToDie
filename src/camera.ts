@@ -13,6 +13,9 @@ export class FollowCam {
   pitch = 0.32;
   /** Distance the player has zoomed to with the scroll wheel. */
   dist = 9;
+  /** Lowest/highest third-person pitch. Death widens it so he can look up and fly up. */
+  minPitch = -0.2;
+  maxPitch = 1.25;
   private curDist = 9;
   private target = new THREE.Vector3();
   private shakeAmt = 0;
@@ -55,7 +58,7 @@ export class FollowCam {
     this.yaw -= lookDX;
     this.yaw += this.autoOrbit * dt;
     const fp = this.firstPerson && eye !== null;
-    this.pitch = clamp(this.pitch + lookDY, fp ? -1.45 : -0.2, fp ? 1.45 : 1.25);
+    this.pitch = clamp(this.pitch + lookDY, fp ? -1.45 : this.minPitch, fp ? 1.45 : this.maxPitch);
 
     const dir = new THREE.Vector3(
       Math.sin(this.yaw) * Math.cos(this.pitch),
