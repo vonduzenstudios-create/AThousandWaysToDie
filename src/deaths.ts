@@ -59,9 +59,17 @@ export const DEATHS: DeathDef[] = [
 
 export const DEATH_BY_ID: Record<string, DeathDef> = Object.fromEntries(DEATHS.map((d) => [d.id, d]));
 
-/** Add a map's deaths to the ledger (ids must be globally unique). */
-export function registerMapDeaths(defs: DeathDef[]) {
+/** Which map each death lives on, by death id. Anything not listed is in Smallville. */
+export const DEATH_MAP: Record<string, string> = {};
+
+export function mapOfDeath(id: string) {
+  return DEATH_MAP[id] ?? 'smallville';
+}
+
+/** Add a map's deaths to the ledger (ids must be globally unique) and remember which map they're on. */
+export function registerMapDeaths(defs: DeathDef[], mapId = 'smallville') {
   for (const d of defs) {
+    DEATH_MAP[d.id] = mapId;
     if (DEATH_BY_ID[d.id]) continue;
     DEATHS.push(d);
     DEATH_BY_ID[d.id] = d;
