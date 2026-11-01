@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { hash3 } from '../util';
+import { vox } from '../kit/grid';
+import { meshGrid } from '../kit/mesher';
 
-/** World size of one character voxel. A full adult is about 25 voxels (~1.8 units) tall. */
-export const VOXEL = 0.072;
+/** World size of one character voxel. A full adult is about 67 voxels (~1.8 units) tall. */
+export const VOXEL = 0.027;
 
 /** A color, or a function that picks a color per voxel (for straw, plaid, stains...). */
 export type Paint = number | ((x: number, y: number, z: number) => number | null);
@@ -10,8 +12,6 @@ export type Paint = number | ((x: number, y: number, z: number) => number | null
 const KEY_OFF = 512;
 const key = (x: number, y: number, z: number) =>
   ((x + KEY_OFF) & 1023) | (((y + KEY_OFF) & 1023) << 10) | (((z + KEY_OFF) & 1023) << 20);
-
-const AO_CURVE = [0.55, 0.72, 0.87, 1.0];
 
 /**
  * Sparse voxel grid used to paint one body part or accessory. Coordinates are integers and may
@@ -66,68 +66,78 @@ export class VoxelGrid {
         for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) this.set(x, y, z, null);
   }
 
+  /** Move every voxel that matches `pred` into a new grid (same coordinates) and return it. */
+  split(pred: (x: number, y: number, z: number) => boolean): VoxelGrid {
+    const out = new VoxelGrid(this.jitter, this.seed);
+    for (const [k, v] of [...this.cells]) {
+      if (!pred(v.x, v.y, v.z)) continue;
+      out.set(v.x, v.y, v.z, v.c);
+      this.cells.delete(k);
+    }
+    return out;
+  }
+
+  /** Visit every voxel. */
+  forEach(fn: (x: number, y: number, z: number, c: number) => void) {
+    for (const { x, y, z, c } of this.cells.values()) fn(x, y, z, c);
+  }
+
   /**
-   * Mesh the grid: one quad per exposed voxel face, per-vertex ambient occlusion, per-voxel color
-   * jitter and baked face shading. `origin` (in voxel units) becomes the geometry's (0,0,0).
+   * Mesh the grid with the building kit's greedy mesher: faces that share a color and corner AO
+   * merge into one quad, and per-voxel brightness noise is added in the shader (charMaterial), so
+   * a flat shirt front is a few triangles while a face keeps every pixel.
+   *
+   * `origin` (in voxel units, integers) becomes the geometry's (0,0,0).
    */
   toGeometry(origin: [number, number, number], size = VOXEL): THREE.BufferGeometry {
-    const pos: number[] = [];
-    const nor: number[] = [];
-    const col: number[] = [];
-    const ind: number[] = [];
-    const color = new THREE.Color();
-    const solid = (x: number, y: number, z: number) => (this.cells.has(key(x, y, z)) ? 1 : 0);
-    const [ox, oy, oz] = origin;
-
-    for (const { x, y, z, c } of this.cells.values()) {
-      color.setHex(c);
-      const f = 1 + (hash3(x + this.seed * 31, y, z - this.seed * 17) - 0.5) * 2 * this.jitter;
-      for (let a = 0; a < 3; a++)
-        for (const s of [1, -1]) {
-          const nv = [0, 0, 0];
-          nv[a] = s;
-          if (solid(x + nv[0], y + nv[1], z + nv[2])) continue;
-          const u = (a + 1) % 3;
-          const v = (a + 2) % 3;
-          const L = [x + nv[0], y + nv[1], z + nv[2]];
-          const corners = s > 0 ? [[0, 0], [1, 0], [1, 1], [0, 1]] : [[0, 0], [0, 1], [1, 1], [1, 0]];
-          const aos: number[] = [];
-          const base = pos.length / 3;
-          const faceShade = a === 1 ? (s > 0 ? 1 : 0.62) : a === 0 ? 0.84 : 0.93;
-          for (const [du, dv] of corners) {
-            const p = [x, y, z];
-            p[a] += s > 0 ? 1 : 0;
-            p[u] += du;
-            p[v] += dv;
-            const s1 = L.slice();
-            s1[u] += du ? 1 : -1;
-            const s2 = L.slice();
-            s2[v] += dv ? 1 : -1;
-            const cc = L.slice();
-            cc[u] += du ? 1 : -1;
-            cc[v] += dv ? 1 : -1;
-            const o1 = solid(s1[0], s1[1], s1[2]);
-            const o2 = solid(s2[0], s2[1], s2[2]);
-            const o3 = solid(cc[0], cc[1], cc[2]);
-            const ao = o1 && o2 ? 0 : 3 - (o1 + o2 + o3);
-            aos.push(ao);
-            pos.push((p[0] - ox) * size, (p[1] - oy) * size, (p[2] - oz) * size);
-            nor.push(nv[0], nv[1], nv[2]);
-            const k = f * AO_CURVE[ao] * faceShade;
-            col.push(color.r * k, color.g * k, color.b * k);
-          }
-          if (aos[0] + aos[2] > aos[1] + aos[3]) ind.push(base, base + 1, base + 2, base, base + 2, base + 3);
-          else ind.push(base + 1, base + 2, base + 3, base + 1, base + 3, base);
-        }
+    if (!this.cells.size) return new THREE.BufferGeometry();
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+    for (const { x, y, z } of this.cells.values()) {
+      if (x < x0) x0 = x;
+      if (y < y0) y0 = y;
+      if (z < z0) z0 = z;
+      if (x > x1) x1 = x;
+      if (y > y1) y1 = y;
+      if (z > z1) z1 = z;
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    geo.setIndex(ind);
-    geo.computeBoundingSphere();
-    return geo;
+    // One empty cell of padding on every side so outer faces get proper AO samples.
+    x0--; y0--; z0--;
+    const sx = x1 - x0 + 2, sy = y1 - y0 + 2, sz = z1 - z0 + 2;
+    const data = new Uint32Array(sx * sy * sz);
+    const jit = (j: number) => vox(0, { jitter: j }) & 0xff000000;
+    const meta = jit(this.jitter);
+    for (const { x, y, z, c } of this.cells.values()) data[((y - y0) * sz + (z - z0)) * sx + (x - x0)] = (meta | (c & 0xffffff)) >>> 0;
+    return meshGrid({ data, sx, sy, sz }, { origin: [origin[0] - x0, origin[1] - y0, origin[2] - z0], size, ao: 0.9 });
   }
+}
+
+/**
+ * A per-person material (tint and flash change it, so it is never shared between people). It
+ * reads the kit mesher's vmeta attribute and adds per-voxel brightness noise in the shader.
+ */
+export function charMaterial(size = VOXEL): THREE.MeshLambertMaterial {
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, color: 0xffffff });
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.voxInv = { value: 1 / size };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+attribute vec3 vmeta;
+uniform float voxInv;
+varying float vJit;
+varying vec3 vVox;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vJit = vmeta.x;
+vVox = position * voxInv - normal * 0.5;`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying float vJit;
+varying vec3 vVox;
+float chHash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+diffuseColor.rgb *= 1.0 + (chHash(floor(vVox + 0.001) + 17.0) - 0.5) * 2.0 * vJit;`);
+  };
+  mat.customProgramCacheKey = () => `charvox:${size}`;
+  return mat;
 }
 
 /** Mix two hex colors. */
