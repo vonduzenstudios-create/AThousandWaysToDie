@@ -224,6 +224,12 @@ export const CITY_MAP: MapDef = {
       spawn: V(PARK.x0 + 58, G + 3, PARK.z1 + 6),
       groundAt: (x, z) => standHeight(world, x, z),
       areas,
+      // Death locations whose names don't match a place on the full-screen map.
+      deathSpots: {
+        'Overbudget Tower Site': { x: (SITE.x0 + SITE.x1) / 2, z: (SITE.z0 + SITE.z1) / 2 },
+        'Thanksgiving-ish Parade': { x: AVES[4] + 0.5, z: STREETS[0] + 40 },
+        'Grand Centralish Rail Yard': { x: (RAIL_PLATFORM.x0 + RAIL_PLATFORM.x1) / 2, z: (RAIL_PLATFORM.z0 + RAIL_PLATFORM.z1) / 2 },
+      },
       stops,
       roads: roads(),
       life: lifeMap(world, L, airportLife(airportOrigin)),
