@@ -28,17 +28,19 @@ export interface VoxelBody {
 
 /** Part sizes in voxels. The head stays the same size at every age, which is what makes kids read as kids. */
 export function dims(s: PersonSpec) {
-  const torsoW = s.build === 'slim' ? 6 : s.build === 'heavy' ? 10 : 8;
+  const torsoW = s.build === 'slim' ? 6 : s.build === 'heavy' || s.build === 'buff' ? 10 : 8;
   const torsoD = s.build === 'heavy' ? 7 : s.build === 'slim' ? 5 : 6;
   const age = s.age;
-  const torsoH = age === 'child' ? 5 : age === 'teen' ? 7 : 8;
-  const legH = age === 'child' ? 4 : age === 'teen' ? 5 : 6;
-  const armH = age === 'child' ? 5 : age === 'teen' ? 6 : 7;
-  const legW = s.build === 'heavy' ? 5 : s.build === 'slim' ? 3 : 4;
+  // Stature stretches or squashes the body under the same big head.
+  const st = age === 'child' ? 0 : s.stature === 'tall' ? 1 : s.stature === 'short' ? -1 : 0;
+  const torsoH = (age === 'child' ? 5 : age === 'teen' ? 7 : 8) + st;
+  const legH = (age === 'child' ? 4 : age === 'teen' ? 5 : 6) + st;
+  const armH = (age === 'child' ? 5 : age === 'teen' ? 6 : 7) + st;
+  const legW = s.build === 'heavy' || s.build === 'buff' ? 5 : s.build === 'slim' ? 3 : 4;
   return {
     head: [12, 11, 11] as const,
     torso: [torsoW, torsoH, torsoD] as const,
-    arm: [3, armH, 4] as const,
+    arm: [s.build === 'buff' ? 4 : 3, armH, 4] as const,
     leg: [legW, legH, 5] as const,
     scale: age === 'child' ? 0.8 : age === 'elder' ? 0.97 : 1,
   };
@@ -70,76 +72,211 @@ function paintHead(g: VoxelGrid, s: PersonSpec, expr: Expression) {
 
   paintHair(g, s);
 
-  // Cheeks for kids.
-  if (s.age === 'child') {
+  // Skin marks.
+  const marks = s.marks;
+  if (s.age === 'child' || marks.includes('blush')) {
     const blush = mixHex(skin, 0xff6a6a, 0.35);
     g.set(2, 2, F, blush);
     g.set(9, 2, F, blush);
   }
-
-  // Facial hair (painted before eyes so eyes always win).
-  const hairC = s.hair;
-  if (s.facial === 'mustache') g.box(3, 2, F, 8, 2, F, hairC);
-  if (s.facial === 'beard') {
-    g.box(1, 0, F, 10, 2, F, hairC);
-    g.box(0, 0, 5, 0, 4, F, hairC);
-    g.box(W - 1, 0, 5, W - 1, 4, F, hairC);
-    g.box(2, -1, 3, 9, -1, F, hairC);
-    g.box(3, 0, F + 1, 8, 1, F + 1, hairC);
-    g.set(5, 1, F, skin); // mouth gap
-    g.set(6, 1, F, skin);
+  if (marks.includes('freckles')) {
+    const fr = mixHex(skin, 0x8a4a22, 0.45);
+    for (const [x, y] of [[2, 3], [4, 3], [3, 2], [7, 3], [9, 3], [8, 2]]) g.set(x, y, F, fr);
   }
-  if (s.facial === 'stubble') g.paint(1, 0, F, 10, 2, F, (x, y) => ((x + y) % 2 ? mixHex(skin, hairC, 0.35) : skin));
-
-  // Bushy brows for elders.
-  if (s.age === 'elder') {
-    g.box(2, 7, F, 4, 7, F, hairC);
-    g.box(7, 7, F, 9, 7, F, hairC);
+  if (marks.includes('mole')) g.set(8, 2, F, mixHex(skin, 0x3a2010, 0.7));
+  if (marks.includes('eyebags') || expr === 'sick') {
+    const bag = mixHex(skin, 0x5a3a6a, 0.3);
+    g.box(3, 3, F, 4, 3, F, bag);
+    g.box(7, 3, F, 8, 3, F, bag);
   }
+  if (marks.includes('scar')) for (let i = 0; i < 4; i++) g.set(10 - i, 3 + i, F, mixHex(skin, 0xc04a4a, 0.4));
 
-  paintFace(g, F, expr);
+  paintFacialHair(g, s, skin, F);
+  paintFace(g, s, F, expr);
+
+  if (marks.includes('bandage')) {
+    g.box(2, 8, F, 5, 8, F, 0xf0e0c8);
+    g.set(3, 8, F, 0xd8c0a0);
+    g.set(4, 8, F, 0xd8c0a0);
+  }
+  if (marks.includes('eyepatch')) {
+    g.box(7, 3, F, 9, 6, F, 0x15151a);
+    g.box(10, 6, F, 11, 6, F, 0x15151a);
+    g.box(2, 7, F, 6, 7, F, 0x15151a);
+    g.box(0, 7, 6, 0, 7, F, 0x15151a);
+    g.box(W - 1, 6, 6, W - 1, 6, F, 0x15151a);
+  }
 }
 
-function paintFace(g: VoxelGrid, F: number, expr: Expression) {
-  const eye = (x0: number) => {
+function paintFacialHair(g: VoxelGrid, s: PersonSpec, skin: number, F: number) {
+  const W = 12;
+  const c = s.hair;
+  switch (s.facial) {
+    case 'mustache':
+      g.box(3, 2, F, 8, 2, F, c);
+      break;
+    case 'handlebar':
+      g.box(3, 2, F, 8, 2, F, c);
+      g.set(2, 2, F, c);
+      g.set(9, 2, F, c);
+      g.set(1, 3, F, c);
+      g.set(10, 3, F, c);
+      break;
+    case 'beard':
+      g.box(1, 0, F, 10, 2, F, c);
+      g.box(0, 0, 5, 0, 4, F, c);
+      g.box(W - 1, 0, 5, W - 1, 4, F, c);
+      g.box(2, -1, 3, 9, -1, F, c);
+      g.box(3, 0, F + 1, 8, 1, F + 1, c);
+      g.set(5, 1, F, skin); // mouth gap
+      g.set(6, 1, F, skin);
+      break;
+    case 'goatee':
+      g.box(4, 2, F, 7, 2, F, c);
+      g.box(4, 0, F, 7, 0, F, c);
+      g.box(5, -1, F - 1, 6, -1, F, c);
+      break;
+    case 'soulPatch':
+      g.box(5, 0, F, 6, 0, F, c);
+      break;
+    case 'chinstrap':
+      g.box(0, 0, 6, 0, 5, F, c);
+      g.box(W - 1, 0, 6, W - 1, 5, F, c);
+      g.box(1, 0, F, 10, 0, F, c);
+      g.box(2, -1, 5, 9, -1, F, c);
+      break;
+    case 'stubble':
+      g.paint(1, 0, F, 10, 2, F, (x, y) => ((x + y) % 2 ? mixHex(skin, c, 0.35) : skin));
+      break;
+  }
+}
+
+function paintFace(g: VoxelGrid, s: PersonSpec, F: number, expr: Expression) {
+  const MOUTH = 0x5a1e1e;
+  const browC = s.hairStyle === 'bald' || s.hairStyle === 'buzz' ? shade(s.hair === 0 ? 0x2a2a2a : s.hair, 0.8) : s.hair;
+  // Expressions override the person's resting eyes and mouth.
+  const eyes = expr === 'normal' ? s.eyes : null;
+  const mouth = expr === 'normal' ? s.mouth : null;
+
+  const eye = (x0: number, left: boolean) => {
+    const inner = left ? x0 + 1 : x0;
+    const outer = left ? x0 : x0 + 1;
+    // Brows.
+    const brows = expr === 'normal' ? s.brows : expr === 'shock' ? 'thin' : expr === 'sick' ? 'worried' : 'none';
+    const b8 = expr === 'shock' ? 8 : 7;
+    switch (brows) {
+      case 'thin':
+        g.box(x0, b8, F, x0 + 1, b8, F, browC);
+        break;
+      case 'thick':
+        g.box(left ? x0 - 1 : x0, 7, F, left ? x0 + 1 : x0 + 2, 7, F, browC);
+        g.box(x0, 8, F, x0 + 1, 8, F, browC);
+        break;
+      case 'angry':
+        g.set(outer, 8, F, browC);
+        g.set(inner, 7, F, browC);
+        g.set(left ? x0 + 2 : x0 - 1, 7, F, browC);
+        break;
+      case 'worried':
+        g.set(outer, 7, F, browC);
+        g.set(inner, 8, F, browC);
+        break;
+      case 'uni':
+        g.box(2, 7, F, 9, 7, F, browC);
+        break;
+    }
     switch (expr) {
       case 'blink':
         g.box(x0, 4, F, x0 + 1, 4, F, BLACK);
-        break;
+        return;
       case 'happy': // ^ ^
         g.set(x0, 5, F, BLACK);
         g.set(x0 + 1, 5, F, BLACK);
         g.set(x0 - 1, 4, F, BLACK);
         g.set(x0 + 2, 4, F, BLACK);
-        break;
+        return;
       case 'dead': // X X
         for (let i = 0; i < 3; i++) {
           g.set(x0 - 1 + i, 3 + i, F, BLACK);
           g.set(x0 + 1 - i, 3 + i, F, BLACK);
         }
-        break;
+        return;
       case 'shock':
         g.box(x0, 3, F, x0 + 1, 6, F, WHITE);
         g.box(x0, 4, F, x0 + 1, 5, F, BLACK);
-        break;
+        return;
       case 'sick':
         g.box(x0, 4, F, x0 + 1, 4, F, BLACK);
         g.box(x0, 5, F, x0 + 1, 5, F, 0x3a5a2a);
+        return;
+    }
+    switch (eyes) {
+      case 'dot':
+        g.box(x0, 4, F, x0 + 1, 5, F, BLACK);
         break;
-      default:
+      case 'wide':
+        g.box(x0, 4, F, x0 + 1, 6, F, WHITE);
+        g.box(inner, 4, F, inner, 5, F, BLACK);
+        break;
+      case 'sleepy':
+        g.box(x0, 4, F, x0 + 1, 4, F, BLACK);
+        g.box(x0, 5, F, x0 + 1, 5, F, shade(s.skin, 0.8));
+        break;
+      case 'small':
+        g.box(inner, 4, F, inner, 5, F, BLACK);
+        break;
+      case 'lashes':
+        g.box(x0, 4, F, x0 + 1, 6, F, BLACK);
+        g.set(left ? x0 - 1 : x0 + 2, 6, F, BLACK);
+        g.set(left ? x0 - 1 : x0 + 2, 7, F, BLACK);
+        break;
+      case 'angry':
+        g.box(x0, 4, F, x0 + 1, 6, F, BLACK);
+        g.set(inner, 6, F, s.skin);
+        break;
+      default: // tall, like the reference
         g.box(x0, 4, F, x0 + 1, 6, F, BLACK);
     }
   };
-  eye(expr === 'dead' ? 3 : 3);
-  eye(7);
-  if (expr === 'shock') g.box(5, 1, F, 6, 2, F, 0x5a1e1e);
+  eye(3, true);
+  eye(7, false);
+
+  // Mouths.
+  if (expr === 'shock') g.box(5, 1, F, 6, 2, F, MOUTH);
   if (expr === 'happy') {
-    g.box(4, 1, F, 7, 1, F, 0x5a1e1e);
-    g.set(3, 2, F, 0x5a1e1e);
-    g.set(8, 2, F, 0x5a1e1e);
+    g.box(4, 1, F, 7, 1, F, MOUTH);
+    g.set(3, 2, F, MOUTH);
+    g.set(8, 2, F, MOUTH);
   }
-  if (expr === 'dead') g.box(4, 1, F, 7, 1, F, 0x5a1e1e);
+  if (expr === 'dead') g.box(4, 1, F, 7, 1, F, MOUTH);
   if (expr === 'sick') g.box(4, 1, F, 7, 1, F, 0x3a5a2a);
+  if (s.facial === 'beard' && mouth !== 'open' && mouth !== 'teeth') return;
+  switch (mouth) {
+    case 'smile':
+      g.box(4, 1, F, 7, 1, F, MOUTH);
+      g.set(3, 2, F, MOUTH);
+      g.set(8, 2, F, MOUTH);
+      break;
+    case 'flat':
+      g.box(4, 1, F, 7, 1, F, MOUTH);
+      break;
+    case 'frown':
+      g.box(4, 2, F, 7, 2, F, MOUTH);
+      g.set(3, 1, F, MOUTH);
+      g.set(8, 1, F, MOUTH);
+      break;
+    case 'teeth':
+      g.box(4, 1, F, 7, 2, F, MOUTH);
+      g.box(5, 1, F, 6, 1, F, WHITE);
+      break;
+    case 'open':
+      g.box(5, 1, F, 6, 2, F, MOUTH);
+      break;
+    case 'smirk':
+      g.box(5, 1, F, 7, 1, F, MOUTH);
+      g.set(8, 2, F, MOUTH);
+      break;
+  }
 }
 
 function paintHair(g: VoxelGrid, s: PersonSpec) {
@@ -147,9 +284,19 @@ function paintHair(g: VoxelGrid, s: PersonSpec) {
   const W = 12, H = 11, D = 11, F = D - 1;
   const st = s.hairStyle;
   if (st === 'bald') return;
-  if (st === 'ring') {
+  if (st === 'ring' || st === 'combover') {
     g.paint(0, 4, 0, W - 1, 7, 6, c);
     g.paint(0, 4, 0, W - 1, 8, 0, c);
+    // A few brave strands dragged across the top.
+    if (st === 'combover') for (let z = 1; z < D; z += 2) g.box(0, H, z, W - 3, H, z, c);
+    return;
+  }
+  if (st === 'buzz') {
+    const fuzz = mixHex(s.skin, c, 0.55);
+    g.paint(0, H - 1, 0, W - 1, H - 1, D - 1, fuzz);
+    g.paint(0, 4, 0, W - 1, H - 1, 1, fuzz);
+    g.paint(0, 6, 0, 0, H - 1, 7, fuzz);
+    g.paint(W - 1, 6, 0, W - 1, H - 1, 7, fuzz);
     return;
   }
   // Every other style starts from a short cut: top, back, temples and sideburns.
@@ -195,6 +342,46 @@ function paintHair(g: VoxelGrid, s: PersonSpec) {
     g.set(W, 3, 4, shade(s.skin, 0.92));
   }
   if (st === 'bun') g.box(4, H, 2, 7, H + 2, 5, c);
+  if (st === 'topknot') {
+    g.box(5, H, 4, 6, H, 6, shade(c, 0.8));
+    g.box(4, H + 1, 4, 7, H + 2, 6, c);
+  }
+  if (st === 'afro') {
+    // Big round cloud behind and above the face.
+    const cx = 5.5, cy = H - 1.5, cz = 4;
+    g.box(-3, 3, -3, W + 2, H + 4, F - 1, (x, y, z) => {
+      if (g.has(x, y, z)) return null;
+      const d = ((x - cx) / 8.4) ** 2 + ((y - cy) / 6.2) ** 2 + ((z - cz) / 7.6) ** 2;
+      if (d > 1) return null;
+      if (z >= F - 2 && y < H - 1 && x >= 0 && x < W) return null;
+      return shade(c, (x * 5 + y * 3 + z) % 6 === 0 ? 0.85 : 1);
+    });
+    g.box(0, H - 2, F + 1, W - 1, H, F + 1, c); // hairline in front
+    g.clear(-1, 3, 4, -1, 5, 5);
+    g.clear(W, 3, 4, W, 5, 5);
+  }
+  if (st === 'bob') {
+    g.box(-1, 2, 0, -1, H - 1, 8, c);
+    g.box(W, 2, 0, W, H - 1, 8, c);
+    g.box(0, 2, -1, W - 1, H - 1, -1, c);
+    g.box(-1, H, -1, W, H, D - 1, c);
+    g.box(0, H - 2, F + 1, W - 1, H - 1, F + 1, c); // straight bangs
+    g.box(-1, 2, 0, W, 2, 8, shade(c, 0.85));
+  }
+  if (st === 'pigtails') {
+    for (const x of [-3, W + 1]) {
+      g.box(x, 3, 3, x + 1, 7, 5, c);
+      g.box(x, 8, 3, x + 1, 8, 5, 0xe0406a); // hair ties
+      g.box(x, 2, 4, x + 1, 2, 4, c);
+    }
+    g.box(-2, 7, 3, -1, 8, 5, c);
+    g.box(W, 7, 3, W + 1, 8, 5, c);
+  }
+  if (st === 'braids') {
+    g.box(0, 2, -1, W - 1, H - 1, -1, c);
+    for (const x0 of [2, 8])
+      g.box(x0, -6, -2, x0 + 1, 2, -2, (_x, y) => (y === -6 ? 0xe0406a : y % 2 ? c : shade(c, 0.82)));
+  }
   if (st === 'pony') {
     g.box(5, 7, -1, 6, 9, -1, shade(c, 0.85));
     g.box(5, 2, -2, 6, 8, -2, c);
@@ -274,6 +461,49 @@ function paintHat(g: VoxelGrid, s: PersonSpec) {
       g.box(1, H + 2, 1, W - 2, H + 2, D - 2, hc);
       g.box(5, H + 1, -1, 6, H + 3, D, shade(hc, 1.1)); // ridge
       break;
+    case 'cowboy': {
+      const dk = shade(hc, 0.75);
+      g.box(-4, H - 3, -3, W + 3, H - 3, D + 2, (x, _y, z) => ((x <= -3 || x >= W + 2) && (z <= -2 || z >= D + 1) ? null : hc));
+      g.box(-4, H - 2, -3, -4, H - 2, D + 2, hc); // brim curls up at the sides
+      g.box(W + 3, H - 2, -3, W + 3, H - 2, D + 2, hc);
+      g.box(0, H - 2, 0, W - 1, H + 2, D - 1, hc);
+      g.box(0, H - 2, 0, W - 1, H - 2, D - 1, dk); // band
+      g.clear(4, H + 2, 2, 7, H + 2, D - 3); // crease
+      g.box(4, H + 1, 2, 7, H + 1, D - 3, dk);
+      break;
+    }
+    case 'tophat':
+      g.box(-2, H - 2, -2, W + 1, H - 2, D + 1, hc);
+      g.box(1, H - 1, 1, W - 2, H + 6, D - 2, hc);
+      g.box(1, H - 1, 1, W - 2, H, D - 2, 0xa02a2a);
+      break;
+    case 'bucket':
+      g.box(-2, H - 3, -2, W + 1, H - 3, D + 1, shade(hc, 0.9));
+      g.box(-1, H - 2, -1, W, H + 1, D, hc);
+      g.box(0, H + 2, 0, W - 1, H + 2, D - 1, hc);
+      break;
+    case 'beret':
+      g.box(-1, H - 1, -1, W, H, D, hc);
+      g.box(-2, H, 2, -2, H, D - 2, hc); // slouches to one side
+      g.box(6, H + 1, 5, 6, H + 1, 5, shade(hc, 0.8));
+      break;
+    case 'party':
+      for (let i = 0; i < 7; i++) {
+        const r = 4 - Math.floor(i * 0.6);
+        g.box(6 - r, H + i - 1, 5 - r, 5 + r, H + i - 1, 5 + r, i % 2 ? hc : 0xf2e040);
+      }
+      g.box(5, H + 6, 4, 6, H + 7, 5, 0xf2f2f2);
+      break;
+    case 'bow':
+      g.box(7, H, 6, 11, H + 2, 7, hc);
+      g.clear(8, H + 2, 6, 8, H + 2, 7);
+      g.clear(10, H + 2, 6, 10, H + 2, 7);
+      g.box(9, H, 6, 9, H + 2, 7, shade(hc, 0.75));
+      break;
+    case 'bandana':
+      g.box(-1, H - 3, -1, W, H, D, (x, y, z) => (y === H && (x < 0 || x >= W || z < 0 || z >= D) ? null : (x + z) % 4 === 0 && y > H - 3 ? WHITE : hc));
+      g.box(5, H - 4, -2, 6, H - 3, -3, hc); // knot tails
+      break;
     case 'headMirror':
       g.box(-1, H - 3, 0, -1, H - 3, D, 0x2a2a30);
       g.box(W, H - 3, 0, W, H - 3, D, 0x2a2a30);
@@ -282,6 +512,29 @@ function paintHat(g: VoxelGrid, s: PersonSpec) {
       g.box(4, H - 4, D + 1, 7, H - 1, D + 1, (x, y) => ((x === 4 || x === 7) && (y === H - 4 || y === H - 1) ? null : 0xd8e0e8));
       g.box(5, H - 3, D + 1, 6, H - 2, D + 1, 0xffffff);
       break;
+  }
+}
+
+/** Jewelry and gadgets worn on the head, in head coordinates. */
+function paintHeadExtras(g: VoxelGrid, s: PersonSpec) {
+  const W = 12, H = 11;
+  if (s.extras.includes('earrings')) {
+    g.set(-1, 2, 4, GOLD);
+    g.set(W, 2, 4, GOLD);
+  }
+  if (s.extras.includes('headphones')) {
+    const c = 0x2a2a30;
+    g.box(-1, H, 4, W, H, 5, c);
+    g.box(-1, H - 3, 4, -1, H - 1, 5, c);
+    g.box(W, H - 3, 4, W, H - 1, 5, c);
+    g.box(-2, 3, 3, -2, 6, 6, s.accent);
+    g.box(W + 1, 3, 3, W + 1, 6, 6, s.accent);
+  }
+  if (s.extras.includes('flower')) {
+    g.box(W, H - 2, 7, W, H - 1, 8, 0xf06aa8);
+    g.set(W + 1, H - 2, 7, 0xf2d040);
+    g.set(W, H, 7, 0xf06aa8);
+    g.set(W, H - 3, 8, 0xf06aa8);
   }
 }
 
@@ -482,11 +735,114 @@ function paintTorso(g: VoxelGrid, s: PersonSpec, d: Dims) {
       g.paint(cx - 2, 2, F, cx + 1, 4, F, (x, y) => ((y === 4 && (x === cx - 2 || x === cx + 1)) || y === 3 || (y === 2 && (x === cx - 1 || x === cx)) ? acc : null));
       g.paint(0, 1, 0, W - 1, 1, D - 1, s.lower === 'skirt' ? s.bottoms : shade(top, 0.85));
       break;
-    case 'casual':
-      if ((s.seed & 3) === 0) g.paint(0, 1, 0, W - 1, H - 1, D - 1, (x, y) => ((x >> 1) % 2 === 0 || y % 3 === 0 ? shade(top, 0.75) : top)); // plaid
-      else if ((s.seed & 3) === 1) g.paint(0, 2, 0, W - 1, H - 1, D - 1, (_x, y) => (y % 2 ? shade(top, 1.2) : top)); // stripes
+    case 'tank':
+      g.paint(0, H - 1, 0, 1, H - 1, D - 1, s.skin);
+      g.paint(W - 2, H - 1, 0, W - 1, H - 1, D - 1, s.skin);
+      g.paint(cx - 2, H - 2, F, cx + 1, H - 1, F, s.skin);
+      g.paint(0, H - 3, 0, 0, H - 2, D - 1, s.skin); // armholes
+      g.paint(W - 1, H - 3, 0, W - 1, H - 2, D - 1, s.skin);
+      break;
+    case 'polo':
+      g.paint(cx - 3, H - 1, F, cx + 2, H - 1, F, shade(top, 1.15)); // collar
+      g.paint(cx - 1, H - 3, F, cx - 1, H - 2, F, WHITE); // buttons
+      g.paint(W - 3, H - 3, F, W - 3, H - 3, F, acc); // logo
+      break;
+    case 'sweaterVest': {
+      const argyle = (x: number, y: number) => ((x + y) % 4 === 0 || (x - y + 40) % 4 === 0 ? shade(acc, 0.8) : acc);
+      g.paint(0, 1, 0, W - 1, H - 2, D - 1, (x, y) => argyle(x, y));
+      g.paint(cx - 1, H - 3, F, cx, H - 1, F, top);
+      g.paint(cx - 2, H - 1, F, cx + 1, H - 1, F, top);
+      break;
+    }
+    case 'tracksuit':
+      g.paint(0, 0, 0, W - 1, H - 1, D - 1, top);
+      g.paint(0, 0, 0, 0, H - 1, D - 1, WHITE); // side stripes
+      g.paint(W - 1, 0, 0, W - 1, H - 1, D - 1, WHITE);
+      g.paint(cx - 1, 0, F, cx - 1, H - 1, F, 0xd0d0d8); // zipper
+      g.paint(cx - 2, H - 1, F, cx + 1, H - 1, F, shade(top, 0.85));
+      break;
+    case 'jacket':
+      // Open jacket over a tee.
+      g.paint(cx - 2, 1, F, cx + 1, H - 1, F, acc);
+      g.paint(cx - 3, 2, F, cx - 3, H - 1, F, shade(top, 0.8));
+      g.paint(cx + 2, 2, F, cx + 2, H - 1, F, shade(top, 0.8));
+      g.paint(1, 2, F, 1, 3, F, shade(top, 0.7)); // pocket flaps
+      g.paint(W - 2, 2, F, W - 2, 3, F, shade(top, 0.7));
+      break;
+    case 'dress':
+      g.paint(0, 0, 0, W - 1, H - 1, D - 1, top);
+      g.box(-1, 0, -1, W, 1, D, (x, y, z) => (g.has(x, y, z) ? null : y === 0 ? shade(top, 0.85) : top));
+      g.paint(0, 2, 0, W - 1, 2, D - 1, acc); // waist sash
       g.paint(cx - 1, H - 1, F, cx, H - 1, F, s.skin);
       break;
+    case 'graphicTee': {
+      // A random 4x4 pixel logo on the chest.
+      const bits = s.seed >>> 3;
+      for (let i = 0; i < 8; i++) {
+        if (!((bits >> i) & 1)) continue;
+        const x = i % 2, y = (i >> 1) & 3;
+        g.paint(cx - 2 + x, 2 + y, F, cx - 2 + x, 2 + y, F, acc);
+        g.paint(cx + 1 - x, 2 + y, F, cx + 1 - x, 2 + y, F, acc);
+      }
+      g.paint(cx - 1, H - 1, F, cx, H - 1, F, s.skin);
+      break;
+    }
+    case 'plaid':
+      g.paint(0, 1, 0, W - 1, H - 1, D - 1, (x, y) => ((x >> 1) % 2 === 0 && y % 3 === 0 ? shade(top, 0.55) : (x >> 1) % 2 === 0 || y % 3 === 0 ? shade(top, 0.75) : top));
+      g.paint(cx - 1, H - 1, F, cx, H - 1, F, shade(top, 0.6));
+      break;
+    case 'stripes':
+      g.paint(0, 1, 0, W - 1, H - 1, D - 1, (_x, y) => (y % 2 ? acc : top));
+      g.paint(cx - 1, H - 1, F, cx, H - 1, F, s.skin);
+      break;
+    case 'casual':
+      g.paint(cx - 1, H - 1, F, cx, H - 1, F, s.skin);
+      break;
+  }
+
+  // Body shape.
+  if (s.build === 'buff') {
+    g.box(-1, H - 3, 1, -1, H - 1, D - 2, (x, y, z) => g.get(0, y, z));
+    g.box(W, H - 3, 1, W, H - 1, D - 2, (x, y, z) => g.get(W - 1, y, z));
+  }
+  if (s.build === 'heavy' && s.outfit !== 'cook') g.box(1, 1, D, W - 2, H - 4, D, (x, y) => g.get(x, y, F));
+
+  // Worn extras.
+  const ex = s.extras;
+  if (ex.includes('chain')) {
+    for (let x = cx - 2; x <= cx + 1; x++) g.paint(x, x < cx ? H - 1 - (x - (cx - 2)) : H - 1 - (cx + 1 - x), F, x, x < cx ? H - 1 - (x - (cx - 2)) : H - 1 - (cx + 1 - x), F, GOLD);
+    g.paint(cx - 1, H - 3, F, cx, H - 4, F, GOLD);
+  }
+  if (ex.includes('necklace')) g.paint(cx - 2, H - 2, F, cx + 1, H - 2, F, (x) => (x % 2 ? 0xf8f4ec : 0xe0dcd4));
+  if (ex.includes('scarf')) {
+    const sc = s.accent === s.top ? shade(s.top, 0.7) : s.accent;
+    g.paint(0, H - 1, 0, W - 1, H - 1, D - 1, sc);
+    g.box(-1, H - 2, 0, -1, H - 1, D - 1, sc);
+    g.box(W, H - 2, 0, W, H - 1, D - 1, sc);
+    g.box(0, H - 2, -1, W - 1, H - 1, -1, sc);
+    g.box(0, H - 2, D, W - 1, H - 1, D, sc);
+    g.box(1, H - 5, D, 2, H - 3, D, (_x, y) => (y === H - 5 ? shade(sc, 0.8) : sc));
+  }
+  if (ex.includes('bowtie') && !['suit', 'loudSuit', 'clergy'].includes(s.outfit)) {
+    const bt = s.outfit === 'casual' ? 0xc02a2a : s.accent;
+    g.box(cx - 2, H - 2, D, cx + 1, H - 2, D, bt);
+    g.set(cx - 2, H - 1, D, bt);
+    g.set(cx + 1, H - 1, D, bt);
+    g.box(cx - 1, H - 2, D + 1, cx, H - 2, D + 1, shade(bt, 0.75));
+  }
+  if (ex.includes('backpack')) {
+    const bp = s.accent === s.top ? 0x3a6ac0 : s.accent;
+    g.box(1, 1, -2, W - 2, H - 2, -1, bp);
+    g.box(2, 2, -3, W - 3, 4, -3, shade(bp, 0.8)); // pocket
+    g.paint(1, 1, F, 1, H - 1, F, shade(bp, 0.7)); // straps
+    g.paint(W - 2, 1, F, W - 2, H - 1, F, shade(bp, 0.7));
+    g.paint(1, H - 1, 0, 1, H - 1, D - 1, shade(bp, 0.7));
+    g.paint(W - 2, H - 1, 0, W - 2, H - 1, D - 1, shade(bp, 0.7));
+  }
+  if (ex.includes('fannypack')) {
+    g.paint(0, 1, 0, W - 1, 1, D - 1, 0x2a2a30);
+    g.box(cx - 2, 0, D, cx + 1, 1, D, 0xd8402a);
+    g.set(cx, 1, D + 1, 0xd0d0d8);
   }
 }
 
@@ -501,7 +857,14 @@ function paintArm(g: VoxelGrid, s: PersonSpec, d: Dims, side: number) {
   g.box(0, 0, 0, W - 1, H - 1, D - 1, s.skin);
   const sleeveColor =
     s.outfit === 'hiVis' || s.outfit === 'construction' ? s.top : s.outfit === 'overalls' ? s.top : s.outfit === 'cook' ? WHITE : s.top;
-  const long = ['coveralls', 'police', 'suit', 'loudSuit', 'hoodie', 'labCoat', 'cook', 'clergy', 'cardigan'].includes(s.outfit) || s.age === 'elder';
+  if (s.outfit === 'tank') {
+    g.paint(0, 2, 0, W - 1, 2, D - 1, shade(s.skin, 0.96));
+    g.paint(0, 0, 0, W - 1, 1, D - 1, shade(s.skin, 0.96));
+    g.box(side > 0 ? 0 : W - 1, 0, D, side > 0 ? 0 : W - 1, 1, D, s.skin);
+    if (side > 0 && s.extras.includes('watch')) g.paint(0, 2, 0, W - 1, 2, D - 1, 0x2a2a30);
+    return;
+  }
+  const long = ['coveralls', 'police', 'tracksuit', 'jacket', 'sweaterVest', 'plaid', 'suit', 'loudSuit', 'hoodie', 'labCoat', 'cook', 'clergy', 'cardigan'].includes(s.outfit) || s.age === 'elder';
   if (long) {
     g.paint(0, 2, 0, W - 1, H - 1, D - 1, sleeveColor);
     g.box(0, 2, -1, W - 1, 2, D, shade(sleeveColor, 0.88)); // cuff
@@ -517,6 +880,11 @@ function paintArm(g: VoxelGrid, s: PersonSpec, d: Dims, side: number) {
   // Hand: slightly darker so it reads separate from the forearm.
   g.paint(0, 0, 0, W - 1, 1, D - 1, shade(s.skin, 0.96));
   g.box(side > 0 ? 0 : W - 1, 0, D, side > 0 ? 0 : W - 1, 1, D, s.skin); // thumb
+  if (side > 0 && s.extras.includes('watch')) {
+    g.paint(0, 2, 0, W - 1, 2, D - 1, 0x2a2a30);
+    g.set(out, 2, 1, 0x2a2a30);
+    g.set(out, 2, 2, 0xd8e0e8);
+  }
 }
 
 function paintLeg(g: VoxelGrid, s: PersonSpec, d: Dims) {
@@ -529,11 +897,37 @@ function paintLeg(g: VoxelGrid, s: PersonSpec, d: Dims) {
     g.paint(0, 2, 0, W - 1, 2, D - 1, WHITE); // socks
   }
   if (s.outfit === 'overalls') g.paint(0, 2, 0, W - 1, 2, D - 1, shade(pants, 1.35)); // rolled cuff
-  // Shoes: two rows plus a toe that pokes forward, darker sole.
-  g.paint(0, 0, 0, W - 1, 1, D - 1, s.shoes);
-  g.box(0, 0, D, W - 1, 1, D, s.shoes);
-  g.box(0, 0, -1, W - 1, 0, D, shade(s.shoes, s.shoes < 0x404040 ? 1.8 : 0.6));
-  g.paint(0, 0, 0, W - 1, 0, D, shade(s.shoes, s.shoes < 0x404040 ? 1.8 : 0.6));
+  // Shoes: two rows plus a toe that pokes forward.
+  const sole = shade(s.shoes, s.shoes < 0x404040 ? 1.8 : 0.6);
+  switch (s.shoeStyle) {
+    case 'sneakers':
+      g.paint(0, 0, 0, W - 1, 1, D - 1, s.shoes);
+      g.box(0, 0, D, W - 1, 1, D, s.shoes);
+      g.box(0, 0, -1, W - 1, 0, D, WHITE);
+      g.paint(0, 0, 0, W - 1, 0, D, WHITE);
+      g.set(0, 1, D, WHITE);
+      g.set(W - 1, 1, 2, WHITE); // swoosh-ish stripe
+      g.set(0, 1, 2, WHITE);
+      break;
+    case 'boots':
+      g.paint(0, 0, 0, W - 1, 3, D - 1, s.shoes);
+      g.box(0, 0, D, W - 1, 1, D, s.shoes);
+      g.box(0, 0, -1, W - 1, 0, D, shade(s.shoes, 0.55));
+      g.paint(0, 3, 0, W - 1, 3, D - 1, shade(s.shoes, 0.8));
+      break;
+    case 'sandals':
+      g.paint(0, 0, 0, W - 1, 1, D - 1, s.skin);
+      g.box(0, 0, D, W - 1, 0, D, s.skin);
+      g.box(0, 0, -1, W - 1, 0, D, 0x7a5232);
+      g.paint(0, 0, 0, W - 1, 0, D, 0x7a5232);
+      g.paint(0, 1, D - 2, W - 1, 1, D - 2, 0x7a5232);
+      break;
+    default:
+      g.paint(0, 0, 0, W - 1, 1, D - 1, s.shoes);
+      g.box(0, 0, D, W - 1, 1, D, s.shoes);
+      g.box(0, 0, -1, W - 1, 0, D, sole);
+      g.paint(0, 0, 0, W - 1, 0, D, sole);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -694,6 +1088,7 @@ export function buildVoxelBody(s: PersonSpec): VoxelBody {
   attach(head, hat, d.head);
   const glasses = new VoxelGrid(0.02, s.seed + 6);
   paintGlasses(glasses, s);
+  paintHeadExtras(glasses, s);
   attach(head, glasses, d.head);
 
   // Arms hang from the shoulders, tucked just under the top of the torso.

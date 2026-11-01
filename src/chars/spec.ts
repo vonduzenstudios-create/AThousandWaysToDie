@@ -2,11 +2,23 @@ import type { Job } from '../deaths';
 import { mulberry32, pick, type Rng } from '../util';
 
 export type Age = 'child' | 'teen' | 'adult' | 'elder';
-export type Build = 'slim' | 'average' | 'heavy';
-export type HairStyle = 'bald' | 'ring' | 'short' | 'spiky' | 'slick' | 'long' | 'bun' | 'pony' | 'mohawk' | 'curly';
-export type Facial = 'none' | 'mustache' | 'beard' | 'stubble';
+export type Build = 'slim' | 'average' | 'heavy' | 'buff';
+export type Stature = 'short' | 'normal' | 'tall';
+export type HairStyle =
+  | 'bald' | 'ring' | 'short' | 'spiky' | 'slick' | 'long' | 'bun' | 'pony' | 'mohawk' | 'curly'
+  | 'afro' | 'bob' | 'pigtails' | 'buzz' | 'combover' | 'braids' | 'topknot';
+export type Facial = 'none' | 'mustache' | 'beard' | 'stubble' | 'goatee' | 'handlebar' | 'chinstrap' | 'soulPatch';
+export type Eyes = 'tall' | 'dot' | 'wide' | 'sleepy' | 'small' | 'lashes' | 'angry';
+export type Brows = 'none' | 'thin' | 'thick' | 'angry' | 'worried' | 'uni';
+export type Mouth = 'none' | 'smile' | 'flat' | 'frown' | 'teeth' | 'open' | 'smirk';
+/** Things on the skin of the face. */
+export type Mark = 'freckles' | 'blush' | 'mole' | 'eyebags' | 'scar' | 'bandage' | 'eyepatch';
+/** Small worn items. */
+export type Extra = 'earrings' | 'headphones' | 'flower' | 'chain' | 'necklace' | 'scarf' | 'bowtie' | 'backpack' | 'fannypack' | 'watch';
+export type ShoeStyle = 'shoes' | 'sneakers' | 'boots' | 'sandals';
 export type Glasses = 'none' | 'round' | 'sun';
-export type Hat = 'none' | 'straw' | 'cap' | 'capBack' | 'chef' | 'beanie' | 'flatcap' | 'headMirror' | 'visor' | 'police' | 'hardhat';
+export type Hat = 'none' | 'straw' | 'cap' | 'capBack' | 'chef' | 'beanie' | 'flatcap' | 'headMirror' | 'visor' | 'police' | 'hardhat'
+  | 'cowboy' | 'tophat' | 'bucket' | 'beret' | 'party' | 'bow' | 'bandana';
 export type Lower = 'pants' | 'shorts' | 'skirt';
 export type Held = 'none' | 'pitchfork' | 'wrench' | 'parcel' | 'cane' | 'briefcase' | 'phone' | 'spatula' | 'stopSign' | 'book' | 'toothbrush' | 'donut' | 'hammer';
 export type Expression = 'normal' | 'blink' | 'happy' | 'shock' | 'dead' | 'sick';
@@ -28,6 +40,15 @@ export type Outfit =
   | 'trendy'
   | 'police'
   | 'construction'
+  | 'tank'
+  | 'polo'
+  | 'sweaterVest'
+  | 'tracksuit'
+  | 'jacket'
+  | 'dress'
+  | 'graphicTee'
+  | 'plaid'
+  | 'stripes'
   | 'casual';
 
 /** Everything needed to build one townsperson. Plain data, so it can be saved or sent around. */
@@ -36,10 +57,16 @@ export interface PersonSpec {
   job: JobName;
   age: Age;
   build: Build;
+  stature: Stature;
   skin: number;
   hair: number;
   hairStyle: HairStyle;
   facial: Facial;
+  eyes: Eyes;
+  brows: Brows;
+  mouth: Mouth;
+  marks: Mark[];
+  extras: Extra[];
   glasses: Glasses;
   hat: Hat;
   hatColor: number;
@@ -50,13 +77,16 @@ export interface PersonSpec {
   accent: number;
   bottoms: number;
   shoes: number;
+  shoeStyle: ShoeStyle;
   lower: Lower;
   held: Held;
   expression: Expression;
 }
 
 export const SKINS = [0xf9d9bd, 0xf2c4a0, 0xe0a97e, 0xc58a5c, 0x9c6640, 0x74472b, 0x553220];
-export const HAIR = [0x1c1410, 0x3b2416, 0x6a4122, 0x9a6a35, 0xd8b65e, 0xb54a26, 0x2a2a30];
+export const SKINS_RARE = [0xfbe4d4, 0x8a5a3a, 0x3e2418, 0xd8b090];
+export const HAIR = [0x1c1410, 0x3b2416, 0x6a4122, 0x9a6a35, 0xd8b65e, 0xb54a26, 0x2a2a30, 0xe8d8a0, 0x7a2a1a];
+export const DYED_HAIR = [0xf06aa8, 0x3a8af0, 0x3ac07a, 0x9a5af0, 0xf0f0f0, 0x2ad0d0, 0xf07a2a];
 export const GREY_HAIR = [0xd8d8d8, 0xbdbdbd, 0xeeeeee, 0x9a9a9a];
 const BRIGHT = [0xd8443a, 0x3a6fd8, 0x3aa65a, 0xe0b030, 0x8a4ad8, 0xf07a2a, 0x2ab0b0, 0xe06aa0, 0x6b8e23];
 const SHIRTS = [0xe8ecf2, 0xd8e4f0, 0xf2e8d0, 0xc8d8c0, 0xe0c8c8, 0x9ab0d0];
@@ -142,44 +172,107 @@ const JOB_LOOKS: Partial<Record<JobName, (r: Rng) => Partial<PersonSpec>>> = {
 const GOLD_C = 0xe8b830;
 
 /** A random but job-appropriate townsperson. Pass `age` to force one (for the age variants). */
+const TOWNIE_OUTFITS: Outfit[] = ['casual', 'tank', 'polo', 'sweaterVest', 'tracksuit', 'jacket', 'dress', 'graphicTee', 'plaid', 'stripes', 'hawaiian', 'hoodie', 'cardigan'];
+const TOWNIE_HATS: Hat[] = ['cap', 'capBack', 'beanie', 'cowboy', 'bucket', 'beret', 'bandana', 'visor', 'flatcap', 'bow', 'tophat', 'party'];
+const ALL_HAIR: HairStyle[] = ['short', 'short', 'spiky', 'slick', 'long', 'bun', 'pony', 'mohawk', 'curly', 'afro', 'bob', 'pigtails', 'buzz', 'braids', 'topknot', 'bald'];
+const EYES: Eyes[] = ['tall', 'tall', 'tall', 'dot', 'wide', 'sleepy', 'small', 'lashes', 'angry'];
+const BROWS: Brows[] = ['none', 'none', 'thin', 'thin', 'thick', 'angry', 'worried', 'uni'];
+const MOUTHS: Mouth[] = ['none', 'none', 'none', 'smile', 'flat', 'frown', 'teeth', 'open', 'smirk'];
+
+/** Pick each item independently with its own chance. */
+function some<T>(r: Rng, table: [T, number][]): T[] {
+  return table.filter(([, p]) => r() < p).map(([t]) => t);
+}
+
+/** A random but job-appropriate townsperson. Pass `age` or `build` to force them. */
 export function specForJob(job: JobName | string, rng: Rng, age?: Age, build?: Build): PersonSpec {
   const r = rng;
+  const isTownie = !JOB_LOOKS[job as JobName];
   const base: PersonSpec = {
     seed: Math.floor(r() * 1e9),
     job: job as JobName,
     age: 'adult',
-    build: pick(r, ['slim', 'average', 'average', 'heavy'] as const),
-    skin: pick(r, SKINS),
-    hair: pick(r, HAIR),
-    hairStyle: pick(r, ['short', 'short', 'spiky', 'long', 'bun', 'pony', 'curly', 'slick', 'bald'] as const),
-    facial: r() < 0.25 ? pick(r, ['mustache', 'beard', 'stubble'] as const) : 'none',
-    glasses: r() < 0.15 ? 'round' : 'none',
-    hat: 'none',
-    hatColor: pick(r, BRIGHT),
-    outfit: 'casual',
-    top: pick(r, [...BRIGHT, ...SHIRTS]),
-    accent: pick(r, BRIGHT),
-    bottoms: pick(r, [...DENIM, 0x6b5a3a, 0x3b3b3b, 0x8a8a6a]),
-    shoes: pick(r, SHOES),
+    build: pick(r, ['slim', 'average', 'average', 'heavy', 'buff'] as const),
+    stature: pick(r, ['short', 'normal', 'normal', 'tall'] as const),
+    skin: r() < 0.15 ? pick(r, SKINS_RARE) : pick(r, SKINS),
+    hair: r() < 0.08 ? pick(r, DYED_HAIR) : pick(r, HAIR),
+    hairStyle: pick(r, ALL_HAIR),
+    facial: r() < 0.3 ? pick(r, ['mustache', 'beard', 'stubble', 'goatee', 'handlebar', 'chinstrap', 'soulPatch'] as const) : 'none',
+    eyes: pick(r, EYES),
+    brows: pick(r, BROWS),
+    mouth: pick(r, MOUTHS),
+    marks: some(r, [['freckles', 0.15], ['blush', 0.1], ['mole', 0.08], ['eyebags', 0.08], ['scar', 0.04], ['bandage', 0.04], ['eyepatch', 0.015]]),
+    extras: some(r, [['earrings', 0.15], ['watch', 0.2], ['chain', 0.06], ['necklace', 0.07], ['scarf', 0.06], ['bowtie', 0.04], ['backpack', 0.07], ['fannypack', 0.05], ['headphones', 0.05], ['flower', 0.04]]),
+    glasses: r() < 0.15 ? 'round' : r() < 0.05 ? 'sun' : 'none',
+    hat: isTownie && r() < 0.35 ? pick(r, TOWNIE_HATS) : 'none',
+    hatColor: pick(r, [...BRIGHT, ...DARK, 0x8a6a4a, 0xf2f2f2]),
+    outfit: isTownie ? pick(r, TOWNIE_OUTFITS) : 'casual',
+    top: pick(r, [...BRIGHT, ...SHIRTS, ...DARK]),
+    accent: pick(r, [...BRIGHT, 0xf2f2f2, 0x2a2a30]),
+    bottoms: pick(r, [...DENIM, 0x6b5a3a, 0x3b3b3b, 0x8a8a6a, 0xb8a888, 0x5a2a2a]),
+    shoes: pick(r, [...SHOES, ...BRIGHT, 0xf2f2f2]),
+    shoeStyle: pick(r, ['shoes', 'shoes', 'sneakers', 'sneakers', 'boots', 'sandals'] as const),
     lower: r() < 0.15 ? 'shorts' : r() < 0.12 ? 'skirt' : 'pants',
     held: 'none',
     expression: 'normal',
   };
+  if (base.outfit === 'dress') base.lower = 'skirt';
+  if (base.accent === base.top) base.accent = 0xf2f2f2;
+  if (base.hair === 0) base.hair = 0x1c1410;
   const look = JOB_LOOKS[job as JobName]?.(r) ?? {};
   const spec: PersonSpec = { ...base, ...look };
   if (spec.bottoms === 0) spec.bottoms = spec.top; // matching suit trousers
+  if (look.shoes === undefined && spec.shoeStyle === 'sneakers' && !isTownie) spec.shoeStyle = 'shoes';
+  // Hats and hair that fight each other.
+  if (spec.hat !== 'none' && ['afro', 'mohawk', 'pigtails', 'topknot', 'bun'].includes(spec.hairStyle) && spec.hat !== 'bow' && spec.hat !== 'headMirror')
+    spec.hairStyle = pick(r, ['short', 'long', 'curly', 'bob'] as const);
+  // Uniformed jobs don't wear backpacks, fanny packs or bow ties to work.
+  if (!['Townie', 'Teen', 'Influencer', 'Retiree', 'Mail Carrier'].includes(spec.job))
+    spec.extras = spec.extras.filter((e) => e !== 'backpack' && e !== 'fannypack' && e !== 'bowtie');
+  if (spec.extras.includes('headphones') && spec.hat !== 'none') spec.extras = spec.extras.filter((e) => e !== 'headphones');
   if (age) spec.age = age;
   if (build) spec.build = build;
   if (spec.age === 'elder') {
     spec.hair = pick(r, GREY_HAIR);
-    if (r() < 0.5) spec.hairStyle = pick(r, ['ring', 'bald', 'short', 'bun'] as const);
+    if (r() < 0.5) spec.hairStyle = pick(r, ['ring', 'bald', 'short', 'bun', 'combover', 'buzz'] as const);
+    if (spec.brows === 'none' || spec.brows === 'thin') spec.brows = 'thick';
+    if (spec.build === 'buff' && r() < 0.7) spec.build = 'average';
+    if (r() < 0.4 && !spec.marks.includes('eyebags')) spec.marks.push('eyebags');
   }
   if (spec.age === 'child') {
     spec.facial = 'none';
     spec.build = r() < 0.3 ? 'heavy' : 'slim';
     if (spec.held === 'briefcase' || spec.held === 'cane') spec.held = 'none';
+    spec.extras = spec.extras.filter((e) => e !== 'chain' && e !== 'bowtie' && e !== 'watch');
+    if (spec.mouth === 'none' && r() < 0.5) spec.mouth = 'smile';
   }
-  if (spec.age === 'teen' && spec.facial === 'beard') spec.facial = 'none';
+  if (spec.age === 'teen') {
+    if (spec.facial !== 'none' && spec.facial !== 'stubble') spec.facial = 'none';
+    if (r() < 0.25) spec.hair = pick(r, DYED_HAIR);
+    if (r() < 0.5) spec.shoeStyle = 'sneakers';
+  }
+  if (spec.hairStyle === 'pigtails' || spec.hairStyle === 'braids') if (spec.facial === 'beard') spec.facial = 'none';
+  return spec;
+}
+
+/** Apply a victim's mental and physical stats to how they look. */
+export function applyStats(spec: PersonSpec, physical?: string, mental?: string) {
+  if (physical === 'Athlete' && spec.age !== 'child') spec.build = spec.age === 'elder' ? 'average' : 'buff';
+  if (physical === 'Feeble') {
+    spec.build = spec.build === 'heavy' ? 'heavy' : 'slim';
+    if (spec.age !== 'child' && !spec.marks.includes('eyebags')) spec.marks.push('eyebags');
+  }
+  if (mental === 'Depressed') {
+    spec.mouth = 'frown';
+    spec.brows = 'worried';
+    if (!spec.marks.includes('eyebags')) spec.marks.push('eyebags');
+    if (spec.eyes === 'wide' || spec.eyes === 'angry') spec.eyes = 'tall';
+  }
+  if (mental === 'Medicated') {
+    spec.eyes = 'sleepy';
+    spec.mouth = 'smile';
+    spec.brows = spec.brows === 'angry' ? 'thin' : spec.brows;
+  }
   return spec;
 }
 
@@ -190,12 +283,12 @@ export function ageGroup(years: number): Age {
 
 /**
  * Build a spec from a victim's scythe-vision file, so how someone looks matches what their file
- * says. `physical` (Feeble / Normal / Athlete) picks a slim or burly build when present.
+ * says. `physical` (Feeble / Normal / Athlete) and
+ * `mental` (Depressed / Normal / Medicated) show on the body and face.
  */
-export function specFromFile(file: { job: string; age: number; physical?: string; name?: string }, seed?: number): PersonSpec {
+export function specFromFile(file: { job: string; age: number; physical?: string; mental?: string; name?: string }, seed?: number): PersonSpec {
   let h = seed ?? 0;
   for (const ch of (file.name ?? '') + file.job + file.age) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
   const rng = mulberry32(h);
-  const build: Build | undefined = file.physical === 'Athlete' ? (rng() < 0.7 ? 'heavy' : 'average') : file.physical === 'Feeble' ? 'slim' : undefined;
-  return specForJob(file.job, rng, ageGroup(file.age), build);
+  return applyStats(specForJob(file.job, rng, ageGroup(file.age)), file.physical, file.mental);
 }

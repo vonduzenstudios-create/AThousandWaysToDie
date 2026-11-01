@@ -6,7 +6,7 @@ import { Ragdoll } from '../ragdoll';
 import type { Character } from '../character';
 import { mulberry32 } from '../util';
 import { buildVoxelBody, type VoxelBody } from './build';
-import { specForJob, type Age, type Expression, type PersonSpec } from './spec';
+import { specForJob, specFromFile, type Age, type Expression, type PersonSpec } from './spec';
 
 /**
  * Dev-only character sheet at /characters.html. Every job and age gets its own cell; drag in any
@@ -16,7 +16,7 @@ import { specForJob, type Age, type Expression, type PersonSpec } from './spec';
  */
 const params = new URLSearchParams(location.search);
 let seed = Number(params.get('seed') ?? 7);
-let view = params.get('view') ?? (location.hash === '#hero' ? 'hero' : 'sheet');
+let view = params.get('view') ?? (location.hash === '#hero' ? 'hero' : location.hash === '#crowd' ? 'crowd' : 'sheet');
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -88,9 +88,22 @@ function build() {
     const spec = specForJob(job, rng);
     // With no overrides, recreate the reference farmer as closely as we can.
     if (!params.get('job'))
-      Object.assign(spec, { hat: 'straw', held: 'none', top: 0xe8ecf2, accent: 0x2f4f9a, bottoms: 0x2f4f9a, shoes: 0x1a1a1e, hairStyle: 'short', hair: 0x1c1410, skin: 0xf9d9bd, facial: 'none', glasses: 'none', build: 'average' });
+      Object.assign(spec, { hat: 'straw', held: 'none', top: 0xe8ecf2, accent: 0x2f4f9a, bottoms: 0x2f4f9a, shoes: 0x1a1a1e, hairStyle: 'short', hair: 0x1c1410, skin: 0xf9d9bd, facial: 'none', glasses: 'none', build: 'average', stature: 'normal', eyes: 'tall', brows: 'none', mouth: 'none', marks: [], extras: [], shoeStyle: 'shoes' });
     Object.assign(spec, JSON.parse(params.get('spec') ?? '{}'));
     addCell(spec, spec.job);
+  } else if (view === 'crowd') {
+    // Random victims, built from the same kind of file the game rolls, stats and all.
+    const jobs = [...JOBS, 'Townie', 'Townie', 'Townie', 'Townie'];
+    for (let i = 0; i < 36; i++) {
+      let job = jobs[Math.floor(rng() * jobs.length)];
+      const age = job === 'Teen' ? 14 + Math.floor(rng() * 5) : job === 'Retiree' ? 66 + Math.floor(rng() * 25) : job === 'Townie' ? 6 + Math.floor(rng() * 86) : 22 + Math.floor(rng() * 45);
+      if (age < 13) job = 'Townie';
+      const physical = age > 70 ? 'Feeble' : rng() < 0.25 ? 'Athlete' : rng() < 0.1 ? 'Feeble' : 'Normal';
+      const mental = rng() < 0.2 ? 'Depressed' : rng() < 0.2 ? 'Medicated' : 'Normal';
+      const spec = specFromFile({ job, age, physical, mental }, Math.floor(rng() * 1e9));
+      const stat = [physical, mental].filter((x) => x !== 'Normal').join(', ');
+      addCell(spec, `${job === 'Townie' ? 'Townie' : job}, ${age}${stat ? ' · ' + stat : ''}`);
+    }
   } else {
     const jobs = [...new Set<string>([...JOBS, 'Cop', 'Construction Worker'])];
     for (const job of jobs) addCell(specForJob(job, rng), job);
@@ -105,7 +118,7 @@ const labelBox = document.createElement('div');
 document.body.appendChild(labelBox);
 function grid() {
   const n = cells.length;
-  const cols = n === 1 ? 1 : innerWidth > innerHeight ? 6 : 3;
+  const cols = n === 1 ? 1 : innerWidth > innerHeight ? (n > 20 ? 9 : 6) : n > 20 ? 4 : 3;
   const rows = Math.ceil(n / cols);
   const bar = document.getElementById('bar');
   const top = bar ? bar.getBoundingClientRect().bottom + 8 : 50;
@@ -114,12 +127,13 @@ function grid() {
 function layoutLabels() {
   const g = grid();
   labelBox.innerHTML = '';
+  const n = cells.length;
   cells.forEach((c, i) => {
     const d = document.createElement('div');
     d.textContent = c.label;
     Object.assign(d.style, {
       position: 'fixed', left: `${(i % g.cols) * g.w}px`, top: `${g.top + Math.floor(i / g.cols) * g.h + g.h - 26}px`,
-      width: `${g.w}px`, textAlign: 'center', pointerEvents: 'none', color: '#ccc', fontWeight: '600',
+      width: `${g.w}px`, textAlign: 'center', pointerEvents: 'none', color: '#ccc', fontWeight: '600', fontSize: n > 20 ? '11px' : '14px',
     });
     labelBox.appendChild(d);
   });
@@ -142,8 +156,16 @@ button('Expression', () => {
   for (const c of cells) c.vb.setExpression(EXPRESSIONS[exprI]);
 });
 button('Spin', () => (spin = !spin));
-button('Close-up / Sheet', () => {
-  view = view === 'hero' ? 'sheet' : 'hero';
+button('Jobs', () => {
+  view = 'sheet';
+  build();
+});
+button('Crowd', () => {
+  view = 'crowd';
+  build();
+});
+button('Close-up', () => {
+  view = 'hero';
   build();
 });
 button('Ragdoll everyone', async () => {
