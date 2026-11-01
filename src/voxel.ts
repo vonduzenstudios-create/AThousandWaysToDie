@@ -58,7 +58,7 @@ export const B = {
 } as const;
 
 /** Blocks you can walk (or sink) through. They still render and hide faces behind them. */
-export const PASSABLE = new Set<number>([B.Water, B.Corn]);
+export const PASSABLE = new Set<number>([B.Water, B.Corn, B.Grain]);
 
 /** Base color and how much per-voxel color noise each block gets. */
 const PALETTE: Record<number, [number, number]> = {
