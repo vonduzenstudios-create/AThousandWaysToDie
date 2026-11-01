@@ -216,6 +216,8 @@ export class Car {
   drive(throttle: number, steerIn: number, handbrake: boolean) {
     const vc = this.vc;
     if (!vc) return;
+    // A parked body falls asleep and would ignore the wheels' impulses; keep it awake while driven.
+    this.body.wakeUp();
     const h = this.spec.handling;
     const n = this.spec.wheels.length;
     const fwd = this.speed;
@@ -235,8 +237,9 @@ export class Car {
         // Strong low down, fading to nothing at top speed.
         engine = m * h.accel * throttle * (1 - x * x) * (this.shiftT > 0 ? 0.35 : 1);
         // Hill strength: gravity here is ~3x real, so cancel part of the slope's pull.
-        const slope = this.forward(_fw).y;
-        if (slope > 0 && this.wheelsOnGround > 1) engine += m * this.gravity * slope * h.climb * throttle;
+        // Grade measured along the ground under the wheels, so squat under power doesn't count.
+        const slope = this.wheelsOnGround > 1 ? this.gradeAhead() : 0;
+        if (slope > 0) engine += m * this.gravity * slope * h.climb * throttle;
       }
     } else if (throttle < -0.05) {
       if (fwd > 1) brake = h.brake * -throttle;
@@ -258,7 +261,11 @@ export class Car {
       const down = new THREE.Vector3(0, -1, 0).applyQuaternion(this.quat).multiplyScalar(h.downforce * m * this.gravity * 0.4 * v * v);
       this.body.addForce(down, true);
     }
-    if (h.balance > 0) this.balance(h.balance, -this.steer * Math.min(1, Math.abs(fwd) / 12) * 0.9);
+    if (h.balance > 0) {
+      // Lean into the turn just enough to balance the cornering force (left turn = lean toward +x).
+      const lat = fwd * this.body.angvel().y;
+      this.balance(h.balance, Math.max(-0.35, Math.min(0.35, -Math.atan2(lat, this.gravity) * 0.6)));
+    }
     const hb = handbrake ? (h.brake * 1.6 * m * STEP) / Math.max(1, n - 2) : 0;
     for (let i = 0; i < n; i++) {
       const front = i < 2;
@@ -271,6 +278,28 @@ export class Car {
     // Rough wheelspin estimate for smoke: lots of throttle at low speed on a loose car.
     const launch = throttle > 0.5 ? (h.accel / (Math.min(h.grip, h.rearGrip) * 3.5)) * (1 - Math.min(1, Math.abs(fwd) / 14)) : 0;
     this.wheelspin = Math.max(0, launch - 0.55);
+  }
+
+  /** Sine of the ground's slope in the car's heading (positive uphill), from the wheel contact normals. */
+  private gradeAhead() {
+    const vc = this.vc!;
+    const n = new THREE.Vector3();
+    let k = 0;
+    for (let i = 0; i < this.spec.wheels.length; i++) {
+      if (!vc.wheelIsInContact(i)) continue;
+      const c = vc.wheelContactNormal(i);
+      if (!c) continue;
+      n.x += c.x;
+      n.y += c.y;
+      n.z += c.z;
+      k++;
+    }
+    if (!k || n.lengthSq() < 1e-6) return 0;
+    n.normalize();
+    const f = this.forward(_fw);
+    f.addScaledVector(n, -f.dot(n));
+    if (f.lengthSq() < 1e-6) return 0;
+    return f.normalize().y;
   }
 
   /** Bikes: torque the body toward a lean angle about its forward axis (a PD controller on roll). */
