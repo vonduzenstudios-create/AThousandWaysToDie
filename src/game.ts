@@ -19,7 +19,7 @@ import {
 import { Input } from './input';
 import { Npc } from './npc';
 import type { GameApi, MapRuntime } from './maps/types';
-import { HOSPITAL_DEATHS, buildHospital, devAnnexGround, setupHospital } from './places/hospital';
+import { HOSPITAL_DEATHS, setupHospital } from './places/hospital';
 import { LifeSystem } from './life';
 import { deathGossip, smallvilleLife } from './life/maps/smallville';
 import { Particles } from './particles';
@@ -28,6 +28,10 @@ import { Props } from './props';
 import { Ragdoll } from './ragdoll';
 import { Rides } from './rides';
 import { G, SIZE, buildTown, inBox, type TownInfo } from './town';
+import { HOMETOWN_DEATHS, Hometown } from './hometown';
+import { GROCERY } from './places/grocery';
+import type { PlaceRuntime } from './places/types';
+import { PostFX, warmLighting } from './render/post';
 import { UI } from './ui';
 import { mulberry32, pick, turnToward, type Rng } from './util';
 import { Minimap, type Blip } from './minimap';
@@ -92,6 +96,8 @@ export class Game {
   private activeRagdoll: Ragdoll | null = null;
   private mode: Mode = 'title';
   private sun: THREE.DirectionalLight;
+  /** Post-processing (bloom, grade, AO by quality). Render through this, not the renderer. */
+  private post!: PostFX;
   private lastT = performance.now();
   private helpShown = false;
   private latched = { jump: false, crouch: false, dive: false };
@@ -112,7 +118,7 @@ export class Game {
   private rng: Rng = mulberry32(Date.now() & 0xffff);
   /** Places stamped into the map (the hospital annex for now): their runtime hooks. */
   private places: MapRuntime[] = [];
-  private start0 = new THREE.Vector3(80.5, G + 4, 86);
+  private start0 = new THREE.Vector3();
   private ghost: THREE.Group;
   private ghostPos = new THREE.Vector3();
   private ghostTarget: Npc | null = null;
@@ -121,6 +127,8 @@ export class Game {
   private pendingDeath: { id: string; victim: PersonFile; startPos: THREE.Vector3 } | null = null;
   private crosshair: HTMLElement;
   private hornCooldown = 0;
+  private hometown: Hometown;
+  private grocery!: PlaceRuntime;
   private atms!: Atms;
   private rides!: Rides;
   private skillBar = new SkillBar();
@@ -166,11 +174,12 @@ export class Game {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.post?.setSize(window.innerWidth, window.innerHeight);
     });
 
     // Sky dome and lighting.
     const skyColor = new THREE.Color(0x9fd3ff);
-    this.scene.fog = new THREE.Fog(skyColor, 90, 260);
+    this.scene.fog = new THREE.Fog(skyColor, 110, 320);
     const sky = new THREE.Mesh(
       new THREE.SphereGeometry(400, 24, 12),
       new THREE.ShaderMaterial({
@@ -185,7 +194,8 @@ export class Game {
     sky.renderOrder = -1;
     this.scene.add(sky);
     (sky as THREE.Mesh).onBeforeRender = () => sky.position.copy(this.camera.position);
-    this.scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x6a5a3a, 1.4));
+    const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x6a5a3a, 1.4);
+    this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight(0xfff2d6, 2.2);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -198,15 +208,18 @@ export class Game {
     sc.far = 200;
     this.sun.shadow.bias = -0.0008;
     this.scene.add(this.sun, this.sun.target);
+    // Shared render upgrades (src/render/post.ts): warm sun, sky reflections, bloom and grading.
+    warmLighting(this.scene, this.renderer, { sun: this.sun, hemi });
+    this.post = new PostFX(this.renderer, this.scene, this.camera);
 
     // Physics and world.
     this.physics = new RAPIER.World({ x: 0, y: -30, z: 0 });
-    // ?place=hospital: Smallville plus an annex south of the tracks holding the city hospital,
-    // so it can be played before the game loads the city map.
+    // City General Hospital is stamped into Smallville's E3 lot. ?place=hospital starts the ghost at its door.
     const devPlace = new URLSearchParams(location.search).get('place');
-    this.town = buildTown(devPlace === 'hospital' ? 80 : 0);
-    const hospital = devPlace === 'hospital' ? buildHospital(this.town.world, devAnnexGround(this.town.world, SIZE, G, SIZE).origin) : null;
-    if (hospital) this.start0 = hospital.entrance.clone().add(new THREE.Vector3(0, 4, -8));
+    this.town = buildTown();
+    const hospital = this.town.hospital;
+    this.start0 = this.town.spawn.clone().setY(G + 4);
+    if (devPlace === 'hospital') this.start0 = hospital.entrance.clone().add(new THREE.Vector3(0, 4, -8));
     this.town.world.build(this.scene, this.physics);
     this.props = new Props(this.scene, this.physics, this.town);
     this.atms = new Atms(this.scene, this.physics, this.town.world, this.town.areas.downtown, this.props.interactables);
@@ -214,7 +227,29 @@ export class Game {
     this.skillHost = this.makeSkillHost();
     this.ui.onSkillClick = (i) => this.useSkill(i);
     this.particles = new Particles(this.scene);
-    this.traffic = new Traffic(this.scene, this.physics, smallvilleTraffic());
+    registerMapDeaths(HOMETOWN_DEATHS, 'smallville');
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const game = this;
+    this.hometown = new Hometown(this.scene, this.physics, this.town, {
+      get player() {
+        return game.player;
+      },
+      get body() {
+        return game.body;
+      },
+      get character() {
+        return game.character;
+      },
+      sound: this.sound,
+      particles: this.particles,
+      kill: (id, style) => this.kill(id, style),
+      runSeq: (steps) => this.runSeq(steps),
+      toast: (t, b, ms) => this.ui.toast(t, b, ms),
+      say: (who, line, ms) => this.ui.say(who, line, ms),
+      shake: (a) => this.cam.shake(a),
+    });
+    this.props.interactables.push(...this.hometown.interactables);
+    this.traffic = new Traffic(this.scene, this.physics, smallvilleTraffic(this.town));
     this.traffic.onHonk = (car, tag) => this.onHonk(car, tag);
     this.traffic.onShoo = (car, tag) => {
       // The honked-at townsperson hops out of the lane.
@@ -234,6 +269,35 @@ export class Game {
 
     this.input = new Input(canvas);
     this.input.onAnyGesture = () => this.sound.init();
+    // The grocery store is its own place stamp with its own deaths and runtime.
+    registerMapDeaths(GROCERY.deaths, 'smallville');
+    this.grocery = this.town.grocery.setup({
+      scene: this.scene,
+      physics: this.physics,
+      world: this.town.world,
+      rng: mulberry32(4242),
+      game: {
+        get player() {
+          return game.player;
+        },
+        get body() {
+          return game.body;
+        },
+        get character() {
+          return game.character;
+        },
+        sound: this.sound,
+        particles: this.particles,
+        input: this.input,
+        kill: (id, style) => this.kill(id, style),
+        runSeq: (steps) => this.runSeq(steps),
+        toast: (t, b, ms) => this.ui.toast(t, b, ms),
+        say: (who, line, ms) => this.ui.say(who, line, ms),
+        shake: (a) => this.cam.shake(a),
+        flash: (c, ms) => this.ui.flash(c, ms),
+      },
+    });
+    this.props.interactables.push(...this.grocery.interactables);
     this.cam = new FollowCam(this.camera, this.physics);
     this.player = new Player(this.physics, this.town.spawn);
     this.player.setEnabled(false);
@@ -249,7 +313,7 @@ export class Game {
     document.getElementById('ui')!.appendChild(this.crosshair);
 
     this.spawnInitialNpcs();
-    if (hospital) {
+    {
       registerMapDeaths(HOSPITAL_DEATHS, 'smallville');
       this.places.push(setupHospital({ scene: this.scene, physics: this.physics, world: this.town.world, rng: this.rng, game: this.api() }, hospital));
     }
@@ -262,7 +326,7 @@ export class Game {
     this.cam.pitch = 0.45;
     this.cam.dist = 26;
     this.cam.autoOrbit = 0.08;
-    this.cam.snap(new THREE.Vector3(90, G + 6, 80));
+    this.cam.snap(this.town.spawn.clone().setY(G + 6));
 
     this.story.onPause = (p) => this.sound.duck(p);
     this.title = new TitleMenu(document.getElementById('ui')!, {
@@ -495,6 +559,7 @@ export class Game {
     this.player.healLegs();
     this.player.lock(false);
     this.props.setBarnOpen(file.job === 'Farmhand');
+    this.hometown.onBody(file);
     this.barnTries = 0;
     this.stationVisits = 0;
     this.skillBar.setBody(file);
@@ -721,6 +786,7 @@ export class Game {
   private onLand(e: LandEvent) {
     const ch = this.character;
     if (!ch) return;
+    if (this.mode === 'play' && !this.rides.isRiding && this.hometown.onLand(e)) return;
     if (this.rides.isRiding && this.rides.onLand(e)) return;
     const heavy = Math.min(e.drop / 12, 1);
     if (this.mode === 'play' && this.places.some((pl) => pl.onLand?.(e))) return;
@@ -755,6 +821,7 @@ export class Game {
       let id = 'faceplant';
       if (inBox(e.launchPos, this.town.treeZone)) id = 'treehouse';
       else if (inBox(e.launchPos, this.town.towerZone) && e.launchState === 'longjump') id = 'watertower';
+      id = this.hometown.fallDeathId(e, this.player.feet()) ?? id;
       this.sound.splat();
       this.cam.shake(0.8);
       this.kill(id, { kind: 'ragdoll', vel: v, spin: 12, bounce: 0.6 });
@@ -781,6 +848,11 @@ export class Game {
   private interact(id: string) {
     const ch = this.character;
     if (!ch || !this.body) return;
+    if (this.hometown.interact(id)) return;
+    if (id.startsWith('groc:')) {
+      this.grocery.interact(id);
+      return;
+    }
     if (this.rides.tryInteract(id)) return;
     for (const pl of this.places) if (pl.interactables?.some((it) => it.id === id)) return pl.interact?.(id);
     if (id.startsWith('atm:')) {
@@ -1730,6 +1802,8 @@ export class Game {
       }
       if (this.trainHold <= 0) this.props.train.update(h);
       this.props.bale.update(h);
+      this.hometown.step(h);
+      this.grocery.step(h);
       for (const pl of this.places) pl.step?.(h);
       this.traffic.step(h, this.obstacles, focus0);
       this.physics.step();
@@ -1741,6 +1815,8 @@ export class Game {
         else {
           this.rides.step(h);
           this.checkHazards(h);
+          if (this.mode === 'play' && this.character) this.hometown.checkHazards(h);
+          if (this.mode === 'play' && this.character) this.grocery.checkHazards(h);
         }
       }
       this.acc -= h;
@@ -1761,6 +1837,8 @@ export class Game {
     this.traffic.update(dt, this.focusPos());
     this.updateBurning(dt);
     this.props.update(dt, this.time);
+    this.hometown.update(dt, this.time);
+    this.grocery.update(dt, this.time);
     for (const pl of this.places) pl.update?.(dt, this.time);
     this.particles.update(dt);
 
@@ -1835,7 +1913,7 @@ export class Game {
       this.ghost.position.y += Math.sin(this.time * 3) * 0.15;
       this.ghost.rotation.y = this.cam.yaw + Math.PI;
     } else {
-      this.cam.update(realDt, new THREE.Vector3(90, G + 6, 80), 0, 0);
+      this.cam.update(realDt, this.town.spawn.clone().setY(G + 6), 0, 0);
     }
 
     if (this.mode !== 'play') this.rides.update(realDt);
@@ -1847,7 +1925,7 @@ export class Game {
     this.drawMinimap(realDt);
 
     if (!this.driving) this.engine.set(false, 0, 0);
-    this.renderer.render(this.scene, this.camera);
+    this.post.render();
     this.input.endFrame();
   }
 
@@ -1863,9 +1941,9 @@ export class Game {
     this.ghostPos.x += (fx * inp.moveY + rx * inp.moveX) * sp * dt;
     this.ghostPos.z += (fz * inp.moveY + rz * inp.moveX) * sp * dt;
     this.ghostPos.y += vy * sp * 0.7 * dt;
-    this.ghostPos.x = Math.min(Math.max(this.ghostPos.x, 2), this.town.world.sx - 2);
-    this.ghostPos.z = Math.min(Math.max(this.ghostPos.z, 2), this.town.world.sz - 2);
-    this.ghostPos.y = Math.min(Math.max(this.ghostPos.y, G + 0.5), 50);
+    this.ghostPos.x = Math.min(Math.max(this.ghostPos.x, 2), SIZE - 2);
+    this.ghostPos.z = Math.min(Math.max(this.ghostPos.z, 2), SIZE - 2);
+    this.ghostPos.y = Math.min(Math.max(this.ghostPos.y, G + 0.5), G + 60);
     const gEye = this.ghostPos.clone().add(new THREE.Vector3(0, 1, 0));
     this.cam.update(dt, gEye, lookDX, lookDY, gEye);
 
