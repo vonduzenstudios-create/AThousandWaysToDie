@@ -4,6 +4,7 @@ import type { Job } from '../../deaths';
 import type { GameApi, MapContext, MapRuntime } from '../../maps/types';
 import { mulberry32 } from '../../util';
 import { Frame, dbox, inD, type DBox } from './frame';
+import { buildAirportSkin } from './skin';
 import {
   BELT,
   BRIDGE_END,
@@ -127,7 +128,6 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
 
   // ---------------------------------------------------------------- set dressing
   const signs: [string[], number, number, number, number, number, number, string, string][] = [
-    [['CITY INTERNATIONAL AIRPORT', 'Departures · Arrivals'], 160, 13, 15.6, 60, 6, 0, '#3b5fa8', '#ffffff'],
     [['CHECK-IN', 'Last Call Airlines'], 81, 6.5, 37.8, 24, 2, 0, '#c8302a', '#ffffff'],
     [['SECURITY', 'Boarding pass and ID ready'], 140, 7.2, SEC_Z - 0.3, 22, 2.2, 0, '#2a2a2e', '#ffd23a'],
     [['BAGGAGE CLAIM'], 228, 7.2, SEC_Z - 0.3, 22, 2.2, 0, '#2a2a2e', '#ffd23a'],
@@ -152,8 +152,9 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
   sock.position.copy(W((TOWER.x0 + TOWER.x1) / 2, TOWER.cabY + 8, (TOWER.z0 + TOWER.z1) / 2));
   const mast = add(boxMesh(0.2, 4, 0.2, lambert(0x9aa3ad)));
   mast.position.copy(W((TOWER.x0 + TOWER.x1) / 2, TOWER.cabY + 7, (TOWER.z0 + TOWER.z1) / 2 + 1.5));
-  const radar = add(boxMesh(4, 0.4, 0.6, lambert(0xeeeeee)));
-  radar.position.copy(W((TOWER.x0 + TOWER.x1) / 2, TOWER.cabY + 7.5, (TOWER.z0 + TOWER.z1) / 2));
+  // High-detail exterior (building kit): curtain wall, rooftop sign, tower, hangar. Visual only.
+  const skin = buildAirportSkin(f, scene);
+  const radar = skin.radar;
 
   // Moving belts (textures scroll).
   const belts: { tex: THREE.Texture; speed: number }[] = [];
@@ -1005,7 +1006,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
 
   const runtime: MapRuntime & { debug: unknown } = {
     // Handles for tests and the dev preview.
-    debug: { f404, f22, a3, doors, get bs() { return bs; }, frame: f },
+    debug: { f404, f22, a3, doors, get bs() { return bs; }, frame: f, skin: skin.stats },
     interactables: its,
     interact,
     update,
@@ -1014,6 +1015,7 @@ export function setupAirport(ctx: MapContext, origin: THREE.Vector3): MapRuntime
     onLand,
     dispose() {
       for (const o of added) scene.remove(o);
+      skin.dispose();
       for (const d of doors) d.dispose(scene, physics);
       for (const p of parked) p.dispose(physics);
       for (const a of actors) a.ch.dispose();

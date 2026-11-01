@@ -1,7 +1,8 @@
 export type Btn =
   | 'jump' | 'crouch' | 'dive' | 'punch' | 'interact' | 'pee' | 'scream' | 'ledger' | 'music' | 'help' | 'confirm' | 'up' | 'down'
   | 'skill1' | 'skill2' | 'skill3' | 'skill4' | 'skill5' | 'skillUse'
-  | 'menuUp' | 'menuDown' | 'menuLeft' | 'menuRight' | 'back';
+  | 'menuUp' | 'menuDown' | 'menuLeft' | 'menuRight' | 'back'
+  | 'map' | 'zoomIn' | 'zoomOut' | 'prevPoi' | 'nextPoi';
 
 const KEYMAP: Record<string, Btn[]> = {
   Space: ['jump', 'confirm'],
@@ -37,6 +38,13 @@ const KEYMAP: Record<string, Btn[]> = {
   Backspace: ['back'],
   KeyR: ['up'],
   KeyV: ['down'],
+  KeyN: ['map'],
+  Equal: ['zoomIn'],
+  NumpadAdd: ['zoomIn'],
+  Minus: ['zoomOut'],
+  NumpadSubtract: ['zoomOut'],
+  BracketLeft: ['prevPoi'],
+  BracketRight: ['nextPoi'],
 };
 
 // Standard gamepad mapping.
@@ -51,10 +59,11 @@ const PADMAP: Record<number, Btn[]> = {
   7: ['dive'], // RT
   8: ['ledger'], // Back / View
   9: ['help'], // Start / Menu
+  11: ['map'], // Right stick click: full map
   12: ['up', 'menuUp'], // D-pad up
   13: ['down', 'menuDown'], // D-pad down
-  14: ['music', 'menuLeft'], // D-pad left
-  15: ['skillUse', 'menuRight'], // D-pad right: use the selected skill (D-pad up/down picks it)
+  14: ['music', 'menuLeft', 'prevPoi'], // D-pad left (on the full map: previous place)
+  15: ['skillUse', 'menuRight', 'nextPoi'], // D-pad right: use the selected skill (D-pad up/down picks it; next place on the map)
 };
 
 export class Input {

@@ -146,9 +146,6 @@ export function buildVoxels(world: VoxelWorld, f: Frame) {
     set(X0, CEIL + 1, z, B.White);
     set(X1, CEIL + 1, z, B.White);
   }
-  // HVAC boxes on the roof.
-  fill(14, CEIL + 1, 70, 18, CEIL + 2, 74, B.Metal);
-  fill(56, CEIL + 1, 80, 61, CEIL + 2, 84, B.Metal);
 
   // Front: storefront windows and the automatic door opening.
   for (let x = 4; x <= W - 5; x++) {
@@ -157,8 +154,6 @@ export function buildVoxels(world: VoxelWorld, f: Frame) {
     fill(x, F + 1, Z0, x, F + 5, Z0, B.Glass);
   }
   fill(SPOT.doorX0, F, Z0, SPOT.doorX1, F + 4, Z0, B.Air);
-  // Red awning band over the windows.
-  fill(X0, F + 7, Z0 - 1, X1, F + 7, Z0 - 1, B.RedPaint);
 
   // ---- Floor: checkerboard linoleum.
   for (let z = Z0 + 1; z <= Z1 - 1; z++)
