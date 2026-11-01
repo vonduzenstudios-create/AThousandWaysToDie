@@ -85,6 +85,12 @@ export interface GameApi {
   readonly camYaw: number;
   /** Game time in seconds (slows down with slow-mo). */
   readonly time: number;
+  /** Insurance money Gary can spend right now. */
+  readonly balance: number;
+  /** Pay for something (rentals, charters). Returns false and shows "can't afford" if short. */
+  spend(amount: number, label: string): boolean;
+  /** Hue-rotate the screen (degrees, 0 = off). */
+  setHueShift(deg: number): void;
 }
 
 /** Things a map can do at runtime once it is loaded. All optional except dispose. */
@@ -132,6 +138,11 @@ export interface MapBuild {
    * the right. Points shared by two roads (within 1.5 units) become intersections. Used by traffic.
    */
   roads?: { points: THREE.Vector3[]; width: number; loop?: boolean }[];
+  /**
+   * Rich NPC data (LifeMap from src/life/types.ts, owned by the NPC life thread): nav grid,
+   * places, population. When present the game hands it to the LifeSystem; `npcs` is the fallback.
+   */
+  life?: unknown;
   /** Who lives here. Defaults to a few random people in each area. */
   npcs?: NpcSpawn[];
   /** Add props, interactables and per-map logic after the voxels are built. */
