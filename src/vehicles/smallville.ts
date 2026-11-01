@@ -13,7 +13,7 @@ export function smallvilleTraffic(t: TownInfo): TrafficConfig {
       { pos: v(203, 265), facing: 0 }, // police lot
       { pos: v(264, 236), facing: Math.PI / 2 }, // outside the diner
       { pos: v(112, 200), facing: 0 }, // farm truck by the barn
-      { pos: v(470, 210), facing: Math.PI / 2 }, // Honest Al's lot
+      { pos: v(470, 228), facing: Math.PI / 2 }, // Feed & Seed lot
       { pos: v(400, 236), facing: Math.PI / 2 }, // town hall
       { pos: v(372, 371), facing: Math.PI / 2 }, // 12 Maple St
     ],
@@ -34,7 +34,7 @@ export function smallvillePois(t: TownInfo): Blip[] {
     { x: 418, z: 100, kind: 'poi', label: 'W', color: '#9fd6f0' },
     { x: 180, z: 92, kind: 'poi', label: 'T', color: '#8fdc6a' },
     { x: 200, z: 180, kind: 'poi', label: '$', color: '#5ad17a' },
-    { x: 478, z: 274, kind: 'poi', label: 'H', color: '#ff5a5a' },
+    { x: 472, z: 202, kind: 'poi', label: 'F', color: '#c9a36a' },
     { x: 250, z: 40, kind: 'poi', label: 'S', color: '#d8d8d8' },
     { x: 408, z: 236, kind: 'poi', label: 'B', color: '#5a9aff' },
     { x: 380, z: 276, kind: 'poi', label: '+', color: '#ffffff' },

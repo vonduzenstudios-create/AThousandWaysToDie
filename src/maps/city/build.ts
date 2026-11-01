@@ -102,6 +102,8 @@ export interface CityLayout {
   dumpsters: { x: number; z: number; rotY: number }[];
   /** City General Hospital (src/places/hospital), stamped into HOSPITAL_LOT. */
   hospital?: HospitalInfo;
+  /** Base of the tube man's fan on the Crazy Larry Motors lot (src/maps/city/tubeman.ts). */
+  dealerFan?: THREE.Vector3;
 }
 
 const SHOP_NAMES: [string, string, string, { item: string; price: number }[]][] = [
@@ -890,9 +892,10 @@ export function buildCity(w: VoxelWorld, rng: Rng): CityLayout {
     surf(r, B.Asphalt);
     for (let x = r.x0 + 2; x <= r.x1 - 2; x += 5) fill(x, G - 1, r.z0 + 2, x, G - 1, r.z0 + 12, B.White);
     for (let i = 0; i < 6; i++) out.parked.push({ pos: V(r.x0 + 4.5 + i * 5, G, r.z0 + 7), rotY: 0 });
-    building({ x0: r.x0 + 4, z0: r.z0 + 16, x1: r.x1 - 4, z1: r.z1 }, { floors: 2, wall: B.White, trim: B.RoofBlue, front: 'n', glassy: true, shop: { name: 'Crazy Larry Motors', kind: 'shop', sells: [{ item: 'used sedan', price: 4000 }], jobs: ['Car Salesman'], sign: ['#d01818', '#ffff00'] }, look: { signBoard: 0xd01818, awning: [0xd01818, 0xf2d040] } });
+    building({ x0: r.x0 + 4, z0: r.z0 + 16, x1: r.x1 - 4, z1: r.z1 }, { floors: 2, wall: B.White, trim: B.RoofBlue, front: 'n', glassy: true, shop: { name: 'Crazy Larry Motors', kind: 'shop', sells: [{ item: 'convertible', price: 4000 }, { item: 'used sedan', price: 4000 }], jobs: ['Car Salesman'], lines: ['Honest Al. Used to sell in Smallville. The city has better margins.'], sign: ['#d01818', '#ffff00'] }, look: { signBoard: 0xd01818, awning: [0xd01818, 0xf2d040] } });
     // Pennant poles.
     for (let x = r.x0; x <= r.x1; x += 6) fill(x, G, r.z0, x, G + 5, r.z0, B.Metal);
+    out.dealerFan = V(r.x0 + 3.5, G, r.z0 + 14);
   }
 
   // ------------------------------------------------------------------ waterfront and harbor

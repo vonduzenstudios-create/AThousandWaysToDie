@@ -21,7 +21,7 @@ import { Input } from './input';
 import { Npc } from './npc';
 import { LifeSystem, type LifeMap } from './life';
 import { autoLifeMap } from './travel/autolife';
-import { setupHospital } from './places/hospital';
+import { G as CITY_G, HOSPITAL_LOT } from './maps/city/layout';
 import { composeRuntimes } from './maps/compose';
 import { deathGossip, smallvilleLife } from './life/maps/smallville';
 import { Particles } from './particles';
@@ -482,15 +482,15 @@ export class Game {
   devMaps(): DevMap[] {
     return [
       ...MAPS.map((m) => ({ id: m.id, name: m.name, note: m.id === 'smallville' ? 'Hometown' : 'Map' })),
-      { id: 'place:hospital', name: 'City General Hospital', note: 'Test place (in Smallville)' },
+      { id: 'place:hospital', name: 'City General Hospital', note: 'In the city' },
     ];
   }
 
   /** Dev Mode: load a map by id (or a test place inside one). */
   protected loadDevMap(id: string) {
     if (id === 'place:hospital') {
-      if (this.mapDef.id !== 'smallville') this.loadMap('smallville');
-      if (this.town) this.start0 = this.town.hospital.entrance.clone().add(new THREE.Vector3(0, 4, -8));
+      if (this.mapDef.id !== 'city') this.loadMap('city');
+      this.start0 = new THREE.Vector3(HOSPITAL_LOT.x + 32, CITY_G + 4, HOSPITAL_LOT.z - 12);
       return;
     }
     if (MAP_BY_ID[id] && id !== this.mapDef.id) this.loadMap(id);
@@ -1545,9 +1545,7 @@ export class Game {
         },
       });
       this.props.interactables.push(...this.grocery.interactables);
-      // ?place=hospital starts the ghost at the door of the hospital stamped into the E3 lot.
       this.start0 = town.spawn.clone().setY(G + 4);
-      if (new URLSearchParams(location.search).get('place') === 'hospital') this.start0 = town.hospital.entrance.clone().add(new THREE.Vector3(0, 4, -8));
     } else {
       this.hometown = null;
       this.grocery = null;
@@ -1576,7 +1574,7 @@ export class Game {
     this.pois = this.town ? smallvillePois(this.town) : [];
     const ctx = { scene: this.scene, physics: this.physics, world: this.world, rng, game: this.api };
     const own = b.setup?.(ctx) ?? null;
-    this.runtime = this.town ? composeRuntimes([own, setupHospital(ctx, this.town.hospital, { name: 'Smallville General Hospital' })]) : own;
+    this.runtime = own;
     if (def.waterLevel !== undefined) {
       const water = new THREE.Mesh(
         new THREE.PlaneGeometry(def.size.x + 1200, def.size.z + 1200),

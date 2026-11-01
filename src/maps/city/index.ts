@@ -7,6 +7,7 @@ import { buildCity, standHeight, type CityLayout } from './build';
 import { CITY_DEATHS } from './deaths';
 import { setupCity } from './logic';
 import { HOSPITAL_DEATHS, setupHospital } from '../../places/hospital';
+import { TUBEMAN_DEATH, setupTubeMan } from './tubeman';
 import { composeRuntimes, mergePart } from '../compose';
 import { AIRPORT_DEATHS, airportLife, placeAirport, type AirportLife } from '../../places/airport';
 import {
@@ -160,6 +161,7 @@ function lifeMap(w: VoxelWorld, L: CityLayout, airport: AirportLife): LifeMap {
         { job: 'Subway Performer', work: 'subway', name: 'Smooth Eddie' },
         { job: 'Mobster', work: L.places.find((p) => p.name === "Don Calzone's Pizzeria")?.id, name: 'Vinnie the Rat' },
         { job: 'Foreman', work: 'site', name: 'Big Moe' },
+        { job: 'Car Salesman', work: L.places.find((p) => p.name === 'Crazy Larry Motors')?.id, name: 'Honest Al' },
         ...airport.people,
       ],
     },
@@ -174,7 +176,7 @@ export const CITY_MAP: MapDef = {
   size: { x: SX, y: SY, z: SZ },
   sky: { top: 0x4a7fd0, bottom: 0xd8e6f2, fogNear: 160, fogFar: 520 },
   waterLevel: WATER,
-  deaths: [...CITY_DEATHS, ...HOSPITAL_DEATHS, ...AIRPORT_DEATHS],
+  deaths: [...CITY_DEATHS, TUBEMAN_DEATH, ...HOSPITAL_DEATHS, ...AIRPORT_DEATHS],
   build(world, rng) {
     const L = buildCity(world, rng);
     // Fuhgeddaboudit International fills the airport lot (src/places/airport).
@@ -242,7 +244,7 @@ export const CITY_MAP: MapDef = {
         { area: 'mortalis', job: 'Insurance Salesman', count: 2 },
         { area: 'uptown', count: 10 },
       ],
-      setup: (ctx) => composeRuntimes([setupCity(ctx, L), L.hospital && setupHospital(ctx, L.hospital), airport.setup(ctx)]),
+      setup: (ctx) => composeRuntimes([setupCity(ctx, L), L.hospital && setupHospital(ctx, L.hospital), L.dealerFan && setupTubeMan(ctx, L.dealerFan), airport.setup(ctx)]),
     };
     mergePart(out, airport);
     out.npcs!.push(...airport.npcs);
