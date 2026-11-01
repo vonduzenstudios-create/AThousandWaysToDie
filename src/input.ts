@@ -1,4 +1,6 @@
-export type Btn = 'jump' | 'crouch' | 'dive' | 'interact' | 'pee' | 'scream' | 'ledger' | 'music' | 'help' | 'confirm' | 'up' | 'down';
+export type Btn =
+  | 'jump' | 'crouch' | 'dive' | 'punch' | 'interact' | 'pee' | 'scream' | 'ledger' | 'music' | 'help' | 'confirm' | 'up' | 'down'
+  | 'skill1' | 'skill2' | 'skill3' | 'skill4' | 'skill5' | 'skillUse';
 
 const KEYMAP: Record<string, Btn[]> = {
   Space: ['jump', 'confirm'],
@@ -6,7 +8,13 @@ const KEYMAP: Record<string, Btn[]> = {
   ShiftRight: ['crouch'],
   KeyC: ['crouch'],
   ControlLeft: ['crouch'],
-  KeyF: ['dive'],
+  KeyF: ['punch'],
+  KeyG: ['dive'],
+  Digit1: ['skill1'],
+  Digit2: ['skill2'],
+  Digit3: ['skill3'],
+  Digit4: ['skill4'],
+  Digit5: ['skill5'],
   KeyE: ['interact', 'confirm'],
   KeyP: ['pee'],
   KeyQ: ['pee'],
@@ -24,7 +32,7 @@ const KEYMAP: Record<string, Btn[]> = {
 const PADMAP: Record<number, Btn[]> = {
   0: ['jump', 'confirm'], // A
   1: ['crouch'], // B
-  2: ['dive'], // X
+  2: ['punch'], // X
   3: ['interact', 'confirm'], // Y
   4: ['scream'], // LB
   5: ['pee'], // RB
@@ -35,6 +43,7 @@ const PADMAP: Record<number, Btn[]> = {
   12: ['up'], // D-pad up
   13: ['down'], // D-pad down
   14: ['music'], // D-pad left
+  15: ['skillUse'], // D-pad right: use the selected skill (D-pad up/down picks it)
 };
 
 export class Input {
