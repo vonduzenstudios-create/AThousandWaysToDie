@@ -1,24 +1,25 @@
 import * as THREE from 'three';
-import { G, SIZE, type TownInfo } from '../town';
+import { G, type TownInfo } from '../town';
 import type { Blip } from '../minimap';
 import type { TrafficConfig } from './roads';
 
-/** Roads and parked cars for the current Smallville layout (main street crossing at 80, 80). */
-export function smallvilleTraffic(): TrafficConfig {
-  const c = 80.5; // road center: asphalt runs 77..83
+/** Roads and parked cars for Smallville. The road network comes straight from the town layout. */
+export function smallvilleTraffic(t: TownInfo): TrafficConfig {
   const v = (x: number, z: number) => new THREE.Vector3(x, G, z);
   return {
-    roads: [
-      { points: [v(c, 0.5), v(c, SIZE - 0.5)], width: 7 },
-      { points: [v(0.5, c), v(SIZE - 0.5, c)], width: 7 },
-    ],
+    roads: t.roads.map((r) => ({ points: r.points.map((p) => p.clone()), width: r.width })),
     parked: [
-      { pos: v(70.5, 98), facing: 0 }, // Duke's Garage lot
-      { pos: v(71, 72), facing: Math.PI }, // police station
-      { pos: v(95, 87.5), facing: Math.PI / 2 }, // diner
-      { pos: v(124, 90), facing: 0 }, // farm truck by the barn
+      { pos: v(320.5, 244), facing: Math.PI }, // Duke's Garage, on Main St
+      { pos: v(203, 265), facing: 0 }, // police lot
+      { pos: v(264, 236), facing: Math.PI / 2 }, // outside the diner
+      { pos: v(112, 200), facing: 0 }, // farm truck by the barn
+      { pos: v(470, 210), facing: Math.PI / 2 }, // Honest Al's lot
+      { pos: v(400, 236), facing: Math.PI / 2 }, // town hall
+      { pos: v(372, 371), facing: Math.PI / 2 }, // 12 Maple St
     ],
-    density: 2.6,
+    // A sleepy small town: a car every few blocks, not a traffic jam.
+    density: 0.3,
+    maxCars: 20,
     speed: 12,
   };
 }
@@ -26,11 +27,17 @@ export function smallvilleTraffic(): TrafficConfig {
 /** Landmark badges for the radar. */
 export function smallvillePois(t: TownInfo): Blip[] {
   return [
-    { x: 59, z: 98, kind: 'poi', label: 'G', color: '#ffb84a' },
-    { x: 94, z: 96, kind: 'poi', label: 'D', color: '#ff7a7a' },
-    { x: 53, z: 66, kind: 'poi', label: 'P', color: '#7ab0ff' },
-    { x: t.barnDoor.knock.x, z: 99, kind: 'poi', label: 'F', color: '#c9a36a' },
-    { x: 120, z: 40, kind: 'poi', label: 'W', color: '#9fd6f0' },
-    { x: 30, z: 30, kind: 'poi', label: 'T', color: '#8fdc6a' },
+    { x: 323, z: 262, kind: 'poi', label: 'G', color: '#ffb84a' },
+    { x: 267, z: 218, kind: 'poi', label: 'D', color: '#ff7a7a' },
+    { x: 172, z: 262, kind: 'poi', label: 'P', color: '#7ab0ff' },
+    { x: t.barnDoor.knock.x, z: 195, kind: 'poi', label: 'F', color: '#c9a36a' },
+    { x: 418, z: 100, kind: 'poi', label: 'W', color: '#9fd6f0' },
+    { x: 180, z: 92, kind: 'poi', label: 'T', color: '#8fdc6a' },
+    { x: 200, z: 180, kind: 'poi', label: '$', color: '#5ad17a' },
+    { x: 478, z: 274, kind: 'poi', label: 'H', color: '#ff5a5a' },
+    { x: 250, z: 40, kind: 'poi', label: 'S', color: '#d8d8d8' },
+    { x: 408, z: 236, kind: 'poi', label: 'B', color: '#5a9aff' },
+    { x: 380, z: 276, kind: 'poi', label: '+', color: '#ffffff' },
+    { x: 366, z: 360, kind: 'poi', label: '12', color: '#f5c400' },
   ];
 }

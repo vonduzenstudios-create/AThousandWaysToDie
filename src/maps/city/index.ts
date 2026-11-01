@@ -7,7 +7,8 @@ import { buildCity, standHeight, type CityLayout } from './build';
 import { CITY_DEATHS } from './deaths';
 import { setupCity } from './logic';
 import { HOSPITAL_DEATHS, setupHospital } from '../../places/hospital';
-import { composeRuntimes } from '../compose';
+import { composeRuntimes, mergePart } from '../compose';
+import { AIRPORT_DEATHS, airportLife, placeAirport, type AirportLife } from '../../places/airport';
 import {
   AIRPORT_LOT,
   AIRPORT_ROAD_Z,
@@ -103,7 +104,7 @@ function roads(): NonNullable<MapBuild['roads']> {
   return out;
 }
 
-function lifeMap(w: VoxelWorld, L: CityLayout): LifeMap {
+function lifeMap(w: VoxelWorld, L: CityLayout, airport: AirportLife): LifeMap {
   const places: LifePlace[] = L.places.map((p) => ({
     id: p.id,
     name: p.name,
@@ -125,6 +126,7 @@ function lifeMap(w: VoxelWorld, L: CityLayout): LifeMap {
     { id: 'bus-stop', name: 'Avenue B Bus Stop', kind: 'transit', door: V(AVES[1] + 6.5, G, STREETS[3] + 30.5) },
     { id: 'mortalis-plaza', name: 'Mortalis Plaza', kind: 'attraction', door: V(MORTALIS.x0 + 24, G, MORTALIS.z0 - 2) },
     { id: 'times-squared', name: 'Times Squared', kind: 'attraction', door: V(AVES[4] + 7, G, STREETS[1] + 7) },
+    ...airport.places,
   );
   const cost = (x: number, z: number) => {
     const b = w.get(Math.floor(x), G - 1, Math.floor(z));
@@ -139,7 +141,8 @@ function lifeMap(w: VoxelWorld, L: CityLayout): LifeMap {
     id: 'city',
     name: CITY_NAME,
     nav: {
-      bounds: { x0: LAND.x0 + 1, z0: AIRPORT_ROAD_Z - 8, x1: LAND.x1 - 1, z1: PIERS.mob.z1 },
+      // Reaches into the airport's landside hall so its staff can get to work.
+      bounds: { x0: LAND.x0 + 1, z0: Math.min(AIRPORT_ROAD_Z - 8, airport.navZ0), x1: LAND.x1 - 1, z1: PIERS.mob.z1 },
       walkable: (x, z) => !Number.isNaN(standHeight(w, x, z, L.blocked)),
       groundAt: (x, z) => {
         const h = standHeight(w, x, z);
@@ -157,9 +160,10 @@ function lifeMap(w: VoxelWorld, L: CityLayout): LifeMap {
         { job: 'Subway Performer', work: 'subway', name: 'Smooth Eddie' },
         { job: 'Mobster', work: L.places.find((p) => p.name === "Don Calzone's Pizzeria")?.id, name: 'Vinnie the Rat' },
         { job: 'Foreman', work: 'site', name: 'Big Moe' },
+        ...airport.people,
       ],
     },
-    jobProfiles: JOB_PROFILES,
+    jobProfiles: [...JOB_PROFILES, ...airport.jobProfiles],
     smallTalk: SMALL_TALK,
   };
 }
@@ -170,9 +174,12 @@ export const CITY_MAP: MapDef = {
   size: { x: SX, y: SY, z: SZ },
   sky: { top: 0x4a7fd0, bottom: 0xd8e6f2, fogNear: 160, fogFar: 520 },
   waterLevel: WATER,
-  deaths: [...CITY_DEATHS, ...HOSPITAL_DEATHS],
+  deaths: [...CITY_DEATHS, ...HOSPITAL_DEATHS, ...AIRPORT_DEATHS],
   build(world, rng) {
     const L = buildCity(world, rng);
+    // Fuhgeddaboudit International fills the airport lot (src/places/airport).
+    const airportOrigin = V(AIRPORT_LOT.x, G, AIRPORT_LOT.z);
+    const airport = placeAirport(world, airportOrigin, rng);
     const stops: TravelStop[] = [
       {
         id: 'bus',
@@ -201,15 +208,6 @@ export const CITY_MAP: MapDef = {
         facing: 0,
         lane: { from: V(140, WATER, 625), stop: V(PIERS.ferry.x1 + 5, WATER, PIERS.ferry.z1 - 6), to: V(330, WATER, 625) },
       },
-      {
-        // Placeholder until the airport module lands at AIRPORT_LOT.
-        id: 'airport',
-        kind: 'plane',
-        name: 'Fuhgeddaboudit International',
-        pos: V(AIRPORT_LOT.x + 160.5, G, AIRPORT_LOT.z + AIRPORT_LOT.sz - 34),
-        facing: Math.PI,
-        lane: { from: V(AIRPORT_LOT.x + 300, G, AIRPORT_LOT.z + 40), stop: V(AIRPORT_LOT.x + 160, G, AIRPORT_LOT.z + 60), to: V(AIRPORT_LOT.x + 20, G, AIRPORT_LOT.z + 40) },
-      },
     ];
     const areas = {
       midtown: box(GRID.x0 + 70, G, STREETS[0], GRID.x1 - 70, G, STREETS[3]),
@@ -222,13 +220,13 @@ export const CITY_MAP: MapDef = {
       railyard: box(RAIL_PLATFORM.x0, G + 1, RAIL_PLATFORM.z0, RAIL_PLATFORM.x1, G + 1, RAIL_PLATFORM.z1),
       ...L.hospital?.areas,
     };
-    return {
+    const out: MapBuild = {
       spawn: V(PARK.x0 + 58, G + 3, PARK.z1 + 6),
       groundAt: (x, z) => standHeight(world, x, z),
       areas,
       stops,
       roads: roads(),
-      life: lifeMap(world, L),
+      life: lifeMap(world, L, airportLife(airportOrigin)),
       npcs: [
         { area: 'midtown', count: 14 },
         { area: 'park', count: 8 },
@@ -238,7 +236,10 @@ export const CITY_MAP: MapDef = {
         { area: 'mortalis', job: 'Insurance Salesman', count: 2 },
         { area: 'uptown', count: 10 },
       ],
-      setup: (ctx) => composeRuntimes([setupCity(ctx, L), L.hospital && setupHospital(ctx, L.hospital)]),
+      setup: (ctx) => composeRuntimes([setupCity(ctx, L), L.hospital && setupHospital(ctx, L.hospital), airport.setup(ctx)]),
     };
+    mergePart(out, airport);
+    out.npcs!.push(...airport.npcs);
+    return out;
   },
 };

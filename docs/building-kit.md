@@ -79,7 +79,7 @@ post.render();                                     // instead of renderer.render
 post.setSize(w, h);                                // on resize
 ```
 
-Low = direct render with ACES tone mapping. Medium = MSAA render target, bloom on emissive lamps and windows, warm color grade and vignette. High = medium plus GTAO screen-space ambient occlusion.
+Low = direct render with neutral tone mapping. Medium = MSAA render target, bloom on emissive lamps and windows, warm color grade and vignette. High = medium plus GTAO screen-space ambient occlusion.
 
 ## Performance notes
 
