@@ -4,7 +4,8 @@ import { setOutline } from './outline';
 import { Sound } from './audio';
 import { FollowCam } from './camera';
 import { Atms, withdraw } from './economy';
-import { SkillBar, hasPassive, type SkillHost } from './skills';
+import { SkillBar, type SkillHost } from './skills';
+import { depressedHint, intrusiveThought } from './hints';
 import { Combat } from './combat';
 import { Character } from './character';
 import {
@@ -18,7 +19,7 @@ import {
   mapOfDeath,
   type PersonFile,
 } from './deaths';
-import { Input } from './input';
+import { Input, lockBrowserKeys } from './input';
 import { Npc } from './npc';
 import { LifeSystem, type LifeMap } from './life';
 import { autoLifeMap } from './travel/autolife';
@@ -43,7 +44,7 @@ import { HOMETOWN_DEATHS, Hometown } from './hometown';
 import { GROCERY } from './places/grocery';
 import type { PlaceRuntime } from './places/types';
 import { PostFX, warmLighting } from './render/post';
-import { StreetKit } from './kit';
+import { StreetKit, type PropKind } from './kit';
 import { UI } from './ui';
 import { mulberry32, pick, turnToward, type Rng } from './util';
 import { Minimap, type Blip } from './minimap';
@@ -60,6 +61,9 @@ import { MapScreen, type Waypoint } from './mapscreen/mapscreen';
 import { Gps } from './mapscreen/gps';
 import type { Road } from './vehicles/roads';
 import { placeDeaths, poisFromPlaces, type MapPoi } from './mapscreen/pois';
+
+/** What an ambulance ride costs when you call 911 with broken legs. */
+const AMBULANCE_FEE = 250;
 
 type Mode = 'title' | 'play' | 'dying' | 'claim' | 'ghost' | 'inspect' | 'possessing' | 'travel';
 
@@ -163,6 +167,8 @@ export class Game {
   private stationVisits = 0;
   private deniedToastT = 0;
   private wasInStation = false;
+  /** Seconds until the next roof check for the indoor exposure/bloom look. */
+  private roofCheckT = 0;
   private screamCooldown = 0;
   private acc = 0;
   private time = 0;
@@ -190,6 +196,7 @@ export class Game {
   private peeSoundT = 0;
   /** Times (ms) of recent screams that turned out to be about nothing. Three in a minute gets you committed. */
   private falseAlarms: number[] = [];
+  private calling911 = false;
   private pendingDeath: { id: string; victim: PersonFile; startPos: THREE.Vector3 } | null = null;
   private crosshair: HTMLElement;
   private hornCooldown = 0;
@@ -209,8 +216,6 @@ export class Game {
   private payoutMul = 1;
   private payoutWhy = '';
   private withdrawn = 0;
-  private beam: THREE.Mesh | null = null;
-  private beamT = 0;
   // Vehicles and the radar.
   private traffic!: Traffic;
   private minimap: Minimap;
@@ -310,6 +315,13 @@ export class Game {
 
     this.input = new Input(canvas);
     this.input.onAnyGesture = () => this.sound.init();
+    lockBrowserKeys();
+    // A stray Ctrl+W (or closing the tab) asks before throwing the run away.
+    window.addEventListener('beforeunload', (e) => {
+      if (this.mode === 'title') return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
     this.cam = new FollowCam(this.camera, this.physics);
     this.player = new Player(this.physics, new THREE.Vector3(87, G, 88));
     this.player.setEnabled(false);
@@ -811,7 +823,6 @@ export class Game {
     // Heights are measured from the top of the arc. An athlete's jump peaks at about 3.4,
     // so ordinary platforming (even off a small ledge) never breaks legs; only real drops do.
     let [breakH, fatalH] = this.player.tier === 'Feeble' ? [6, 9] : this.player.tier === 'Athlete' ? [9, 13] : [7.5, 11];
-    if (this.body && hasPassive(this.body, 'hardhat')) fatalH += 2;
     if (this.numbT > 0) {
       breakH += 3;
       fatalH += 3;
@@ -821,7 +832,7 @@ export class Game {
       this.sound.crunch();
       this.sound.scream(1.2);
       this.cam.shake(0.5);
-      this.ui.toast('BOTH LEGS BROKEN', 'Crawl to your doom, or press T (LB) to scream for help.', 3800);
+      this.ui.toast('BOTH LEGS BROKEN', `Crawl to your doom, scream for help (T / LB), or call 911 (E, $${AMBULANCE_FEE}).`, 4200);
       return;
     }
     if (e.drop >= fatalH && this.mode === 'play') {
@@ -1051,6 +1062,21 @@ export class Game {
     }
   }
 
+  /**
+   * Indoors (anything solid overhead), lit white floors and walls bloom into a glare, so switch the
+   * post stack to its dimmer indoor look. Maps can force it with scene.userData.indoor = true/false.
+   */
+  private updateIndoorLook(focus: THREE.Vector3, realDt: number) {
+    this.roofCheckT -= realDt;
+    if (this.roofCheckT > 0) return;
+    this.roofCheckT = 0.2;
+    const forced = this.scene.userData.indoor;
+    if (typeof forced === 'boolean') return this.post.setIndoor(forced);
+    const from = { x: focus.x, y: focus.y + 1.9, z: focus.z };
+    const roof = this.physics.castRay(new RAPIER.Ray(from, { x: 0, y: 1, z: 0 }), 14, true, undefined, QUERY_WORLD);
+    this.post.setIndoor(!!roof);
+  }
+
   private updateEffects(realDt: number) {
     if (this.slowmoT > 0) {
       this.slowmoT -= realDt;
@@ -1062,44 +1088,6 @@ export class Game {
     }
     this.numbT -= realDt;
     this.trainHold -= realDt;
-    if (this.beam) {
-      this.beamT -= realDt;
-      const m = this.beam.material as THREE.MeshBasicMaterial;
-      m.opacity = Math.max(0, Math.min(0.45, this.beamT * 0.4)) * (0.8 + Math.sin(this.time * 8) * 0.2);
-      if (this.beamT <= 0) {
-        this.scene.remove(this.beam);
-        this.beam.geometry.dispose();
-        m.dispose();
-        this.beam = null;
-      }
-    }
-  }
-
-  private revealNearestHazard(seconds: number) {
-    const p = this.player.feet();
-    let best: THREE.Vector3 | null = null;
-    let bd = Infinity;
-    const cands = [...(this.props?.interactables ?? []), ...(this.runtime?.interactables ?? [])].filter((it) => it.enabled && !it.id.startsWith('atm')).map((it) => it.pos);
-    const t = this.town;
-    const center = (b: { min: THREE.Vector3; max: THREE.Vector3 }) => b.min.clone().add(b.max).multiplyScalar(0.5);
-    if (t) cands.push(center(t.treeZone), center(t.towerZone), new THREE.Vector3(p.x, G, t.trackZ + 0.5));
-    for (const c of cands) {
-      const d = Math.hypot(c.x - p.x, c.z - p.z);
-      if (d > 2.5 && d < bd) {
-        bd = d;
-        best = c;
-      }
-    }
-    if (!best) return false;
-    if (this.beam) this.scene.remove(this.beam);
-    this.beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.9, 0.9, 80, 12, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0x9a7cff, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
-    );
-    this.beam.position.set(best.x, G + 40, best.z);
-    this.scene.add(this.beam);
-    this.beamT = seconds;
-    return true;
   }
 
   private makeSkillHost(): SkillHost {
@@ -1148,7 +1136,7 @@ export class Game {
         this.sound.horn();
         return true;
       },
-      revealNearestHazard: (sec) => this.revealNearestHazard(sec),
+      intrusiveThought: () => intrusiveThought(this.rng, this.body!, this.mapDef.id, (id) => !!this.ledger.found[id])?.line ?? null,
       numb: (sec) => (this.numbT = sec),
       payoutBonus: (mult, why) => {
         this.payoutMul = Math.max(this.payoutMul, mult);
@@ -1161,7 +1149,6 @@ export class Game {
         this.ui.setHud(this.ledger, this.body);
       },
       godAngerLevel: () => this.ledger.godAnger,
-      trigger: (id) => this.interact(id),
     };
   }
 
@@ -1200,6 +1187,72 @@ export class Game {
         if (frail) setTimeout(() => this.ui.say('Death', `Beaten to death by ${by.file.name}, age ${by.file.age}. I'm putting this one on the fridge.`, 4000), 1500);
       },
     });
+  }
+
+  /**
+   * Broken legs out in the middle of nowhere: call an ambulance. Costs money (all you have if
+   * you're short), and you come to outside the nearest hospital, clinic or pharmacy, patched up.
+   */
+  private call911() {
+    if (!this.body || !this.player.legsBroken || this.calling911) return;
+    this.calling911 = true;
+    const place = this.medicalDropOff();
+    this.ui.say('911', pick(this.rng, ["911, what's your emergency? ...Both legs? Sending someone.", 'Please hold. Your emergency is important to us.', 'An ambulance is on the way. Do NOT try to walk it off.']), 2600);
+    this.player.lock(true);
+    const siren = (at: number) => {
+      for (let i = 0; i < 4; i++) {
+        this.sound.tone({ f: 880, f2: 660, dur: 0.35, type: 'triangle', vol: 0.12, at: at + i * 0.7 });
+        this.sound.tone({ f: 660, f2: 880, dur: 0.35, type: 'triangle', vol: 0.12, at: at + i * 0.7 + 0.35 });
+      }
+    };
+    this.runSeq([
+      { at: 1.6, fn: () => siren(0) },
+      { at: 3.4, fn: () => this.ui.flash('#ffffff', 1400) },
+      {
+        at: 3.9,
+        fn: () => {
+          this.calling911 = false;
+          if (this.mode !== 'play' || !this.body) return;
+          const paid = Math.min(AMBULANCE_FEE, Math.max(0, this.ledger.balance));
+          this.ledger.balance -= paid;
+          this.ledger.save();
+          this.ui.setHud(this.ledger, this.body);
+          this.player.healLegs();
+          this.player.teleport(place.pos, place.facing);
+          this.player.lock(false);
+          this.cam.yaw = place.facing + Math.PI;
+          this.sound.cash();
+          this.ui.toast(
+            place.name.toUpperCase(),
+            paid < AMBULANCE_FEE ? `Ambulance ride: $${AMBULANCE_FEE}. They took the $${paid} you had. Casts on both legs.` : `Ambulance ride: -$${AMBULANCE_FEE}. Casts on both legs. Somehow you can run.`,
+            3600,
+          );
+        },
+      },
+    ]);
+  }
+
+  /** Where the ambulance drops you: the map's hospital, else a clinic, else a pharmacy, else the map's spawn. */
+  private medicalDropOff(): { pos: THREE.Vector3; facing: number; name: string } {
+    const places = this.life.places;
+    const find = (re: RegExp) => places.find((p) => re.test(p.id) || re.test(p.name));
+    const pl = find(/hospital/i) ?? find(/clinic|infirmary|medical|urgent/i) ?? find(/pharmacy|drug ?store/i);
+    if (pl) {
+      const d = pl.door;
+      const pos = new THREE.Vector3(d.x, d.y, d.z);
+      // Face away from the building: the door is on its edge, so step out toward the open side.
+      const inside = pl.inside;
+      let facing = this.player.facing;
+      if (inside) {
+        const cx = (inside.min.x + inside.max.x) / 2, cz = (inside.min.z + inside.max.z) / 2;
+        facing = Math.atan2(d.x - cx, d.z - cz);
+        pos.x += Math.sin(facing) * 1.5;
+        pos.z += Math.cos(facing) * 1.5;
+      }
+      return { pos, facing, name: pl.name };
+    }
+    const sp = this.mapBuild.spawn;
+    return { pos: new THREE.Vector3(sp.x, this.mapGround, sp.z), facing: this.player.facing, name: `${this.mapDef.name} paramedics` };
   }
 
   private scream() {
@@ -1469,6 +1522,7 @@ export class Game {
     const t0 = performance.now();
     this.mapBuild = def.build(this.world, rng);
     const b = this.mapBuild;
+    this.placeWorldProps();
     const at = focus ?? b.spawn;
     this.mapGround = b.groundAt ? b.groundAt(b.spawn.x, b.spawn.z) : this.world.topY(b.spawn.x, b.spawn.z);
     if (!Number.isFinite(this.mapGround)) this.mapGround = G;
@@ -1549,6 +1603,7 @@ export class Game {
       seed: 500 + (Date.now() % 1000),
       blip: () => this.sound.blip(0.6),
       maxPopulation: this.town ? undefined : 120,
+      hooks: { deathHint: (f) => depressedHint(this.rng, f, this.mapDef.id, (id) => !!this.ledger.found[id]) },
     });
     this.traffic = new Traffic(this.scene, this.physics, this.town ? smallvilleTraffic(this.town) : { roads: b.roads ?? [], parked: [], ...b.traffic });
     this.traffic.onHonk = (car, tag) => this.onHonk(car, tag);
@@ -1599,6 +1654,20 @@ export class Game {
       if (inside || Math.hypot(s.pos.x - p.x, s.pos.z - p.z) < 3.2) if (Math.abs(s.pos.y - p.y) < 3) return s;
     }
     return null;
+  }
+
+  /**
+   * Detailed kit props (trees, tents, fences, street clutter) that the map build queued with
+   * VoxelWorld.prop(). Their collision is the invisible Ghost* blocks under them, so this is
+   * visual only. One instanced mesh per kind per 64-block square, with a far LOD.
+   */
+  private placeWorldProps() {
+    const props = this.world.props;
+    if (!props.length) return;
+    const kit = new StreetKit({ parent: this.scene, physics: null, propChunk: 64 });
+    for (const p of props) kit.prop(p.kind as PropKind, p.x, p.y, p.z, p.rotY, { collide: false, scale: p.scale });
+    kit.finish();
+    kit.group.name = 'world-props';
   }
 
   /** Ticket prompts at stops, plus the plane's wheel well while it's parked. */
@@ -2566,20 +2635,25 @@ export class Game {
       const riding = this.rides.isRiding;
       const free = this.player.state !== 'locked' && !this.life.isTalking && !this.tickets.open;
       if (this.tickets.open) this.menuInput();
-      const it = free && !riding ? this.nearestInteractable() : null;
-      const car = free && !riding && !it ? this.carToSteal() : null;
-      const who = free && !riding && !it && !car && this.player.grounded ? this.life.talkable(feet) : null;
+      // Broken legs: calling an ambulance comes first.
+      const call911 = free && !riding && this.player.legsBroken && !this.calling911;
+      const it = free && !riding && !call911 ? this.nearestInteractable() : null;
+      const car = free && !riding && !it && !call911 ? this.carToSteal() : null;
+      const who = free && !riding && !it && !car && !call911 && this.player.grounded ? this.life.talkable(feet) : null;
       this.ui.prompt(
         it ? `<span class="key">E</span>${it.prompt}`
         : car ? `<span class="key">E</span>${car.mode === 'traffic' ? 'Hijack car' : 'Get in'}`
         : who ? `<span class="key">E</span>Talk to ${who.file.name.split(' ')[0]}`
+        : call911 ? `<span class="key">E</span>Call 911 ($${AMBULANCE_FEE})`
         : riding && free ? '<span class="key">E</span>Hop off' : this.tickets.open ? null : this.ticketPrompt(),
       );
       if (inp.pressed('interact')) {
-        if (riding && free) this.rides.dismount();
+        if (this.life.isTalking) this.life.closeTalk();
+        else if (riding && free) this.rides.dismount();
         else if (it) this.interact(it.id);
         else if (car) this.hijack(car);
         else if (who && this.body) this.life.talkTo(who, this.body, feet);
+        else if (call911) this.call911();
       }
       if (inp.pressed('scream') && this.player.state !== 'locked' && !this.rides.bell()) this.scream();
       if (inp.pressed('punch') && !this.ui.ledgerOpen) this.combat.punch();
@@ -2651,6 +2725,7 @@ export class Game {
       if (b.t >= 1) this.camBlend = null;
     }
     this.updateSaturation(realDt);
+    this.updateIndoorLook(focus, realDt);
 
     if (!this.driving) this.engine.set(false, 0, 0);
     this.post.render();

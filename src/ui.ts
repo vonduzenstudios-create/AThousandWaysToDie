@@ -74,7 +74,7 @@ export class UI {
         <tr><td>Jump (height by fitness)</td><td>Space</td><td>A</td></tr>
         <tr><td>Grab a ledge</td><td>Jump at it, hold toward the wall</td><td>Same</td></tr>
         <tr><td>Pull up · let go</td><td>Space or W · C or S</td><td>A or up · B or down</td></tr>
-        <tr><td>Crouch / swim down</td><td>C or Ctrl</td><td>B or LT</td></tr>
+        <tr><td>Crouch / swim down</td><td>C</td><td>B or LT</td></tr>
         <tr><td>Punch</td><td>F</td><td>X</td></tr>
         <tr><td>Skills</td><td>1 – 5 (or click)</td><td>D-pad up/down pick, right use</td></tr>
         <tr><td>Interact / possess</td><td>E</td><td>Y</td></tr>

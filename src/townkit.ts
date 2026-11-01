@@ -316,27 +316,37 @@ export function shelfRow(w: VoxelWorld, rng: Rng, x0: number, z0: number, x1: nu
 
 // ------------------------------------------------------------------ street clutter
 
+// Street clutter is drawn by the prop kit (src/kit/props.ts, docs/prop-kit.md). The voxel world
+// only gets invisible Ghost blocks in the old shape, so collision, nav and deaths are unchanged.
+
 export function lamp(w: VoxelWorld, x: number, z: number) {
-  w.fill(x, G, z, x, G + 4, z, B.Metal);
-  w.set(x, G + 5, z, B.Lamp);
+  w.fill(x, G, z, x, G + 5, z, B.GhostProp);
+  w.prop('lamp', x + 0.5, G, z + 0.5, 0, 1.33);
 }
 
 export function hydrant(w: VoxelWorld, x: number, z: number) {
-  w.set(x, G, z, B.RedPaint);
+  w.set(x, G, z, B.GhostProp);
+  w.prop('hydrant', x + 0.5, G, z + 0.5, 0, 1.2);
 }
 
 export function bench(w: VoxelWorld, x: number, z: number, alongX = true) {
-  if (alongX) w.fill(x, G, z, x + 2, G, z, B.Plank);
-  else w.fill(x, G, z, x, G, z + 2, B.Plank);
+  if (alongX) {
+    w.fill(x, G, z, x + 2, G, z, B.GhostProp);
+    w.prop('bench', x + 1.5, G, z + 0.5, 0, 1.5);
+  } else {
+    w.fill(x, G, z, x, G, z + 2, B.GhostProp);
+    w.prop('bench', x + 0.5, G, z + 1.5, Math.PI / 2, 1.5);
+  }
 }
 
 export function trashCan(w: VoxelWorld, x: number, z: number) {
-  w.set(x, G, z, B.RoofGreen);
+  w.set(x, G, z, B.GhostProp);
+  w.prop('bin', x + 0.5, G, z + 0.5, 0, 1.3);
 }
 
 export function mailbox(w: VoxelWorld, x: number, z: number) {
-  w.set(x, G, z, B.Wood);
-  w.set(x, G + 1, z, B.Navy);
+  w.fill(x, G, z, x, G + 1, z, B.GhostProp);
+  w.prop('mailbox', x + 0.5, G, z + 0.5, 0, 1.4);
 }
 
 /** A parked voxel car, 5 long and 3 wide, along x or z. */
@@ -354,13 +364,30 @@ export function car(w: VoxelWorld, rng: Rng, x: number, z: number, alongX = true
     }
 }
 
+/** Which kit fence style draws a fence of this block material (others stay plain blocks). */
+const FENCE_STYLE: Record<number, string> = {
+  [B.White]: 'picket',
+  [B.Wood]: 'rail',
+  [B.Metal]: 'chain',
+  [B.Black]: 'iron',
+  [B.LeavesDark]: 'hedge',
+  [B.Orange]: 'barrier',
+};
+
 /** Low hedge or picket fence along a line. */
 export function fenceLine(w: VoxelWorld, x0: number, z0: number, x1: number, z1: number, mat: number = B.White, h = 1, gapAt?: [number, number]) {
+  const style = FENCE_STYLE[mat];
+  const rot = x0 === x1 && z0 !== z1 ? Math.PI / 2 : 0;
   for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++)
     for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++) {
       if (gapAt && x >= gapAt[0] && x <= gapAt[1] && (x0 === x1 ? false : true)) continue;
       if (gapAt && x0 === x1 && z >= gapAt[0] && z <= gapAt[1]) continue;
-      w.fill(x, G, z, x, G + h - 1, z, mat);
+      if (!style) {
+        w.fill(x, G, z, x, G + h - 1, z, mat);
+        continue;
+      }
+      w.fill(x, G, z, x, G + h - 1, z, style === 'hedge' ? B.GhostLeaf : B.GhostProp);
+      w.prop(`fence:${style}:${h}`, x + 0.5, G, z + 0.5, rot);
     }
 }
 
@@ -375,27 +402,30 @@ export function flowerBed(w: VoxelWorld, rng: Rng, x0: number, z0: number, x1: n
 /** Small tree. Returns the canopy top. */
 export function tree(w: VoxelWorld, rng: Rng, x: number, z: number, big = false) {
   const h = (big ? 6 : 4) + Math.floor(rng() * 3);
-  w.fill(x, G, z, x, G + h - 1, z, B.Wood);
+  w.fill(x, G, z, x, G + h - 1, z, B.GhostWood);
   const r = (big ? 3 : 2) + Math.floor(rng() * 2);
   const cy = G + h;
-  const leaf = rng() < 0.5 ? B.Leaves : B.LeavesDark;
+  const oak = rng() < 0.5 ? 0 : 1; // was Leaves (light: birch) or LeavesDark (oak); same rng draw
+  // Same rng calls as before, so the rest of the town lays out exactly as it did.
   for (let dx = -r; dx <= r; dx++)
     for (let dy = -r; dy <= r; dy++)
       for (let dz = -r; dz <= r; dz++) {
         if (dx * dx + dy * dy * 1.6 + dz * dz > r * r + 0.5) continue;
-        if (w.get(x + dx, cy + dy, z + dz) === 0 && rng() > 0.06) w.set(x + dx, cy + dy, z + dz, leaf);
+        if (w.get(x + dx, cy + dy, z + dz) === 0 && rng() > 0.06) w.set(x + dx, cy + dy, z + dz, B.GhostLeaf);
       }
+  w.prop(`tree:${h}:${r}:${oak}`, x + 0.5, G, z + 0.5);
   return { x: x + 0.5, y: cy + r, z: z + 0.5 };
 }
 
 /** Pine tree for the woods. */
 export function pine(w: VoxelWorld, rng: Rng, x: number, z: number) {
   const h = 7 + Math.floor(rng() * 5);
-  w.fill(x, G, z, x, G + h, z, B.Wood);
+  w.fill(x, G, z, x, G + h, z, B.GhostWood);
   for (let y = G + 2; y <= G + h + 1; y++) {
     const r = Math.max(0, Math.floor((G + h + 2 - y) / 2.2));
     for (let dx = -r; dx <= r; dx++)
-      for (let dz = -r; dz <= r; dz++) if (Math.abs(dx) + Math.abs(dz) <= r && w.get(x + dx, y, z + dz) === 0) w.set(x + dx, y, z + dz, B.LeavesDark);
+      for (let dz = -r; dz <= r; dz++) if (Math.abs(dx) + Math.abs(dz) <= r && w.get(x + dx, y, z + dz) === 0) w.set(x + dx, y, z + dz, B.GhostLeaf);
   }
+  w.prop(`pine:${h}`, x + 0.5, G, z + 0.5);
   return { x: x + 0.5, y: G + h + 2, z: z + 0.5 };
 }

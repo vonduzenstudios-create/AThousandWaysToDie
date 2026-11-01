@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { B, type VoxelWorld } from '../../voxel';
+import { B, blockColor, type VoxelWorld } from '../../voxel';
 import { box, type Box } from '../../town';
 import { mulberry32, pick, type Rng } from '../../util';
 import { BB } from './blocks';
@@ -435,19 +435,21 @@ export function buildBeach(w: VoxelWorld, seed = 4242): BeachLayout {
     const h = 8 + Math.floor(rng() * 5);
     const lean = rng() < 0.5 ? 1 : -1;
     let px = x;
+    // Invisible collision blocks in the old shape; the detailed palm is a kit prop (docs/prop-kit.md).
     for (let i = 0; i < h; i++) {
       if (i > 3 && i % 3 === 0) px += lean;
-      w.set(px, base + i, z, BB.PalmTrunk);
+      w.set(px, base + i, z, B.GhostWood);
     }
     const top = base + h;
     const fronds = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
     for (const [dx, dz] of fronds)
       for (let r = 1; r <= 4; r++) {
         const droop = r > 2 ? -(r - 2) : 0;
-        w.set(px + dx * r, top + droop, z + dz * r, BB.PalmLeaf);
+        w.set(px + dx * r, top + droop, z + dz * r, B.GhostLeaf);
       }
-    w.set(px, top, z, BB.PalmLeaf);
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1]]) w.set(px + dx, top - 1, z + dz, BB.Coconut);
+    w.set(px, top, z, B.GhostLeaf);
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1]]) w.set(px + dx, top - 1, z + dz, B.GhostWood);
+    w.prop(`palm:${h}:${lean}`, x + 0.5, base, z + 0.5);
     palms.push(v(px + 0.5, top - 1, z + 0.5));
   };
   for (let x = 150; x < 600; x += 16 + Math.floor(rng() * 10)) palm(x, 212 + Math.floor(rng() * 14));
@@ -465,9 +467,10 @@ export function buildBeach(w: VoxelWorld, seed = 4242): BeachLayout {
     towels.push(v(x + 1, t, z + 1.5));
     if (rng() < 0.6) {
       const ux = x + 3, uz = z + 1;
-      w.fill(ux, t, uz, ux, t + 3, uz, B.White);
+      w.fill(ux, t, uz, ux, t + 3, uz, B.GhostProp);
       const col = pick(rng, [BB.Umbrella1, BB.Umbrella2, BB.Umbrella3]);
-      for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) if (Math.abs(dx) + Math.abs(dz) <= 3) w.set(ux + dx, t + 4 - (Math.abs(dx) + Math.abs(dz) > 2 ? 1 : 0), uz + dz, (dx + dz) % 2 === 0 ? col : B.White);
+      for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) if (Math.abs(dx) + Math.abs(dz) <= 3) w.set(ux + dx, t + 4 - (Math.abs(dx) + Math.abs(dz) > 2 ? 1 : 0), uz + dz, B.GhostProp);
+      w.prop(`beachUmbrella:${blockColor(col).toString(16).padStart(6, '0')}`, ux + 0.5, t, uz + 0.5, ((ux * 7 + uz * 13) % 8) * 0.39);
     }
   }
   // Dune grass near the boardwalk.
