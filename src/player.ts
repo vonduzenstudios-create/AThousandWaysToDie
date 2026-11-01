@@ -97,9 +97,9 @@ export const PLAYER_CENTER = HALF_HEIGHT + RADIUS; // center height above feet
  * crouch, slide, dive, belly slide and ground pound.
  */
 export class Player {
-  readonly body: RAPIER.RigidBody;
-  readonly collider: RAPIER.Collider;
-  private kcc: RAPIER.KinematicCharacterController;
+  body!: RAPIER.RigidBody;
+  collider!: RAPIER.Collider;
+  private kcc!: RAPIER.KinematicCharacterController;
   readonly vel = new THREE.Vector3();
   facing = 0;
   /** True while running at sprint speed. */
@@ -182,6 +182,16 @@ export class Player {
   }
 
   constructor(private physics: RAPIER.World, spawn: THREE.Vector3) {
+    this.attach(physics, spawn);
+  }
+
+  /** Move the player into another physics world (each map has its own). */
+  rebind(physics: RAPIER.World, feet: THREE.Vector3) {
+    this.physics = physics;
+    this.attach(physics, feet);
+  }
+
+  private attach(physics: RAPIER.World, spawn: THREE.Vector3) {
     this.body = physics.createRigidBody(
       RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(spawn.x, spawn.y + PLAYER_CENTER, spawn.z),
     );
