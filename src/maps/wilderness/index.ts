@@ -10,6 +10,7 @@ import { grassCover } from './scenery';
 import { buildStructures, type Spots } from './structures';
 import { blockFootprints } from './kitbuild';
 import { roadProfiles, trafficRoads } from './roads';
+import type { CarKind } from '../../vehicles/carModel';
 import { PADS, ROADS, SX, SY, SZ, Terrain, defineWildBlocks } from './terrain';
 
 export const WILD_DEATHS: DeathDef[] = [
@@ -55,16 +56,31 @@ function floorMap(t: Terrain, world: VoxelWorld) {
   return floor;
 }
 
-/** Pickups and jeeps parked around the Wilds for the player to borrow. */
+/** Quads, dirt bikes, jeeps and pickups parked around the Wilds for the player to borrow. */
 function parkedVehicles(s: Spots, g: Ground) {
-  const at = (x: number, z: number, facing: number) => ({ pos: new THREE.Vector3(x, g.floor(x, z), z), facing });
+  const at = (x: number, z: number, facing: number, kind: CarKind) => ({ pos: new THREE.Vector3(x, g.floor(x, z), z), facing, kind });
   return [
-    at(s.busStop.x - 10, s.busStop.z + 6, Math.PI / 2), // ranger station lot
-    at(204, 452, 0), // campground
-    at(466, 578, Math.PI), // lodge
-    at(300, 156, Math.PI / 2), // gas station
-    at(318, 158, Math.PI / 2),
-    at(524, 116, 0), // test site bunker
+    // Ranger station lot: the rangers' patrol quads and a pickup.
+    at(s.busStop.x - 10, s.busStop.z + 6, Math.PI / 2, 'pickup'),
+    at(142, 572, 0, 'quad'),
+    at(145, 572, 0, 'quad'),
+    // Campground: somebody's dirt bikes and a jeep.
+    at(204, 452, 0, 'jeep'),
+    at(200, 449, 0.4, 'dirtbike'),
+    at(198, 452, -0.3, 'dirtbike'),
+    // Lumber camp.
+    at(136, 466, Math.PI / 2, 'pickup'),
+    // Safari lodge: tour quads by the garage.
+    at(466, 578, Math.PI, 'jeep'),
+    at(462, 586, Math.PI, 'quad'),
+    at(465, 586, Math.PI, 'quad'),
+    // Gas station: desert dirt bikes and a pickup at the pumps.
+    at(300, 156, Math.PI / 2, 'pickup'),
+    at(318, 158, Math.PI / 2, 'dirtbike'),
+    at(321, 158, Math.PI / 2, 'quad'),
+    // Dale's trailer and the test site.
+    at(398, 146, 0, 'dirtbike'),
+    at(524, 116, 0, 'jeep'),
   ];
 }
 
@@ -232,7 +248,7 @@ export const WILDERNESS: MapDef = {
       stops,
       roads,
       // A few trucks and jeeps, not a commute.
-      traffic: { density: 0.1, maxCars: 3, speed: 9, parked: parkedVehicles(spots, ground) },
+      traffic: { density: 0.1, maxCars: 3, speed: 9, models: ['jeep', 'jeep', 'pickup', 'pickup', 'truck'], parked: parkedVehicles(spots, ground) },
       npcs,
       life,
       setup: (ctx) => new WildRuntime(ctx, layout!),

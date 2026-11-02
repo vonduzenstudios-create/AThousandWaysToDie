@@ -11,7 +11,7 @@ import { ROADS, type RoadDef, type Terrain } from './terrain';
  */
 
 /** Steepest grade the ribbon allows (rise per block). */
-const MAX_GRADE = 0.15;
+const MAX_GRADE = 0.22;
 const STEP = 1;
 
 export interface RoadSample {

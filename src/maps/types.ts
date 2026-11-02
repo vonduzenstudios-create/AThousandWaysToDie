@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
 import type { RAPIER } from '../physics';
+import type { TrafficConfig } from '../vehicles/roads';
 import type { Box } from '../town';
 import type { DeathDef, Job } from '../deaths';
 import type { VoxelWorld } from '../voxel';
@@ -160,7 +161,7 @@ export interface MapBuild {
    */
   roads?: { points: THREE.Vector3[]; width: number; loop?: boolean }[];
   /** Traffic tuning for this map's roads (cars per 100 blocks of lane, max cars, cruise speed). */
-  traffic?: { density?: number; maxCars?: number; speed?: number; parked?: { pos: THREE.Vector3; facing: number }[] };
+  traffic?: Partial<Omit<TrafficConfig, 'roads'>>;
   /**
    * Rich NPC data (LifeMap from src/life/types.ts, owned by the NPC life thread): nav grid,
    * places, population. When present the game hands it to the LifeSystem; `npcs` is the fallback.
