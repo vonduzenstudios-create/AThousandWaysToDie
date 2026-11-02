@@ -6,7 +6,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d14; fon
 
 .flash { position: absolute; inset: 0; opacity: 0; }
 
-.hud { position: absolute; top: 14px; left: 16px; text-shadow: 0 2px 0 #000, 0 0 8px #000; }
+.topleft { position: absolute; top: 14px; left: 16px; }
+.hud { text-shadow: 0 2px 0 #000, 0 0 8px #000; }
 .hud .stat { font-size: 18px; font-weight: bold; }
 .hud .big { font-size: 34px; color: #ffd84a; }
 .hud .money { color: #7dff7a; font-size: 22px; }
@@ -75,7 +76,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d14; fon
 .ledger .row span:last-child { text-align: right; color: #7dff7a; }
 .ledger .lfoot { margin-top: 14px; color: #888; text-align: center; }
 
-.help { position: absolute; left: 16px; top: 150px; max-height: calc(100vh - 290px); overflow: auto; font-size: 12px; line-height: 1.4; background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 8px; max-width: 600px; }
+.help { width: min(600px, calc(100vw - 260px)); margin-top: 10px; max-height: calc(100vh - 420px); overflow: auto; font-size: 12px; line-height: 1.4; background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 8px; max-width: 600px; }
 
 .title { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(30,20,60,0.85), rgba(5,5,10,0.97)); pointer-events: auto; cursor: pointer; text-align: center; padding: 20px; }
 .title .logo { font-family: Impact, 'Arial Black', sans-serif; font-size: clamp(56px, 11vw, 130px); color: #ffd84a; text-shadow: 0 6px 0 #6b2a00, 0 10px 30px #000; transform: rotate(-3deg); }
@@ -241,3 +242,39 @@ body:not(.pad) .help td:nth-child(3), body:not(.pad) .help th:nth-child(3) { opa
 .scythe .shint { margin-top: 12px; text-align: center; font-size: 13px; color: #b3abcc; }
 .scythe .shint b { color: #ffd84a; }
 #ui.inspecting .hud, #ui.inspecting .dialog, #ui.inspecting .banner, #ui.inspecting .skills, #ui.inspecting .toast { display: none; }
+
+/* Objective panel (src/guide): what to do now, the next unlock, the tracked lead. */
+.objective { width: min(360px, calc(100vw - 260px)); margin-top: 10px; background: rgba(10,8,22,0.72); border-left: 4px solid #ffd84a; border-radius: 0 8px 8px 0; padding: 8px 12px 9px; font-size: 13px; line-height: 1.35; text-shadow: 0 1px 0 #000; }
+.objective .oh { font-family: Impact, 'Arial Black', sans-serif; font-size: 17px; letter-spacing: 1px; color: #ffd84a; }
+.objective .ol { margin-top: 2px; }
+.objective .obar { margin-top: 7px; height: 8px; background: rgba(255,255,255,0.14); border-radius: 4px; overflow: hidden; }
+.objective .obar span { display: block; height: 100%; background: linear-gradient(90deg, #ff5a6a, #ffd84a); transition: width 0.6s; }
+.objective .olabel { margin-top: 3px; font-size: 12px; color: #ccc; }
+.objective .olabel b { color: #fff; }
+.objective .olead { margin-top: 6px; font-size: 12px; color: #ffb3bb; }
+.objective.pulse { animation: objpulse 0.7s ease-out; }
+@keyframes objpulse { 0% { box-shadow: 0 0 0 0 rgba(255,216,74,0.9); } 100% { box-shadow: 0 0 0 14px rgba(255,216,74,0); } }
+
+/* Death's "how this works" card. */
+.intro { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; background: rgba(12,9,26,0.96); border: 2px solid #b9a6ff; border-radius: 14px; padding: 22px 26px; box-shadow: 0 0 60px rgba(150,120,255,0.45); pointer-events: auto; animation: pop 0.35s cubic-bezier(.2,1.6,.4,1); }
+.intro .ih { font-family: Impact, 'Arial Black', sans-serif; font-size: 40px; color: #ffd84a; letter-spacing: 1px; }
+.intro .isub { color: #b9a6ff; margin-bottom: 14px; }
+.intro .steps { display: grid; gap: 12px; }
+.intro .step { display: grid; grid-template-columns: 36px 1fr; gap: 12px; align-items: start; font-size: 16px; line-height: 1.4; }
+.intro .step .n { width: 36px; height: 36px; border-radius: 50%; background: #ffd84a; color: #000; font-weight: bold; font-size: 20px; display: grid; place-items: center; }
+.intro .ok { color: #9dff8f; font-weight: bold; }
+.intro .ikeys { margin-top: 16px; font-size: 14px; color: #ccc; line-height: 1.8; }
+.intro .key, .ledger .key { display: inline-block; background: #ffd84a; color: #000; border-radius: 4px; padding: 0 7px; font-weight: bold; }
+.intro .cont { margin-top: 14px; text-align: center; color: #ffd84a; font-weight: bold; }
+
+/* Ledger: per-area progress. */
+.ledger .areas { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.ledger .area { background: rgba(255,255,255,0.05); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.ledger .area.here { outline: 2px solid #ffd84a; }
+.ledger .area.locked { opacity: 0.55; }
+.ledger .area .an { font-weight: bold; display: flex; justify-content: space-between; }
+.ledger .area .an span { color: #ffd84a; }
+.ledger .area .abar { margin: 5px 0 4px; height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden; }
+.ledger .area .abar span { display: block; height: 100%; background: linear-gradient(90deg, #ff5a6a, #ffd84a); }
+.ledger .area .as { color: #aaa; font-size: 12px; }
+.ledger .llead { margin-bottom: 14px; color: #ffb3bb; }

@@ -1,6 +1,7 @@
 import { CATEGORIES, DEATHS, mapOfDeath, PHYSICAL_INFO, TOTAL_SLOTS, isDeserving, timeLeftLabel, type Ledger, type PersonFile } from './deaths';
 import { money } from './util';
 import type { SkillBar } from './skills';
+import type { AreaProgress, Objective } from './guide/guide';
 
 const el = (html: string) => {
   const d = document.createElement('div');
@@ -39,6 +40,10 @@ export class UI {
   private skillEl: HTMLElement;
   private tipEl: HTMLElement;
   private healthEl: HTMLElement;
+  private objEl: HTMLElement;
+  private introEl: HTMLElement;
+  private objKey = '';
+  private topLeft: HTMLElement;
   private skillKey = '';
   onSkillClick: ((i: number) => void) | null = null;
   private toastTimer = 0;
@@ -49,7 +54,11 @@ export class UI {
   constructor() {
     this.root = document.getElementById('ui')!;
     this.flashEl = this.add('<div class="flash"></div>');
-    this.hud = this.add('<div class="hud"></div>');
+    const topLeft = this.add('<div class="topleft"></div>');
+    this.hud = el('<div class="hud"></div>');
+    this.objEl = el('<div class="objective hidden"></div>');
+    topLeft.append(this.hud, this.objEl);
+    this.topLeft = topLeft;
     this.promptEl = this.add('<div class="prompt hidden"></div>');
     this.healthEl = this.add('<div class="health hidden"><div class="hfill"></div><div class="htext"></div></div>');
     this.skillEl = this.add('<div class="skills hidden"></div>');
@@ -61,7 +70,8 @@ export class UI {
     this.dialog = this.add('<div class="dialog hidden"><div class="who"></div><div class="line"></div></div>');
     this.card = this.add('<div class="card hidden"></div>');
     this.ledgerEl = this.add('<div class="ledger hidden"></div>');
-    this.helpEl = this.add(`<div class="help hidden">
+    this.introEl = this.add('<div class="intro hidden"></div>');
+    this.helpEl = el(`<div class="help hidden">
       <div class="hh"><b>Controls</b> <span>H or Start to hide</span></div>
       <table>
         <tr><th></th><th>Keyboard</th><th>Controller</th></tr>
@@ -86,8 +96,11 @@ export class UI {
         <tr><td>Ghost rise / sink</td><td>Space / C</td><td>A / B</td></tr>
         <tr><td>Ledger · music</td><td>Tab · M</td><td>View · D-pad left</td></tr>
         <tr><td>Full map · waypoints</td><td>N (or click the radar)</td><td>Click right stick</td></tr>
+        <tr><td>Track the next lead</td><td>J (again for the next one)</td><td>View, then Y</td></tr>
+        <tr><td>How this works</td><td>I</td><td></td></tr>
       </table>
     </div>`);
+    this.topLeft.appendChild(this.helpEl);
 
   }
 
@@ -105,7 +118,7 @@ export class UI {
       <div class="stat"><span class="big">${ledger.foundCount}</span> / ${TOTAL_SLOTS.toLocaleString()} deaths filed</div>
       <div class="stat money">${money(ledger.balance)}</div>
       ${body ? `<div class="body">You are <b>${body.name}</b>, ${body.age}, ${body.job}</div><div class="body small">Physical: <b>${body.physical}</b> (${PHYSICAL_INFO[body.physical]}) · Mental: ${body.mental}</div>` : '<div class="body">You are a ghost</div>'}
-      <div class="keys">H controls · Tab ledger · M music · T scream</div>
+      <div class="keys">H controls · Tab ledger · N map · J lead · I how it works</div>
       ${godBar}`;
   }
 
@@ -284,7 +297,12 @@ export class UI {
    * Show the ledger for the area you're in: only deaths on this map are listed. Other maps
    * get a one-line summary at the bottom. `areas` is every map, for that summary.
    */
-  toggleLedger(ledger: Ledger, area: { id: string; name: string } = { id: 'smallville', name: 'Smallville' }, areas: { id: string; name: string }[] = []) {
+  toggleLedger(
+    ledger: Ledger,
+    area: { id: string; name: string } = { id: 'smallville', name: 'Smallville' },
+    areas: { id: string; name: string }[] = [],
+    guide?: { progress: AreaProgress[]; lead: string; pad: boolean },
+  ) {
     this.ledgerOpen = !this.ledgerOpen;
     if (!this.ledgerOpen) {
       this.ledgerEl.classList.add('hidden');
@@ -313,13 +331,102 @@ export class UI {
         return defs.length ? `${a.name} ${defs.filter((d) => ledger.found[d.id]).length}/${defs.length}` : '';
       })
       .filter(Boolean);
+    const prog = guide
+      ? `<div class="areas">${guide.progress
+          .map((a) => {
+            const pct = a.total ? Math.round((a.found / a.total) * 100) : 0;
+            const status = !a.open
+              ? `<span class="lock">🔒 Opens at ${a.lock ?? '???'}</span>`
+              : a.next
+                ? `${Math.min(a.found, a.next.need)} / ${a.next.need} opens ${a.next.opens}`
+                : a.found >= a.total && a.total
+                  ? 'Complete'
+                  : 'Everything from here is open';
+            return `<div class="area${a.id === area.id ? ' here' : ''}${a.open ? '' : ' locked'}">
+              <div class="an">${a.name}<span>${a.open ? `${a.found} / ${a.total}` : ''}</span></div>
+              <div class="abar"><span style="width:${a.open ? pct : 0}%"></span></div>
+              <div class="as">${status}</div>
+            </div>`;
+          })
+          .join('')}</div>
+        ${guide.lead ? `<div class="llead">☠ <b>Lead:</b> ${guide.lead}${guide.pad ? ' <span class="key">Y</span> track it' : ''}</div>` : ''}`
+      : '';
     this.ledgerEl.innerHTML = `
       <div class="lh">Death Ledger: ${area.name} <span>${hereFound} / ${here.length} here</span></div>
       <div class="lsub">${ledger.foundCount} / ${TOTAL_SLOTS.toLocaleString()} deaths filed overall · Lifetime payouts ${money(ledger.total)}</div>
+      ${prog}
       <div class="cats">${cats || '<div class="row none">No known deaths around here. Yet.</div>'}</div>
       ${elsewhere.length ? `<div class="lsub">Elsewhere: ${elsewhere.join(' · ')}</div>` : ''}
       <div class="lfoot">Tab to close</div>`;
     this.ledgerEl.classList.remove('hidden');
+  }
+
+  /** The objective panel under the HUD. Pass null to hide it. Only touches the DOM when it changes. */
+  setObjective(o: Objective | null) {
+    const key = o ? JSON.stringify([o.head, o.line, o.bar, o.leadLine]) : '';
+    if (key === this.objKey) return;
+    this.objKey = key;
+    if (!o) {
+      this.objEl.classList.add('hidden');
+      return;
+    }
+    const pct = Math.round((Math.min(o.bar.have, o.bar.need) / o.bar.need) * 100);
+    this.objEl.innerHTML = `
+      <div class="oh">${o.head}</div>
+      <div class="ol">${o.line}</div>
+      <div class="obar"><span style="width:${pct}%"></span></div>
+      <div class="olabel"><b>${o.bar.have} / ${o.bar.need}</b> ${o.bar.label}</div>
+      ${o.leadLine ? `<div class="olead">☠ ${o.leadLine}</div>` : ''}`;
+    this.objEl.classList.remove('hidden');
+  }
+
+  /** Flash the objective panel (new lead tracked, objective changed). */
+  pulseObjective() {
+    this.objEl.classList.remove('pulse');
+    void this.objEl.offsetWidth;
+    this.objEl.classList.add('pulse');
+  }
+
+  get introOpen() {
+    return !this.introEl.classList.contains('hidden');
+  }
+
+  pendingIntro: (() => void) | null = null;
+
+  /** Death's "how this works" card. Resolves when the player dismisses it. */
+  showIntro(pad: boolean): Promise<void> {
+    const k = (kb: string, gp: string) => `<span class="key">${pad ? gp : kb}</span>`;
+    this.introEl.innerHTML = `
+      <div class="ih">HOW THIS WORKS</div>
+      <div class="isub">Death's orientation. Pay attention, I'm only doing this once.</div>
+      <div class="steps">
+        <div class="step"><div class="n">1</div><div><b>Read files.</b> You're a ghost with a scythe. Look at anyone and press ${k('E', 'Y')} to see their job, health, and when they're due to die.</div></div>
+        <div class="step"><div class="n">2</div><div><b>Possess someone who's due.</b> Their file says <span class="ok">FAIR GAME</span>, and they glow green on the radar. Take someone who isn't and God gets pissed.</div></div>
+        <div class="step"><div class="n">3</div><div><b>Die somewhere new.</b> Find a stupid way to kill that body. Mortalis Mutual pays for every <i>new</i> death and denies repeats. Their job and health decide what they can pull off.</div></div>
+        <div class="step"><div class="n">4</div><div><b>Move up.</b> Every <b>25 new deaths</b> in an area opens the way to the next one: the bus to the City, then the harbor, then the airport. 1,000 deaths and you're done.</div></div>
+      </div>
+      <div class="ikeys">Stuck? ${k('J', 'View, then Y')} tracks the nearest unfound death · ${k('Tab', 'View')} ledger · ${k('N', 'R3')} map · ${k('H', 'Start')} controls</div>
+      <div class="cont">Press Space, E or A to start</div>`;
+    this.introEl.classList.remove('hidden');
+    return new Promise((resolve) => {
+      let ready = false;
+      const t = window.setTimeout(() => (ready = true), 600);
+      const done = () => {
+        if (!ready) return;
+        clearTimeout(t);
+        window.removeEventListener('keydown', onKey);
+        this.introEl.removeEventListener('mousedown', done);
+        this.introEl.classList.add('hidden');
+        this.pendingIntro = null;
+        resolve();
+      };
+      const onKey = (e: KeyboardEvent) => {
+        if (['Space', 'KeyE', 'Enter', 'Escape', 'KeyI'].includes(e.code)) done();
+      };
+      window.addEventListener('keydown', onKey);
+      this.introEl.addEventListener('mousedown', done);
+      this.pendingIntro = done;
+    });
   }
 
   /** Rebuild the skill bar for a new body (or hide it for the ghost). */
