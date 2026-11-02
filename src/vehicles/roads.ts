@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { CarKind } from './carModel';
 
 /**
  * A drivable road: a centerline polyline at road-surface height (feet y).
@@ -18,11 +19,15 @@ export interface Road {
 export interface ParkedCar {
   pos: THREE.Vector3;
   facing: number;
+  /** Which model (random if left out). */
+  kind?: CarKind;
 }
 
 export interface TrafficConfig {
   roads: Road[];
   parked?: ParkedCar[];
+  /** Models for traffic, as a weight list (repeat a kind to make it more common). Default: a town mix. */
+  models?: CarKind[];
   /** Cars per 100 blocks of lane. Default 0.5. */
   density?: number;
   /** Most traffic cars at once, however much road there is. Default 30. */

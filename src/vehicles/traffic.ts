@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import type { RAPIER } from '../physics';
 import { mulberry32, type Rng } from '../util';
 import { Car } from './car';
-import { HALF, RIDE } from './carModel';
 import { RoadGraph, type LaneEdge, type Path, type TrafficConfig } from './roads';
 
 /** Something traffic should not drive through (a person, a train car). */
@@ -51,9 +50,7 @@ export class Traffic {
     this.target = Math.min(config.maxCars ?? 30, Math.round((lanes / 100) * (config.density ?? 0.5)));
     for (let i = 0; i < this.target; i++) this.spawnTraffic(null, true);
     for (const pk of config.parked ?? []) {
-      const pos = pk.pos.clone();
-      pos.y += RIDE;
-      this.cars.push(new Car(scene, physics, this.rng, pos, pk.facing, 'parked'));
+      this.cars.push(new Car(scene, physics, this.rng, pk.pos.clone(), pk.facing, 'parked', pk.kind));
     }
   }
 
@@ -73,7 +70,9 @@ export class Traffic {
       path.at(s, _p, _t);
       if (this.cars.some((c) => c !== reuse && c.pos.distanceTo(_p) < 12)) continue;
       if (avoid && _p.distanceTo(avoid) < 45) continue;
-      const car = reuse ?? new Car(this.scene, this.physics, this.rng, _p, 0, 'traffic');
+      const models = this.config.models;
+      const kind = models?.length ? models[Math.floor(this.rng() * models.length)] : undefined;
+      const car = reuse ?? new Car(this.scene, this.physics, this.rng, _p, 0, 'traffic', kind);
       if (!reuse) this.cars.push(car);
       car.edge = e;
       car.path = path;
@@ -81,7 +80,7 @@ export class Traffic {
       car.s = s;
       car.next = this.chooseNext(e);
       car.turn = null;
-      car.cruise = this.cruise * (0.8 + this.rng() * 0.4);
+      car.cruise = this.cruise * car.spec.handling.cruise * (0.8 + this.rng() * 0.4);
       car.speed = anywhere ? car.cruise : car.cruise * 0.6;
       car.blockedT = 0;
       car.distracted = this.rng() < 0.18;
@@ -134,7 +133,7 @@ export class Traffic {
       if (along <= 0 || along > LOOK) continue;
       if (Math.abs(dx * right.x + dz * right.z) > 2.6) continue;
       if (Math.abs(o.pos.y - car.pos.y) > 4) continue;
-      const g = along - HALF.z * 2 - 0.6;
+      const g = along - car.spec.half.z - o.spec.half.z - 0.6;
       if (g < gap) {
         gap = g;
         what = 'car';
@@ -147,8 +146,8 @@ export class Traffic {
       const along = dx * fwd.x + dz * fwd.z;
       if (along <= 0 || along > LOOK) continue;
       if (Math.abs(dx * right.x + dz * right.z) > 2.1) continue;
-      if (Math.abs(o.pos.y - (car.pos.y - RIDE)) > 3) continue;
-      const g = along - HALF.z - 1.2;
+      if (Math.abs(o.pos.y - (car.pos.y - car.spec.ride)) > 3) continue;
+      const g = along - car.spec.half.z - 1.2;
       if (g < gap) {
         gap = g;
         what = 'person';
@@ -281,7 +280,8 @@ export class Traffic {
       if (v.length() < minSpeed) continue;
       _q.copy(car.quat).invert();
       const l = _p.copy(p).sub(car.pos).applyQuaternion(_q);
-      if (Math.abs(l.x) < HALF.x + pad && Math.abs(l.z) < HALF.z + pad && l.y > -RIDE - 0.3 && l.y < 1.7) return { car, vel: v.clone() };
+      const hf = car.spec.half;
+      if (Math.abs(l.x) < hf.x + pad && Math.abs(l.z) < hf.z + pad && l.y > -car.spec.ride - 0.3 && l.y < hf.y + 0.6) return { car, vel: v.clone() };
     }
     return null;
   }
@@ -293,7 +293,7 @@ export class Traffic {
     for (const c of this.cars) {
       if (!filter(c)) continue;
       const d = Math.hypot(c.pos.x - p.x, c.pos.z - p.z);
-      if (d < bd && Math.abs(c.pos.y - RIDE - p.y) < 2.5) {
+      if (d < bd && Math.abs(c.pos.y - c.spec.ride - p.y) < 2.5) {
         bd = d;
         best = c;
       }

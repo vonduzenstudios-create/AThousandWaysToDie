@@ -59,6 +59,14 @@ export class Combat {
     return this.fighters.some((f) => f.ko <= 0);
   }
 
+  /** Damage from something other than a fist (cars). Returns true if it was fatal. */
+  hurt(dmg: number) {
+    this.hp = Math.max(0, this.hp - dmg);
+    this.sinceHurt = 0;
+    this.h.hurtFlash();
+    return this.hp <= 0;
+  }
+
   heal(n: number) {
     this.hp = Math.min(this.maxHp, this.hp + n);
   }
